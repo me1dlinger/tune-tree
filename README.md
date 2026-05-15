@@ -82,7 +82,7 @@ waitress-serve --host=0.0.0.0 --port=5000 wsgi:application
 
 | 变量           | 默认值                              | 说明              |
 | ------------ | -------------------------------- | --------------- |
-| `ACCESS_KEY` | `tunetree-2024`                  | 登录密钥            |
+| `ACCESS_KEY` | `tunetree-2026`                  | 登录密钥            |
 | `SECRET_KEY` | `change-me-in-production-please` | Flask 会话密钥      |
 | `MUSIC_ROOT` | `/music`                         | 音乐根目录（优先使用环境变量） |
 | `DB_PATH`    | `instance/library.db`            | 数据库路径           |
