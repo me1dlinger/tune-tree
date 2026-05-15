@@ -69,7 +69,6 @@ def read_metadata(path: str) -> dict:
     return meta
 
 def get_cover_b64(path: str) -> str | None:
-    print(path)
     """Extract embedded album art, return base64-encoded JPEG/PNG or None."""
     try:
         ext = Path(path).suffix.lower()

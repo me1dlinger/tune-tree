@@ -103,7 +103,6 @@ def api_album_tracks(artist: str, album: str):
 @api_bp.route("/api/cover/<int:track_id>")
 @require_auth
 def api_cover(track_id: int):
-    print(track_id)
     row = get_track_by_id(track_id)
     if not row or not row["has_cover"]:
         abort(404)
