@@ -160,6 +160,11 @@ def delete_track_by_path(path: str):
     db = get_db()
     db.execute("DELETE FROM tracks WHERE path=?", (path,))
 
+def delete_track_by_id(track_id: int):
+    """根据 ID 删除 track"""
+    db = get_db()
+    db.execute("DELETE FROM tracks WHERE id=?", (track_id,))
+
 def get_artist_by_track_id(track_id: int):
     """根据 track ID 获取艺术家"""
     db = get_db()

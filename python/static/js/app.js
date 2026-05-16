@@ -8,11 +8,22 @@
    INIT
 ═══════════════════════════════════════════════════════════ */
 
+async function checkScanStatus() {
+  try {
+    const r = await GET('/scan/status');
+    if (r.scanning) {
+      setScanningUI(true);
+    }
+  } catch (e) {
+  }
+}
+
 /**
  * 登录成功后初始化各页面数据
  * 由 auth.js 的 showApp() 调用
  */
 async function initApp() {
+  await checkScanStatus();
   await loadArtistTree();
 
   // 自动展开第一位艺术家
@@ -32,9 +43,23 @@ async function initApp() {
    SCAN
 ═══════════════════════════════════════════════════════════ */
 
+function setScanningUI(scanning) {
+  isScanning = scanning;
+  const btn = document.getElementById('scan-btn');
+  const statusEl = document.getElementById('scan-status');
+  if (btn) btn.disabled = scanning;
+  if (statusEl) statusEl.style.display = scanning ? 'flex' : 'none';
+}
+
 /** 触发服务端重新扫描音乐目录，完成后刷新各页面 */
 async function doScan() {
-  showToast('正在扫描音乐目录...', 'info');
+  if (isScanning) {
+    showToast('扫描正在进行中，请稍后', 'info');
+    return;
+  }
+
+  setScanningUI(true);
+
   try {
     const r = await POST('/scan', {});
     showToast(`扫描完成：新增 ${r.added} 更新 ${r.updated} 移除 ${r.removed}`, 'success');
@@ -44,7 +69,13 @@ async function doScan() {
     loadLogs();
     if (currentArtist) await selectArtist(currentArtist.artist, null);
   } catch (e) {
-    showToast('扫描失败: ' + e.message, 'error');
+    if (e.message === 'scan_in_progress') {
+      showToast('扫描正在进行中，请稍后', 'info');
+    } else {
+      showToast('扫描失败: ' + e.message, 'error');
+    }
+  } finally {
+    setScanningUI(false);
   }
 }
 

@@ -1,52 +1,61 @@
 /**
  * files.js — 目录浏览模块
- * 包含：目录加载、渲染、上级目录导航、排序切换。
+ * 包含：目录加载、渲染、上级目录导航、排序切换、分页。
  * 依赖：api.js、state.js（fileSort / filePath / TOKEN）、utils.js、detail.js（showFileMeta）
  */
+
+const PAGE_SIZE = 200;
+let currentOffset = 0;
+let totalItems = 0;
+let currentSearch = '';
 
 /* ═══════════════════════════════════════════════════════════
    LOAD & RENDER
 ═══════════════════════════════════════════════════════════ */
 
-/**
- * 加载并渲染指定路径下的文件列表
- * @param {string} path
- * @param {boolean} forceRefresh - 是否强制刷新，忽略缓存
- */
 async function loadFiles(path, forceRefresh = false) {
   filePath = path || '';
+  currentOffset = 0;
+  currentSearch = document.getElementById('file-search')?.value?.trim() || '';
   document.getElementById('file-path-text').textContent = '/' + filePath;
 
-  const cacheKey = filePath;
-  const now = Date.now();
-  const cached = filesCache[cacheKey];
+  await fetchFiles();
+}
 
-  if (!forceRefresh && cached && (now - cached.timestamp) < FILES_CACHE_TTL) {
-    currentFiles = cached.items;
-    filterFiles(document.getElementById('file-search').value);
-    return;
-  }
-
+async function fetchFiles() {
   document.getElementById('file-list').innerHTML = '<div class="loading-row">加载中...</div>';
+  document.getElementById('pagination-info').textContent = '加载中...';
 
   try {
-    const data = await GET(`/files?path=${encodeURIComponent(filePath)}`);
-    currentFiles = data.items;
-    filesCache[cacheKey] = { items: currentFiles, timestamp: now };
-    filterFiles(document.getElementById('file-search').value);
+    const params = new URLSearchParams({
+      path: filePath,
+      limit: PAGE_SIZE,
+      offset: currentOffset,
+      sort: fileSort || 'name'
+    });
+    if (currentSearch) {
+      params.set('search', currentSearch);
+    }
+
+    const data = await GET(`/files?${params.toString()}`);
+    currentFiles = data.items || [];
+    totalItems = data.total || 0;
+
+    renderFiles(currentFiles);
+    updatePagination();
   } catch (e) {
     document.getElementById('file-list').innerHTML =
       `<div class="loading-row" style="color:var(--red)">加载失败：${esc(e.message)}</div>`;
   }
 }
 
-/**
- * 将文件数组渲染为文件列表 HTML
- * @param {Array} items
- * @param {string} basePath — 当前目录路径（暂未使用，保留备用）
- */
-function renderFiles(items, basePath) {
-  document.getElementById('file-list').innerHTML = items.map(f => `
+function renderFiles(items) {
+  if (items.length === 0) {
+    document.getElementById('file-list').innerHTML = '<div class="loading-row">此目录为空</div>';
+    return;
+  }
+
+  const html = items.map(f => `
     <div class="file-row"
          onclick="${f.is_dir ? `loadFiles('${escJs(f.path)}')` : `showFileMeta('${escJs(f.path)}')`}">
       <div class="fr fr-icon">
@@ -63,35 +72,45 @@ function renderFiles(items, basePath) {
       <div class="fr fr-size">${f.is_dir ? '—' : fmtSize(f.size)}</div>
       <div class="fr fr-date">${f.mtime}</div>
     </div>
-  `).join('') || '<div class="loading-row">此目录为空</div>';
+  `).join('');
+
+  document.getElementById('file-list').innerHTML = html;
 }
 
-/**
- * 根据搜索关键词过滤文件列表
- * @param {string} query
- */
+/* ═══════════════════════════════════════════════════════════
+   PAGINATION
+═══════════════════════════════════════════════════════════ */
+
+function updatePagination() {
+  const start = totalItems === 0 ? 0 : currentOffset + 1;
+  const end = Math.min(currentOffset + PAGE_SIZE, totalItems);
+  document.getElementById('pagination-info').textContent =
+    totalItems === 0 ? '无文件' : `${start}-${end} / ${totalItems}`;
+
+  document.getElementById('btn-prev').disabled = currentOffset <= 0;
+  document.getElementById('btn-next').disabled = currentOffset + PAGE_SIZE >= totalItems;
+}
+
+function goToPage(offset) {
+  currentOffset = Math.max(0, Math.min(offset, totalItems - 1));
+  currentOffset = Math.floor(currentOffset / PAGE_SIZE) * PAGE_SIZE;
+  fetchFiles();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SEARCH
+═══════════════════════════════════════════════════════════ */
+
 function filterFiles(query) {
-  let items = currentFiles;
-
-  if (query && query.trim()) {
-    const lowerQuery = query.toLowerCase();
-    items = currentFiles.filter(f =>
-      f.name.toLowerCase().includes(lowerQuery)
-    );
-  }
-
-  if (fileSort === 'date') {
-    items = [...items].sort((a, b) => b.mtime.localeCompare(a.mtime));
-  }
-
-  renderFiles(items, filePath);
+  currentSearch = query?.trim() || '';
+  currentOffset = 0;
+  fetchFiles();
 }
 
 /* ═══════════════════════════════════════════════════════════
    NAVIGATION
 ═══════════════════════════════════════════════════════════ */
 
-/** 返回上级目录 */
 function filesGoUp() {
   const parts = filePath.split('/').filter(Boolean);
   parts.pop();
@@ -102,13 +121,10 @@ function filesGoUp() {
    SORT
 ═══════════════════════════════════════════════════════════ */
 
-/**
- * 切换文件列表排序方式
- * @param {'name'|'date'} mode
- */
 function setFileSort(mode) {
   fileSort = mode;
   document.querySelectorAll('.sort-chip').forEach(c => c.classList.remove('active'));
   document.getElementById('sort-' + mode).classList.add('active');
-  filterFiles(document.getElementById('file-search').value);
+  currentOffset = 0;
+  fetchFiles();
 }

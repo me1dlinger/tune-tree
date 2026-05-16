@@ -7,6 +7,8 @@ from functools import wraps
 from pathlib import Path
 from datetime import datetime
 import base64
+import logging
+import threading
 
 from config import ACCESS_KEY, MUSIC_ROOT
 from utils.metadata import get_cover_b64, get_lyrics
@@ -34,10 +36,15 @@ from repository.track_repository import (
     get_scan_meta,
     get_op_logs,
     clear_op_logs,
+    delete_track_by_id,
     commit,
 )
 
+logger = logging.getLogger("tunetree")
 api_bp = Blueprint("api", __name__)
+
+_scan_lock = threading.Lock()
+_scan_start_time = None
 
 
 def require_auth(f):
@@ -70,10 +77,33 @@ def auth_verify():
 @api_bp.route("/api/scan", methods=["POST"])
 @require_auth
 def api_scan():
+    global _scan_start_time
+
+    if not _scan_lock.acquire(blocking=False):
+        return jsonify({"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}), 409
+
     if not Path(MUSIC_ROOT).exists():
+        _scan_lock.release()
         return jsonify({"error": f"MUSIC_ROOT '{MUSIC_ROOT}' not found"}), 400
-    result = scan_library(MUSIC_ROOT)
-    return jsonify(result)
+
+    try:
+        _scan_start_time = datetime.now()
+        result = scan_library(MUSIC_ROOT)
+        return jsonify(result)
+    finally:
+        _scan_start_time = None
+        _scan_lock.release()
+
+
+@api_bp.route("/api/scan/status", methods=["GET"])
+@require_auth
+def api_scan_status():
+    is_scanning = not _scan_lock.acquire(blocking=False)
+    if is_scanning:
+        _scan_lock.release()
+        elapsed = (datetime.now() - _scan_start_time).total_seconds() if _scan_start_time else 0
+        return jsonify({"scanning": True, "elapsed_seconds": int(elapsed)})
+    return jsonify({"scanning": False, "elapsed_seconds": 0})
 
 
 # Artists
@@ -150,6 +180,30 @@ def api_track(track_id: int):
     return jsonify(d)
 
 
+@api_bp.route("/api/tracks/<int:track_id>", methods=["DELETE"])
+@require_auth
+def api_track_delete(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    delete_track_by_id(track_id)
+    commit()
+    return jsonify({"ok": True, "deleted": track_id})
+
+
+@api_bp.route("/api/tracks/batch-delete", methods=["POST"])
+@require_auth
+def api_tracks_batch_delete():
+    data = request.get_json(force=True)
+    track_ids = data.get("track_ids", [])
+    if not track_ids:
+        return jsonify({"error": "track_ids required"}), 400
+    for track_id in track_ids:
+        delete_track_by_id(track_id)
+    commit()
+    return jsonify({"ok": True, "deleted_count": len(track_ids)})
+
+
 # Track by path
 @api_bp.route("/api/tracks/by-path")
 @require_auth
@@ -223,24 +277,59 @@ def api_files():
         abort(403)
     if not cur.exists():
         abort(404)
-    items = []
-    for entry in sorted(cur.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
-        stat = entry.stat()
-        items.append(
-            {
+
+    limit = request.args.get("limit", type=int, default=500)
+    offset = request.args.get("offset", type=int, default=0)
+    sort = request.args.get("sort", default="name")
+    search = request.args.get("search", default="").strip().lower()
+
+    try:
+        entries = list(cur.iterdir())
+    except OSError as e:
+        logger.warning(f"Failed to read directory {cur}: {e}")
+        entries = []
+
+    entries_data = []
+    for entry in entries:
+        try:
+            stat = entry.stat()
+            entries_data.append({
                 "name": entry.name,
                 "path": str(entry.relative_to(base)),
                 "is_dir": entry.is_dir(),
-                "ext": entry.suffix.lower().lstrip(".")
-                if not entry.is_dir()
-                else "dir",
+                "ext": entry.suffix.lower().lstrip(".") if not entry.is_dir() else "dir",
                 "size": stat.st_size,
-                "mtime": datetime.fromtimestamp(stat.st_mtime).strftime(
-                    "%Y-%m-%d %H:%M"
-                ),
-            }
-        )
-    return jsonify({"path": rel, "items": items})
+                "mtime": stat.st_mtime,
+            })
+        except OSError:
+            continue
+
+    if search:
+        entries_data = [e for e in entries_data if search in e["name"].lower()]
+
+    if sort == "date":
+        entries_data.sort(key=lambda e: (e["is_dir"], -e["mtime"]), reverse=False)
+        dirs = [e for e in entries_data if e["is_dir"]]
+        files = [e for e in entries_data if not e["is_dir"]]
+        dirs.sort(key=lambda e: -e["mtime"])
+        files.sort(key=lambda e: -e["mtime"])
+        entries_data = dirs + files
+    else:
+        entries_data.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+
+    total = len(entries_data)
+    page_items = entries_data[offset:offset + limit]
+
+    for item in page_items:
+        item["mtime"] = datetime.fromtimestamp(item["mtime"]).strftime("%Y-%m-%d %H:%M")
+
+    return jsonify({
+        "path": rel,
+        "items": page_items,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    })
 
 
 # Stats

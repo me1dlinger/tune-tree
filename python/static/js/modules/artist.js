@@ -16,7 +16,7 @@ async function loadArtistTree(q) {
   const url = '/artists' + (q ? `?q=${encodeURIComponent(q)}` : '');
   try {
     allArtists = await GET(url);
-    renderArtistTree(allArtists);
+    renderArtistTree(getSortedArtists(allArtists));
   } catch (e) {
     document.getElementById('artist-tree').innerHTML =
       `<div class="loading-row" style="color:var(--red)">加载失败: ${e.message}</div>`;
@@ -28,11 +28,37 @@ async function loadArtistTree(q) {
  * @param {string} q
  */
 function filterArtists(q) {
-  if (!q) { renderArtistTree(allArtists); return; }
-  const filtered = allArtists.filter(a =>
-    a.artist.toLowerCase().includes(q.toLowerCase())
-  );
-  renderArtistTree(filtered);
+  let toRender = allArtists;
+  if (q) {
+    toRender = allArtists.filter(a =>
+      a.artist.toLowerCase().includes(q.toLowerCase())
+    );
+  }
+  renderArtistTree(getSortedArtists(toRender));
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ARTIST SORTING
+═══════════════════════════════════════════════════════════ */
+
+let currentArtistSort = 'name';
+
+function setArtistSort(sort) {
+  currentArtistSort = sort;
+  document.getElementById('sort-artist-name').classList.toggle('active', sort === 'name');
+  document.getElementById('sort-artist-count').classList.toggle('active', sort === 'count');
+  const searchInput = document.getElementById('artist-search');
+  filterArtists(searchInput.value);
+}
+
+function getSortedArtists(artists) {
+  const sorted = [...artists];
+  if (currentArtistSort === 'count') {
+    sorted.sort((a, b) => b.track_count - a.track_count);
+  } else {
+    sorted.sort((a, b) => (a.artist || '').localeCompare(b.artist || '', undefined, { sensitivity: 'base', numeric: true }));
+  }
+  return sorted;
 }
 
 /**

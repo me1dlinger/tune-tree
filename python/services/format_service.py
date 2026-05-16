@@ -28,6 +28,8 @@ def build_target_filename(track) -> str:
     num = track["track_num"] or 0
     title = (track["title"] or track["filename"]).strip()
     ext = track["ext"]
+    if not ext.startswith("."):
+        ext = "." + ext
     # extract feat from title if present
     feat_match = re.search(r"\(feat\.?\s*([^)]+)\)", title, re.IGNORECASE)
     if feat_match:

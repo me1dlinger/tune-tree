@@ -45,3 +45,9 @@ const FILES_CACHE_TTL = 5 * 60 * 1000;
 
 /** 当前目录的原始文件列表（用于搜索过滤） */
 let currentFiles = [];
+
+/** 是否正在扫描 */
+let isScanning = false;
+
+/** 扫描开始时间戳 */
+let scanStartTime = null;
