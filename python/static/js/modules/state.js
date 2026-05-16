@@ -51,3 +51,6 @@ let isScanning = false;
 
 /** 扫描开始时间戳 */
 let scanStartTime = null;
+
+/** 扫描是否超时 */
+let scanTimedOut = false;

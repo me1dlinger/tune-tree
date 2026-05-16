@@ -34,6 +34,9 @@ from repository.track_repository import (
     count_duplicate_groups,
     count_tracks_by_extension,
     get_scan_meta,
+    get_scan_status,
+    set_scan_running,
+    set_scan_finished,
     get_op_logs,
     clear_op_logs,
     delete_track_by_id,
@@ -43,8 +46,18 @@ from repository.track_repository import (
 logger = logging.getLogger("tunetree")
 api_bp = Blueprint("api", __name__)
 
-_scan_lock = threading.Lock()
-_scan_start_time = None
+SCAN_TIMEOUT_HOURS = 1
+
+def _check_scan_timeout():
+    """检查扫描是否超时，若超时则重置状态"""
+    scan_status = get_scan_status()
+    if scan_status['scanning'] and scan_status['start_time']:
+        elapsed_hours = (datetime.now().timestamp() - scan_status['start_time']) / 3600
+        if elapsed_hours >= SCAN_TIMEOUT_HOURS:
+            logger.warning(f"扫描超时，已运行 {elapsed_hours:.2f} 小时，自动重置状态")
+            set_scan_finished()
+            return True
+    return False
 
 
 def require_auth(f):
@@ -77,33 +90,41 @@ def auth_verify():
 @api_bp.route("/api/scan", methods=["POST"])
 @require_auth
 def api_scan():
-    global _scan_start_time
-
-    if not _scan_lock.acquire(blocking=False):
+    _check_scan_timeout()
+    
+    scan_status = get_scan_status()
+    if scan_status['scanning']:
         return jsonify({"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}), 409
 
     if not Path(MUSIC_ROOT).exists():
-        _scan_lock.release()
         return jsonify({"error": f"MUSIC_ROOT '{MUSIC_ROOT}' not found"}), 400
 
     try:
-        _scan_start_time = datetime.now()
+        set_scan_running(datetime.now().timestamp())
         result = scan_library(MUSIC_ROOT)
         return jsonify(result)
     finally:
-        _scan_start_time = None
-        _scan_lock.release()
+        set_scan_finished()
 
 
 @api_bp.route("/api/scan/status", methods=["GET"])
 @require_auth
 def api_scan_status():
-    is_scanning = not _scan_lock.acquire(blocking=False)
-    if is_scanning:
-        _scan_lock.release()
-        elapsed = (datetime.now() - _scan_start_time).total_seconds() if _scan_start_time else 0
-        return jsonify({"scanning": True, "elapsed_seconds": int(elapsed)})
-    return jsonify({"scanning": False, "elapsed_seconds": 0})
+    timed_out = _check_scan_timeout()
+    scan_status = get_scan_status()
+    
+    if scan_status['scanning'] and scan_status['start_time']:
+        elapsed = int(datetime.now().timestamp() - scan_status['start_time'])
+        return jsonify({
+            "scanning": True, 
+            "elapsed_seconds": elapsed,
+            "timed_out": False
+        })
+    return jsonify({
+        "scanning": False, 
+        "elapsed_seconds": 0,
+        "timed_out": timed_out
+    })
 
 
 # Artists
@@ -346,6 +367,20 @@ def api_stats():
     flac_count = count_tracks_by_extension(".flac")
     mp3_count = count_tracks_by_extension(".mp3")
     last_scan = get_scan_meta("last_scan") or "—"
+    
+    # 获取扫描状态
+    _check_scan_timeout()
+    scan_status = get_scan_status()
+    scan_info = {
+        "scanning": scan_status['scanning'],
+        "scan_timed_out": False,
+        "scan_elapsed_seconds": 0
+    }
+    if scan_status['scanning'] and scan_status['start_time']:
+        scan_info['scan_elapsed_seconds'] = int(datetime.now().timestamp() - scan_status['start_time'])
+        # 检查是否即将超时（超过55分钟视为即将超时）
+        if scan_info['scan_elapsed_seconds'] > 55 * 60:
+            scan_info['scan_timed_out'] = True
 
     return jsonify(
         {
@@ -359,6 +394,7 @@ def api_stats():
             "flac_count": flac_count,
             "mp3_count": mp3_count,
             "last_scan": last_scan,
+            "scan_info": scan_info,
         }
     )
 

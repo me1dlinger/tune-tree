@@ -305,6 +305,43 @@ def set_scan_meta(key: str, value: str):
     db = get_db()
     db.execute("INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (key, value))
 
+# === Scan Status 操作 ===
+
+SCAN_STATUS_KEY = 'scan_status'
+SCAN_START_TIME_KEY = 'scan_start_time'
+
+def get_scan_status() -> dict:
+    """获取扫描状态"""
+    db = get_db()
+    status = db.execute("SELECT value FROM scan_meta WHERE key=?", (SCAN_STATUS_KEY,)).fetchone()
+    start_time = db.execute("SELECT value FROM scan_meta WHERE key=?", (SCAN_START_TIME_KEY,)).fetchone()
+    
+    start_time_value = None
+    if start_time and start_time['value']:
+        try:
+            start_time_value = float(start_time['value'])
+        except (ValueError, TypeError):
+            start_time_value = None
+    
+    return {
+        'scanning': status['value'] == 'running' if status else False,
+        'start_time': start_time_value
+    }
+
+def set_scan_running(start_time: float):
+    """标记扫描开始"""
+    db = get_db()
+    db.execute("INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_STATUS_KEY, 'running'))
+    db.execute("INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_START_TIME_KEY, str(start_time)))
+    db.commit()
+
+def set_scan_finished():
+    """标记扫描结束"""
+    db = get_db()
+    db.execute("INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_STATUS_KEY, 'idle'))
+    db.execute("INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_START_TIME_KEY, ''))
+    db.commit()
+
 # === Operation Log 操作 ===
 
 def add_op_log(ts: str, op_type: str, message: str):

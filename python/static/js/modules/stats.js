@@ -8,17 +8,44 @@
    STATS
 ═══════════════════════════════════════════════════════════ */
 
+function formatElapsedTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  let str = '';
+  if (hours > 0) str += `${hours}小时`;
+  if (minutes > 0 || hours > 0) str += `${minutes}分钟`;
+  str += `${secs}秒`;
+  return str;
+}
+
 /** 加载并渲染统计概览页 */
 async function loadStats() {
   try {
     const s = await GET('/stats');
     const artistOrg = s.total_artists > 0 ? Math.round(s.org_artists / s.total_artists * 100) : 0;
     const albumOrg = s.total_albums > 0 ? Math.round(s.org_albums / s.total_albums * 100) : 0;
+    
+    const scanInfo = s.scan_info || {};
+    let scanStatusText = '';
+    let scanStatusClass = '';
+    
+    if (scanInfo.scanning) {
+      const elapsed = formatElapsedTime(scanInfo.scan_elapsed_seconds || 0);
+      if (scanInfo.scan_timed_out) {
+        scanStatusText = `⚠️ 扫描超时（已运行 ${elapsed}），请刷新页面后重新扫描`;
+        scanStatusClass = 'scan-timed-out';
+      } else {
+        scanStatusText = `🔄 正在扫描中（已运行 ${elapsed}）`;
+        scanStatusClass = 'scan-running';
+      }
+    }
 
     document.getElementById('stats-view').innerHTML = `
       <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border);">
         <div style="font-family:var(--font-display);font-size:20px;font-weight:700;margin-bottom:4px;">统计概览</div>
         <div style="font-family:var(--font-mono);font-size:11px;color:var(--text3);">上次扫描：${esc(s.last_scan)}</div>
+        ${scanStatusText ? `<div style="font-size:12px;margin-top:4px;color:${scanInfo.scan_timed_out ? 'var(--red)' : 'var(--amber)'};" class="${scanStatusClass}">${scanStatusText}</div>` : ''}
       </div>
       <div class="stats-grid">
         <div class="stat-card" onclick="switchPage('artist');document.getElementById('nav-artist').classList.add('active')">

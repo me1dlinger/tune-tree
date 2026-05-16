@@ -12,7 +12,9 @@ async function checkScanStatus() {
   try {
     const r = await GET('/scan/status');
     if (r.scanning) {
-      setScanningUI(true);
+      setScanningUI(true, r.elapsed_seconds);
+    } else if (r.timed_out) {
+      showToast('扫描已超时，可重新扫描', 'warning');
     }
   } catch (e) {
   }
@@ -43,12 +45,25 @@ async function initApp() {
    SCAN
 ═══════════════════════════════════════════════════════════ */
 
-function setScanningUI(scanning) {
+function setScanningUI(scanning, elapsedSeconds = 0) {
   isScanning = scanning;
   const btn = document.getElementById('scan-btn');
   const statusEl = document.getElementById('scan-status');
+  const statusText = document.getElementById('scan-status-text');
+  
   if (btn) btn.disabled = scanning;
   if (statusEl) statusEl.style.display = scanning ? 'flex' : 'none';
+  
+  if (statusText && scanning) {
+    const hours = Math.floor(elapsedSeconds / 3600);
+    const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+    const seconds = elapsedSeconds % 60;
+    let timeStr = '';
+    if (hours > 0) timeStr += `${hours}小时`;
+    if (minutes > 0 || hours > 0) timeStr += `${minutes}分钟`;
+    timeStr += `${seconds}秒`;
+    statusText.textContent = `扫描中... ${timeStr}`;
+  }
 }
 
 /** 触发服务端重新扫描音乐目录，完成后刷新各页面 */
