@@ -41,7 +41,7 @@ function filterArtists(q) {
    ARTIST SORTING
 ═══════════════════════════════════════════════════════════ */
 
-let currentArtistSort = 'name';
+let currentArtistSort = 'count';
 
 function setArtistSort(sort) {
   currentArtistSort = sort;
@@ -61,6 +61,9 @@ function getSortedArtists(artists) {
   return sorted;
 }
 
+/** 最大可选艺术家数量 */
+const MAX_SELECTED_ARTISTS = 10;
+
 /**
  * 将艺术家数组渲染为侧边栏树
  * @param {Array} artists
@@ -71,19 +74,68 @@ function renderArtistTree(artists) {
     tree.innerHTML = '<div class="loading-row">暂无数据</div>';
     return;
   }
-  tree.innerHTML = artists.map(a => `
-    <div class="tree-artist" id="ta-${eid(a.artist)}">
-      <div class="tree-artist-header" onclick="toggleArtist('${esc(a.artist)}')" id="tah-${eid(a.artist)}">
-        <div class="tree-chevron" id="tch-${eid(a.artist)}">▶</div>
-        <div class="tree-artist-name">${esc(a.artist)}</div>
-        ${a.all_organized ? '<div class="tree-organized" title="已整理"></div>' : ''}
-        <div class="tree-badge">${a.track_count}</div>
+  tree.innerHTML = artists.map(a => {
+    const isSelected = selectedArtists.has(a.artist);
+    return `
+      <div class="tree-artist ${isSelected ? 'selected' : ''}" id="ta-${eid(a.artist)}">
+        <div class="tree-artist-header" onclick="toggleArtist('${esc(a.artist)}')" id="tah-${eid(a.artist)}">
+          <div class="tree-checkbox" onclick="toggleArtistSelection(event, '${esc(a.artist)}')">
+            ${isSelected ? '✓' : ''}
+          </div>
+          <div class="tree-chevron" id="tch-${eid(a.artist)}">▶</div>
+          <div class="tree-artist-name">${esc(a.artist)}</div>
+          ${a.all_organized ? '<div class="tree-organized" title="已整理"></div>' : ''}
+          <div class="tree-badge">${a.track_count}</div>
+        </div>
+        <div class="tree-albums" id="talb-${eid(a.artist)}">
+          <div class="loading-row" style="font-size:10px;">点击展开...</div>
+        </div>
       </div>
-      <div class="tree-albums" id="talb-${eid(a.artist)}">
-        <div class="loading-row" style="font-size:10px;">点击展开...</div>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+}
+
+/**
+ * 切换艺术家的勾选状态
+ * @param {MouseEvent} e
+ * @param {string} artist
+ */
+function toggleArtistSelection(e, artist) {
+  e.stopPropagation();
+  
+  const wasSelected = selectedArtists.has(artist);
+  
+  if (wasSelected) {
+    selectedArtists.delete(artist);
+  } else {
+    if (selectedArtists.size >= MAX_SELECTED_ARTISTS) {
+      showToast(`最多只能选择 ${MAX_SELECTED_ARTISTS} 个艺术家`, 'warn');
+      return;
+    }
+    selectedArtists.add(artist);
+  }
+  
+  const treeArtist = document.getElementById('ta-' + eid(artist));
+  if (treeArtist) {
+    treeArtist.classList.toggle('selected', selectedArtists.has(artist));
+    const checkbox = treeArtist.querySelector('.tree-checkbox');
+    if (checkbox) {
+      checkbox.textContent = selectedArtists.has(artist) ? '✓' : '';
+    }
+  }
+  
+  updateToolbar();
+}
+
+/** 清除所有选中的艺术家 */
+function clearSelectedArtists() {
+  selectedArtists.clear();
+  document.querySelectorAll('.tree-artist').forEach(el => {
+    el.classList.remove('selected');
+    const checkbox = el.querySelector('.tree-checkbox');
+    if (checkbox) checkbox.textContent = '';
+  });
+  updateToolbar();
 }
 
 /**
@@ -529,18 +581,25 @@ function expandAlbum(album) {
 
 /** 根据当前选中状态更新工具栏（全选按钮文字、计数、格式化按钮显隐） */
 function updateToolbar() {
-  const count = selectedAlbums.size + selectedTracks.size;
   const cntEl = document.getElementById('select-count');
   const fmtBtn = document.getElementById('format-btn');
   const selectAllBtn = document.getElementById('select-all-btn');
+
+  const hasArtistSelection = selectedArtists.size > 0;
+  const hasAlbumTrackSelection = selectedAlbums.size > 0 || selectedTracks.size > 0;
 
   const allSelected = artistAlbums.length > 0 &&
     artistAlbums.every(al => selectedAlbums.has(al.album));
   if (selectAllBtn) {
     selectAllBtn.textContent = allSelected ? '取消全选' : '全选专辑';
+    selectAllBtn.style.display = hasArtistSelection ? 'none' : 'flex';
   }
 
-  if (count > 0) {
+  if (hasArtistSelection) {
+    cntEl.style.display = 'flex';
+    cntEl.textContent = `${selectedArtists.size} 位艺术家已选`;
+    fmtBtn.style.display = 'flex';
+  } else if (hasAlbumTrackSelection) {
     cntEl.style.display = 'flex';
     const parts = [];
     if (selectedAlbums.size > 0) parts.push(`${selectedAlbums.size} 张专辑`);

@@ -84,7 +84,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
     )
 
     if existing:
-        return ("update", track_data + (path_str,))
+        return ("update", track_data[1:] + (path_str,))
     else:
         return ("insert", track_data)
 

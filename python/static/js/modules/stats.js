@@ -110,6 +110,7 @@ let deletePreviewTracks = [];
 
 function addDeleteDuplicatesButton(body) {
   const footer = document.getElementById('duplicate-modal-footer');
+  if (footer.querySelector('.toolbar-btn.danger')) return;
   const btn = document.createElement('button');
   btn.className = 'toolbar-btn danger';
   btn.textContent = '一键删除重复文件';

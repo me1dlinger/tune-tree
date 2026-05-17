@@ -30,6 +30,9 @@ def build_target_filename(track) -> str:
     ext = track["ext"]
     if not ext.startswith("."):
         ext = "." + ext
+    # 移除文件名中不允许的字符，特别是 / 会被识别为目录分隔符
+    title = re.sub(r'[\\/:*?"<>|]', "_", title)
+    title = re.sub(r'\s+', ' ', title).strip()
     # extract feat from title if present
     feat_match = re.search(r"\(feat\.?\s*([^)]+)\)", title, re.IGNORECASE)
     if feat_match:

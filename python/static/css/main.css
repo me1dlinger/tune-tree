@@ -506,6 +506,35 @@ body {
     flex-shrink: 0;
 }
 
+.tree-checkbox {
+    width: 18px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text3);
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color var(--transition);
+}
+
+.tree-checkbox:hover {
+    color: var(--accent);
+}
+
+.tree-artist.selected {
+    background: var(--accent-dim2);
+}
+
+.tree-artist.selected .tree-artist-header {
+    background: var(--accent-dim2);
+}
+
+.tree-artist.selected .tree-checkbox {
+    color: var(--accent);
+}
+
 .tree-albums {
     display: none;
     background: var(--bg2);
@@ -1614,6 +1643,63 @@ body {
     font-size: 13px;
     color: var(--text2);
     line-height: 1.6;
+}
+
+/* PREVIEW TABS */
+.preview-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+}
+
+.preview-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    font-size: 12px;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+
+.preview-tab:hover {
+    background: var(--bg4);
+    border-color: var(--border3);
+}
+
+.preview-tab.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.preview-tab-close {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text3);
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: 14px;
+    line-height: 1;
+    transition: all var(--transition);
+}
+
+.preview-tab-close:hover {
+    background: var(--red-dim);
+    color: var(--red);
 }
 
 /* PREVIEW TABLE */

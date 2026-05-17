@@ -22,6 +22,9 @@ let selectedAlbums = new Set();
 /** 已勾选的曲目 id 集合 */
 let selectedTracks = new Set();
 
+/** 已勾选的艺术家名称集合（最多10个） */
+let selectedArtists = new Set();
+
 /** 当前激活的页面名称 */
 let currentPage = 'artist';
 
