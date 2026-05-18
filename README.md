@@ -33,6 +33,23 @@
 - **待定文件** -- 列出缺少完整元数据的文件
 - **访问控制** -- 基于 Token 的简单认证
 
+## 平台预览
+
+### 艺术家列表及详情
+![艺术家列表及详情](screenshots/image1.png)
+
+### 目录浏览
+![目录浏览](screenshots/image2.png)
+
+### 统计概览
+![统计概览](screenshots/image3.png)
+
+### 重复文件详情
+![重复文件详情](screenshots/image4.png)
+
+### 夜间模式
+![夜间模式](screenshots/image5.png)
+
 ## 技术栈
 
 | 分类       | 技术                  | 版本    |
