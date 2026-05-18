@@ -161,8 +161,17 @@ def delete_track_by_path(path: str):
     db.execute("DELETE FROM tracks WHERE path=?", (path,))
 
 def delete_track_by_id(track_id: int):
-    """根据 ID 删除 track"""
+    """根据 ID 删除 track（同时删除本地文件）"""
     db = get_db()
+    row = db.execute("SELECT path FROM tracks WHERE id=?", (track_id,)).fetchone()
+    if row:
+        import os
+        file_path = row["path"]
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
     db.execute("DELETE FROM tracks WHERE id=?", (track_id,))
 
 def get_artist_by_track_id(track_id: int):
