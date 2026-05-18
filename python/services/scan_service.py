@@ -33,17 +33,17 @@ def _batch_insert(db, tracks_data: list):
         return
     db.executemany("""
         INSERT INTO tracks
-        (path,filename,ext,size,mtime,title,artist,album,album_artist,year,
+        (path,filename,ext,size,mtime,ctime,title,artist,album,album_artist,year,
          track_num,disc_num,duration,sample_rate,bitrate,has_cover,has_lyrics,
          pending,missing_tags,scanned_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, tracks_data)
 
 def _batch_update(db, tracks_data: list):
     if not tracks_data:
         return
     db.executemany("""
-        UPDATE tracks SET filename=?,ext=?,size=?,mtime=?,title=?,artist=?,
+        UPDATE tracks SET filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
         album=?,album_artist=?,year=?,track_num=?,disc_num=?,duration=?,
         sample_rate=?,bitrate=?,has_cover=?,has_lyrics=?,pending=?,
         missing_tags=?,scanned_at=?
@@ -61,6 +61,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
         return None
     
     mtime = stat.st_mtime
+    ctime = stat.st_ctime
     size = stat.st_size
 
     existing = existing_tracks.get(path_str)
@@ -74,7 +75,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
 
     track_data = (
         path_str, filename, filepath.suffix.lower().lstrip("."),
-        size, mtime,
+        size, mtime, ctime,
         meta["title"], meta["artist"], meta["album"],
         meta["album_artist"], meta["year"],
         meta["track_num"], meta["disc_num"],

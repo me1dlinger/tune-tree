@@ -105,7 +105,7 @@ def get_duplicate_tracks():
     """).fetchall()
 
 def insert_track(
-    path: str, filename: str, ext: str, size: int, mtime: float,
+    path: str, filename: str, ext: str, size: int, mtime: float, ctime: float,
     title: str, artist: str, album: str, album_artist: str, year: str,
     track_num: int, disc_num: int, duration: float, sample_rate: int, bitrate: int,
     has_cover: int, has_lyrics: int, pending: int, missing_tags: str, scanned_at: float
@@ -114,19 +114,19 @@ def insert_track(
     db = get_db()
     db.execute("""
         INSERT INTO tracks
-        (path,filename,ext,size,mtime,title,artist,album,album_artist,year,
+        (path,filename,ext,size,mtime,ctime,title,artist,album,album_artist,year,
          track_num,disc_num,duration,sample_rate,bitrate,has_cover,has_lyrics,
          pending,missing_tags,scanned_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
-        path, filename, ext, size, mtime,
+        path, filename, ext, size, mtime, ctime,
         title, artist, album, album_artist, year,
         track_num, disc_num, duration, sample_rate, bitrate,
         has_cover, has_lyrics, pending, missing_tags, scanned_at
     ))
 
 def update_track_by_path(
-    filename: str, ext: str, size: int, mtime: float,
+    filename: str, ext: str, size: int, mtime: float, ctime: float,
     title: str, artist: str, album: str, album_artist: str, year: str,
     track_num: int, disc_num: int, duration: float, sample_rate: int, bitrate: int,
     has_cover: int, has_lyrics: int, pending: int, missing_tags: str, scanned_at: float,
@@ -135,13 +135,13 @@ def update_track_by_path(
     """根据路径更新 track"""
     db = get_db()
     db.execute("""
-        UPDATE tracks SET filename=?,ext=?,size=?,mtime=?,title=?,artist=?,
+        UPDATE tracks SET filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
         album=?,album_artist=?,year=?,track_num=?,disc_num=?,duration=?,
         sample_rate=?,bitrate=?,has_cover=?,has_lyrics=?,pending=?,
         missing_tags=?,scanned_at=?
         WHERE path=?
     """, (
-        filename, ext, size, mtime, title, artist,
+        filename, ext, size, mtime, ctime, title, artist,
         album, album_artist, year, track_num, disc_num, duration,
         sample_rate, bitrate, has_cover, has_lyrics, pending,
         missing_tags, scanned_at, path
@@ -189,7 +189,8 @@ def get_artists(query: str = None):
             SELECT artist,
                    COUNT(DISTINCT album) AS album_count,
                    COUNT(*) AS track_count,
-                   MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized
+                   MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized,
+                   MAX(ctime) AS last_created_at
             FROM tracks
             WHERE artist IS NOT NULL AND artist != '' AND artist LIKE ?
             GROUP BY artist
@@ -200,7 +201,8 @@ def get_artists(query: str = None):
             SELECT artist,
                    COUNT(DISTINCT album) AS album_count,
                    COUNT(*) AS track_count,
-                   MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized
+                   MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized,
+                   MAX(ctime) AS last_created_at
             FROM tracks
             WHERE artist IS NOT NULL AND artist != ''
             GROUP BY artist

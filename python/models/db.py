@@ -30,6 +30,7 @@ def init_db():
             ext         TEXT NOT NULL,
             size        INTEGER,
             mtime       REAL,
+            ctime       REAL,
             title       TEXT,
             artist      TEXT,
             album       TEXT,
@@ -60,5 +61,9 @@ def init_db():
             message   TEXT NOT NULL
         );
     """)
+    try:
+        db.execute("ALTER TABLE tracks ADD COLUMN ctime REAL;")
+    except sqlite3.OperationalError:
+        pass
     db.commit()
     db.close()

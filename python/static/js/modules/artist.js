@@ -41,22 +41,62 @@ function filterArtists(q) {
    ARTIST SORTING
 ═══════════════════════════════════════════════════════════ */
 
-let currentArtistSort = 'count';
+let currentArtistSort = { type: 'count', order: 'desc' };
 
-function setArtistSort(sort) {
-  currentArtistSort = sort;
-  document.getElementById('sort-artist-name').classList.toggle('active', sort === 'name');
-  document.getElementById('sort-artist-count').classList.toggle('active', sort === 'count');
+function setArtistSort(sortType) {
+  const prevType = currentArtistSort.type;
+
+  if (prevType === sortType) {
+    currentArtistSort.order = currentArtistSort.order === 'desc' ? 'asc' : 'desc';
+  } else {
+    currentArtistSort.type = sortType;
+    currentArtistSort.order = sortType === 'count' ? 'desc' : 'asc';
+  }
+
+  updateSortButtons();
   const searchInput = document.getElementById('artist-search');
   filterArtists(searchInput.value);
 }
 
+function updateSortButtons() {
+  const buttons = ['sort-artist-count', 'sort-artist-name', 'sort-artist-date'];
+  const types = ['count', 'name', 'date'];
+
+  buttons.forEach((btnId, index) => {
+    const btn = document.getElementById(btnId);
+    if (btn) {
+      const isActive = currentArtistSort.type === types[index];
+      btn.classList.toggle('active', isActive);
+      btn.textContent = getSortButtonText(types[index], isActive);
+    }
+  });
+}
+
+function getSortButtonText(type, isActive) {
+  const orderIcon = isActive ? (currentArtistSort.order === 'desc' ? '↓' : '↑') : '';
+  switch (type) {
+    case 'count': return `歌曲数${orderIcon}`;
+    case 'name': return `名称${orderIcon}`;
+    case 'date': return `创建时间${orderIcon}`;
+    default: return type;
+  }
+}
+
 function getSortedArtists(artists) {
   const sorted = [...artists];
-  if (currentArtistSort === 'count') {
-    sorted.sort((a, b) => b.track_count - a.track_count);
-  } else {
-    sorted.sort((a, b) => (a.artist || '').localeCompare(b.artist || '', undefined, { sensitivity: 'base', numeric: true }));
+  const { type, order } = currentArtistSort;
+  const multiplier = order === 'desc' ? -1 : 1;
+
+  switch (type) {
+    case 'count':
+      sorted.sort((a, b) => (b.track_count - a.track_count) * multiplier);
+      break;
+    case 'date':
+      sorted.sort((a, b) => ((b.last_created_at || 0) - (a.last_created_at || 0)) * multiplier);
+      break;
+    case 'name':
+    default:
+      sorted.sort((a, b) => (a.artist || '').localeCompare(b.artist || '', undefined, { sensitivity: 'base', numeric: true }) * multiplier);
   }
   return sorted;
 }
@@ -102,9 +142,9 @@ function renderArtistTree(artists) {
  */
 function toggleArtistSelection(e, artist) {
   e.stopPropagation();
-  
+
   const wasSelected = selectedArtists.has(artist);
-  
+
   if (wasSelected) {
     selectedArtists.delete(artist);
   } else {
@@ -114,7 +154,7 @@ function toggleArtistSelection(e, artist) {
     }
     selectedArtists.add(artist);
   }
-  
+
   const treeArtist = document.getElementById('ta-' + eid(artist));
   if (treeArtist) {
     treeArtist.classList.toggle('selected', selectedArtists.has(artist));
@@ -123,7 +163,7 @@ function toggleArtistSelection(e, artist) {
       checkbox.textContent = selectedArtists.has(artist) ? '✓' : '';
     }
   }
-  
+
   updateToolbar();
 }
 

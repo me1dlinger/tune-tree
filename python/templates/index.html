@@ -75,8 +75,9 @@
           <input type="text" placeholder="搜索艺术家..." id="artist-search" oninput="filterArtists(this.value)">
         </div>
         <div class="sidebar-sort">
-          <button class="sort-chip active" id="sort-artist-count" onclick="setArtistSort('count')">歌曲数</button>
-          <button class="sort-chip" id="sort-artist-name" onclick="setArtistSort('name')">名称</button>
+          <button class="sort-chip active" id="sort-artist-count" onclick="setArtistSort('count')">歌曲数↓</button>
+          <button class="sort-chip" id="sort-artist-name" onclick="setArtistSort('name')">名称↑</button>
+          <button class="sort-chip" id="sort-artist-date" onclick="setArtistSort('date')">创建时间↑</button>
         </div>
         <div id="scan-status" class="scan-status" style="display:none;">
           <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
