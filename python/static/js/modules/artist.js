@@ -347,7 +347,9 @@ async function loadTrackSection(artist, album) {
     div.id = sectionId;
     div.innerHTML = `
       <div class="track-section-header">
-        <div class="check-all" onclick="toggleAlbumTracks('${esc(album)}')"></div>
+        <div class="check-all ${selectedAlbums.has(album) ? 'checked' : ''}" onclick="toggleAlbumTracks('${esc(album)}')">
+          ${selectedAlbums.has(album) ? '✓' : ''}
+        </div>
         <span>${esc(album)}</span>
       </div>
       <div class="track-header-row">
@@ -607,7 +609,7 @@ async function selectAllAlbums() {
     }
   }
 
-  renderArtistView();
+  await renderArtistView();
 }
 
 /**
