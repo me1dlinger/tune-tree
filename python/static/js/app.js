@@ -28,9 +28,10 @@ async function initApp() {
   await checkScanStatus();
   await loadArtistTree();
 
-  // 自动展开第一位艺术家
+  // 自动展开第一位艺术家（按当前排序方式）
   if (allArtists && allArtists.length > 0) {
-    const firstArtist = allArtists[0].artist;
+    const sortedArtists = getSortedArtists(allArtists);
+    const firstArtist = sortedArtists[0].artist;
     const header = document.getElementById('tah-' + eid(firstArtist));
     if (header) header.click();
   }
@@ -50,10 +51,10 @@ function setScanningUI(scanning, elapsedSeconds = 0) {
   const btn = document.getElementById('scan-btn');
   const statusEl = document.getElementById('scan-status');
   const statusText = document.getElementById('scan-status-text');
-  
+
   if (btn) btn.disabled = scanning;
   if (statusEl) statusEl.style.display = scanning ? 'flex' : 'none';
-  
+
   if (statusText && scanning) {
     const hours = Math.floor(elapsedSeconds / 3600);
     const minutes = Math.floor((elapsedSeconds % 3600) / 60);

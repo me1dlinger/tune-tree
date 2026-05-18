@@ -41,7 +41,7 @@ function filterArtists(q) {
    ARTIST SORTING
 ═══════════════════════════════════════════════════════════ */
 
-let currentArtistSort = { type: 'count', order: 'desc' };
+let currentArtistSort = { type: 'date', order: 'desc' };
 
 function setArtistSort(sortType) {
   const prevType = currentArtistSort.type;
@@ -59,8 +59,8 @@ function setArtistSort(sortType) {
 }
 
 function updateSortButtons() {
-  const buttons = ['sort-artist-count', 'sort-artist-name', 'sort-artist-date'];
-  const types = ['count', 'name', 'date'];
+  const buttons = ['sort-artist-date', 'sort-artist-count', 'sort-artist-name'];
+  const types = ['date', 'count', 'name'];
 
   buttons.forEach((btnId, index) => {
     const btn = document.getElementById(btnId);
@@ -85,7 +85,7 @@ function getSortButtonText(type, isActive) {
 function getSortedArtists(artists) {
   const sorted = [...artists];
   const { type, order } = currentArtistSort;
-  const multiplier = order === 'desc' ? -1 : 1;
+  const multiplier = order === 'desc' ? 1 : -1;
 
   switch (type) {
     case 'count':
@@ -278,14 +278,17 @@ async function renderArtistView() {
         </svg>
       </div>
       <div class="artist-info-block">
-        <div class="artist-title">${esc(a.artist)}</div>
-        <div class="artist-meta">
-          <span>${artistAlbums.length} 张专辑</span>
-          <span>${totalTracks} 首曲目</span>
-          <span>${orgAlbums} 已整理</span>
-          ${a.all_organized ? '<span class="organized-badge">● 已整理</span>' : ''}
+          <div class="artist-title">${esc(a.artist)}</div>
+          <div class="artist-meta">
+            <span>${artistAlbums.length} 张专辑</span>
+            <span>${totalTracks} 首曲目</span>
+            <span>${orgAlbums} 已整理</span>
+            ${a.all_organized ? '<span class="organized-badge">● 已整理</span>' : ''}
+          </div>
+          <div class="artist-last-added">
+            最后添加于 ${a.last_created_at ? formatDateTime(a.last_created_at) : '—'}
+          </div>
         </div>
-      </div>
     </div>
 
     <div class="albums-grid">
@@ -353,6 +356,7 @@ async function loadTrackSection(artist, album) {
         <div class="th" style="text-align:right;">时长</div>
         <div class="th" style="text-align:center;">格式</div>
         <div class="th" style="text-align:right;">质量</div>
+        <div class="th" style="text-align:right;">添加时间</div>
       </div>
       <div id="tl-${eid(album)}"><div class="loading-row">加载中...</div></div>
     `;
@@ -391,6 +395,7 @@ async function loadTrackSection(artist, album) {
           <div class="tc tc-time">${dur}</div>
           <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
           <div class="tc tc-quality">${sr}</div>
+          <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
         </div>
       `;
     }).join('') || '<div class="loading-row">暂无曲目</div>';

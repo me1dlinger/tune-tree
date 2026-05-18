@@ -75,12 +75,13 @@
           <input type="text" placeholder="搜索艺术家..." id="artist-search" oninput="filterArtists(this.value)">
         </div>
         <div class="sidebar-sort">
-          <button class="sort-chip active" id="sort-artist-count" onclick="setArtistSort('count')">歌曲数↓</button>
-          <button class="sort-chip" id="sort-artist-name" onclick="setArtistSort('name')">名称↑</button>
-          <button class="sort-chip" id="sort-artist-date" onclick="setArtistSort('date')">创建时间↑</button>
+          <button class="sort-chip active" id="sort-artist-date" onclick="setArtistSort('date')">创建时间↓</button>
+          <button class="sort-chip" id="sort-artist-count" onclick="setArtistSort('count')">歌曲数</button>
+          <button class="sort-chip" id="sort-artist-name" onclick="setArtistSort('name')">名称</button>
         </div>
         <div id="scan-status" class="scan-status" style="display:none;">
-          <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
             <polyline points="1 4 1 10 7 10" />
             <path d="M3.51 15a9 9 0 1 0 .49-3.5" />
           </svg>
@@ -126,8 +127,8 @@
               上级目录
             </button>
             <div class="files-search" style="display:flex;align-items:center;gap:8px;margin-left:4px;">
-              <svg class="files-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
+              <svg class="files-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
@@ -151,9 +152,11 @@
               <div class="loading-row">加载中...</div>
             </div>
             <div class="pagination-bar" id="pagination-bar">
-              <button class="toolbar-btn" id="btn-prev" onclick="goToPage(currentOffset - PAGE_SIZE)" disabled>上一页</button>
+              <button class="toolbar-btn" id="btn-prev" onclick="goToPage(currentOffset - PAGE_SIZE)"
+                disabled>上一页</button>
               <span id="pagination-info" style="margin:0 12px;">—</span>
-              <button class="toolbar-btn" id="btn-next" onclick="goToPage(currentOffset + PAGE_SIZE)" disabled>下一页</button>
+              <button class="toolbar-btn" id="btn-next" onclick="goToPage(currentOffset + PAGE_SIZE)"
+                disabled>下一页</button>
             </div>
           </div>
         </div>

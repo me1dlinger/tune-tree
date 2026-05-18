@@ -54,10 +54,17 @@ function renderCover(track, coverEl) {
 
   if (track.has_cover) {
     const coverUrl = `/api/cover/${track.id}?token=${TOKEN}`;
-    const encodedUrl = coverUrl.replace(/"/g, '%22');
-    coverEl.innerHTML = `<img src="${coverUrl}"
-      style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;"
-      onerror="this.parentElement.innerHTML='${placeholder.replace(/'/g, '"')}'"`;
+    const img = document.createElement('img');
+    img.src = coverUrl;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;cursor:zoom-in;';
+    img.onerror = function () {
+      coverEl.innerHTML = placeholder;
+    };
+    img.onclick = function () {
+      openCoverImageViewer(coverUrl);
+    };
+    coverEl.innerHTML = '';
+    coverEl.appendChild(img);
   } else {
     coverEl.innerHTML = placeholder;
   }

@@ -67,11 +67,11 @@ function createImageViewerHTML() {
 
 function initImageViewer() {
   if (document.getElementById('image-viewer')) return;
-  
+
   const overlay = document.createElement('div');
   overlay.innerHTML = createImageViewerHTML();
   document.body.appendChild(overlay.firstElementChild);
-  
+
   setupImageViewerEvents();
 }
 
@@ -80,7 +80,7 @@ function destroyImageViewer() {
   if (viewer) {
     viewer.remove();
   }
-  
+
   currentScale = 1;
   translateX = 0;
   translateY = 0;
@@ -96,24 +96,24 @@ function setupImageViewerEvents() {
   const viewer = document.getElementById('image-viewer');
   const content = document.getElementById('image-viewer-content');
   const img = document.getElementById('image-viewer-img');
-  
+
   // Toolbar buttons
   document.getElementById('img-zoom-in').onclick = () => zoomImage(0.25);
   document.getElementById('img-zoom-out').onclick = () => zoomImage(-0.25);
   document.getElementById('img-reset').onclick = resetImage;
   document.getElementById('img-close').onclick = closeImageViewer;
   document.getElementById('img-download').onclick = downloadImage;
-  
+
   // Close on overlay click
   viewer.onclick = (e) => {
     if (e.target === viewer || e.target === content) {
       closeImageViewer();
     }
   };
-  
+
   // Keyboard shortcuts
   document.addEventListener('keydown', handleImageViewerKeydown);
-  
+
   // Mouse drag
   content.onmousedown = (e) => {
     e.preventDefault();
@@ -122,7 +122,7 @@ function setupImageViewerEvents() {
     startY = e.clientY - translateY;
     content.style.cursor = 'grabbing';
   };
-  
+
   document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
     e.preventDefault();
@@ -130,23 +130,23 @@ function setupImageViewerEvents() {
     translateY = e.clientY - startY;
     updateImageTransform();
   });
-  
+
   document.addEventListener('mouseup', () => {
     isDragging = false;
     content.style.cursor = 'grab';
   });
-  
+
   // Wheel zoom
   content.onwheel = (e) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     zoomImage(delta);
   };
-  
+
   // Touch support
   let lastTouchDistance = 0;
   let lastScale = 1;
-  
+
   content.ontouchstart = (e) => {
     if (e.touches.length === 1) {
       isDragging = true;
@@ -161,7 +161,7 @@ function setupImageViewerEvents() {
       );
     }
   };
-  
+
   content.ontouchmove = (e) => {
     e.preventDefault();
     if (e.touches.length === 1 && isDragging) {
@@ -178,7 +178,7 @@ function setupImageViewerEvents() {
       updateImageTransform();
     }
   };
-  
+
   content.ontouchend = () => {
     isDragging = false;
   };
@@ -186,7 +186,7 @@ function setupImageViewerEvents() {
 
 function handleImageViewerKeydown(e) {
   if (!document.getElementById('image-viewer')) return;
-  
+
   switch (e.key) {
     case 'Escape':
       closeImageViewer();
@@ -227,13 +227,13 @@ function handleImageViewerKeydown(e) {
 function zoomImage(delta) {
   const img = document.getElementById('image-viewer-img');
   if (!img || isAnimating) return;
-  
+
   isAnimating = true;
   currentScale = Math.max(0.25, Math.min(4, currentScale + delta));
-  
+
   updateImageTransform();
   updateScaleDisplay();
-  
+
   setTimeout(() => {
     isAnimating = false;
   }, 150);
@@ -243,7 +243,7 @@ function resetImage() {
   currentScale = 1;
   translateX = 0;
   translateY = 0;
-  
+
   updateImageTransform();
   updateScaleDisplay();
 }
@@ -251,7 +251,7 @@ function resetImage() {
 function updateImageTransform() {
   const img = document.getElementById('image-viewer-img');
   if (!img) return;
-  
+
   img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${currentScale})`;
 }
 
@@ -265,12 +265,12 @@ function updateScaleDisplay() {
 async function downloadImage() {
   const img = document.getElementById('image-viewer-img');
   if (!img || !img.src) return;
-  
+
   try {
     const response = await fetch(img.src);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = 'image-' + Date.now() + '.' + getExtensionFromUrl(img.src);
@@ -278,7 +278,7 @@ async function downloadImage() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
+
     if (window.showToast) {
       showToast('图片已下载', 'success');
     }
@@ -301,49 +301,75 @@ function getExtensionFromUrl(url) {
 ═══════════════════════════════════════════════════════════ */
 
 /**
+ * 计算图片自适应屏幕的缩放比例
+ * @param {HTMLImageElement} img - 图片元素
+ * @returns {number} - 合适的缩放比例
+ */
+function calculateFitScale(img) {
+  // 获取可用空间（减去工具栏高度和边距）
+  const toolbarHeight = 56; // 工具栏高度
+  const maxWidth = window.innerWidth * 0.95; // 95% 屏幕宽度
+  const maxHeight = (window.innerHeight - toolbarHeight) * 0.95; // 95% 可用高度
+
+  // 计算宽高缩放比例
+  const scaleX = maxWidth / img.naturalWidth;
+  const scaleY = maxHeight / img.naturalHeight;
+
+  // 取较小值确保图片完全显示
+  return Math.min(scaleX, scaleY, 1); // 最大不超过原始尺寸
+}
+
+/**
  * 显示图片查看器
  * @param {string} imageUrl - 图片 URL
  * @param {object} options - 配置选项
  * @param {string} options.filename - 文件名（用于下载）
- * @param {number} options.initialScale - 初始缩放比例
+ * @param {number} options.initialScale - 初始缩放比例（默认自适应）
  */
 function showImageViewer(imageUrl, options = {}) {
   const {
     filename = 'image',
-    initialScale = 1
+    initialScale = null // null 表示自动计算
   } = options;
-  
+
   initImageViewer();
-  
+
   const viewer = document.getElementById('image-viewer');
   const img = document.getElementById('image-viewer-img');
   const content = document.getElementById('image-viewer-content');
-  
+
   // Reset state
-  currentScale = initialScale;
+  currentScale = 1;
   translateX = 0;
   translateY = 0;
   isDragging = false;
   isAnimating = false;
-  
+
   // Set image source
   img.onload = () => {
+    // 计算自适应缩放比例
+    if (initialScale === null) {
+      currentScale = calculateFitScale(img);
+    } else {
+      currentScale = initialScale;
+    }
+
     img.style.opacity = '1';
     updateImageTransform();
     updateScaleDisplay();
     content.style.cursor = 'grab';
   };
-  
+
   img.onerror = () => {
     if (window.showToast) {
       showToast('图片加载失败', 'error');
     }
     closeImageViewer();
   };
-  
+
   img.src = imageUrl;
   img.style.opacity = '0';
-  
+
   // Show overlay
   viewer.classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -355,14 +381,16 @@ function showImageViewer(imageUrl, options = {}) {
 function closeImageViewer() {
   const viewer = document.getElementById('image-viewer');
   if (!viewer) return;
-  
+
   viewer.classList.remove('open');
   document.body.style.overflow = '';
-  
+
   // Clear image after fade out
   setTimeout(() => {
     const img = document.getElementById('image-viewer-img');
     if (img) {
+      // 先移除 onerror 处理程序，防止设置 src='' 时触发无限循环
+      img.onerror = null;
       img.src = '';
       img.style.opacity = '0';
     }
