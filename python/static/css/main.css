@@ -565,9 +565,7 @@ body {
     transition: transform var(--transition);
 }
 
-.tree-chevron.open {
-    transform: rotate(90deg);
-}
+
 
 .tree-artist-name {
     flex: 1;

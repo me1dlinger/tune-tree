@@ -129,21 +129,27 @@ function renderArtistTree(artists) {
 
     const isSelected = selectedArtists.has(a.artist);
     const showCheckbox = artistSelectionEnabled && isSelected;
+    
+    // 检查是否有任务在执行
+    const taskStatus = (typeof AsyncFormat !== 'undefined') ? AsyncFormat.getArtistTaskStatus(a.artist) : '';
+    const statusClass = taskStatus ? ` task-status-${taskStatus.replace(' ', '-')}` : '';
+    const statusTitle = taskStatus ? ` title="任务状态：${taskStatus}"` : '';
+    
     return `
-      <div class="tree-artist ${isSelected ? 'selected' : ''}" id="ta-${eid(a.artist)}">
-        <div class="tree-artist-header" onclick="toggleArtist('${escJs(a.artist)}')" id="tah-${eid(a.artist)}">
+      <div class="tree-artist ${isSelected ? 'selected' : ''}${statusClass}" id="ta-${eid(a.artist)}">
+        <div class="tree-artist-header" id="tah-${eid(a.artist)}" data-artist="${esc(a.artist)}"${statusTitle}>
           ${artistSelectionEnabled ? `
           <div class="tree-checkbox" onclick="toggleArtistSelection(event, '${escJs(a.artist)}')">
             ${showCheckbox ? '✓' : ''}
           </div>
           ` : ''}
-          <div class="tree-chevron" id="tch-${eid(a.artist)}">▶</div>
-          <div class="tree-artist-name">${esc(a.artist)}</div>
+          <div class="tree-chevron" id="tch-${eid(a.artist)}" onclick="toggleArtistExpand('${escJs(a.artist)}')">▶</div>
+          <div class="tree-artist-name" onclick="selectArtistFromName('${escJs(a.artist)}')">${esc(a.artist)}${taskStatus ? `<span class="artist-task-status">${esc(taskStatus)}</span>` : ''}</div>
           ${a.all_organized ? '<div class="tree-organized" title="已整理"></div>' : ''}
           <div class="tree-badge">${a.track_count}</div>
         </div>
         <div class="tree-albums" id="talb-${eid(a.artist)}">
-          <div class="loading-row" style="font-size:10px;">点击展开...</div>
+          <div class="loading-row" style="font-size:10px;">点击箭头展开...</div>
         </div>
       </div>
     `;
@@ -157,6 +163,14 @@ function renderArtistTree(artists) {
  */
 function toggleArtistSelection(e, artist) {
   e.stopPropagation();
+
+  // 检查艺术家是否已有任务在执行
+  if (typeof AsyncFormat !== 'undefined' && !AsyncFormat.canSelectArtist(artist)) {
+    const task = AsyncFormat.getTaskByArtist(artist);
+    const status = AsyncFormat.getArtistTaskStatus(artist);
+    showToast(`艺术家 ${artist} 已有任务正在执行：${status}`, 'warn');
+    return;
+  }
 
   const wasSelected = selectedArtists.has(artist);
 
@@ -375,28 +389,60 @@ function selectArtistRange(artist) {
 }
 
 /**
- * 展开/收起艺术家，并加载其专辑
+ * 点击箭头：仅展开/收起专辑列表，不触发右侧视图
  * @param {string} artist
  */
-async function toggleArtist(artist) {
+async function toggleArtistExpand(artist) {
   const albums = document.getElementById('talb-' + eid(artist));
   const chevron = document.getElementById('tch-' + eid(artist));
-  const header = document.getElementById('tah-' + eid(artist));
   const isOpen = albums.classList.contains('open');
 
+  // 收起所有其他展开的艺术家
   document.querySelectorAll('.tree-artist-header').forEach(h => h.classList.remove('active'));
   document.querySelectorAll('.tree-albums').forEach(a => a.classList.remove('open'));
-  document.querySelectorAll('.tree-chevron').forEach(c => c.classList.remove('open'));
 
   if (!isOpen) {
     albums.classList.add('open');
-    chevron.classList.add('open');
-    header.classList.add('active');
+    chevron.textContent = '▼';
+    
+    // 只在专辑列表为空时才加载（避免重复请求）
+    if (!albums.querySelector('.tree-album')) {
+      await loadArtistAlbumsOnly(artist, albums);
+    }
+  } else {
+    albums.classList.remove('open');
+    chevron.textContent = '▶';
+  }
+}
 
-    // 刷新艺术家列表，隐藏已格式化的艺术家
-    await loadArtistTree(document.getElementById('artist-search').value);
+/**
+ * 点击艺术家名字：触发右侧视图展示
+ * @param {string} artist
+ */
+async function selectArtistFromName(artist) {
+  const albums = document.getElementById('talb-' + eid(artist));
+  await selectArtist(artist, albums);
+}
 
-    await selectArtist(artist, document.getElementById('talb-' + eid(artist)));
+/**
+ * 仅加载艺术家的专辑数据到侧边栏，不触发右侧视图
+ * @param {string} artist
+ * @param {HTMLElement} albumsEl — 侧边栏专辑容器
+ */
+async function loadArtistAlbumsOnly(artist, albumsEl) {
+  try {
+    const artistAlbumsTemp = await GET(`/artists/${encodeURIComponent(artist)}/albums`);
+    
+    albumsEl.innerHTML = artistAlbumsTemp.map(al => `
+      <div class="tree-album" id="talbcard-${eid(artist + '|' + al.album)}"
+           onclick="selectAlbumFromTree('${escJs(artist)}','${escJs(al.album)}')">
+        <div class="tree-album-name">${esc(al.album)}</div>
+        ${al.all_organized ? '<div style="font-size:8px;color:var(--accent)">●</div>' : ''}
+        <div class="tree-album-count">${al.track_count}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    albumsEl.innerHTML = '<div class="loading-row" style="color:var(--red)">加载失败</div>';
   }
 }
 
@@ -857,4 +903,60 @@ function updateToolbar() {
     cntEl.style.display = 'none';
     fmtBtn.style.display = 'none';
   }
+}
+
+/**
+ * 更新艺术家列表中的任务状态标识
+ * 由 async-format.js 调用，当任务状态变化时刷新 UI
+ */
+function updateArtistTaskStatuses() {
+  if (typeof AsyncFormat === 'undefined') return;
+  
+  // 更新侧边栏艺术家树
+  document.querySelectorAll('.tree-artist-header').forEach(header => {
+    const artist = header.dataset.artist;
+    if (!artist) return;
+    
+    // 移除旧的状态标识
+    const oldStatus = header.querySelector('.artist-task-status');
+    if (oldStatus) oldStatus.remove();
+    
+    const taskStatus = AsyncFormat.getArtistTaskStatus(artist);
+    if (taskStatus) {
+      const statusSpan = document.createElement('span');
+      statusSpan.className = 'artist-task-status';
+      statusSpan.textContent = taskStatus;
+      
+      const nameEl = header.querySelector('.tree-artist-name');
+      if (nameEl) {
+        nameEl.appendChild(statusSpan);
+      }
+    }
+  });
+  
+  // 更新艺术家选择按钮状态
+  document.querySelectorAll('.tree-artist-header').forEach(header => {
+    const checkbox = header.querySelector('.tree-check');
+    if (!checkbox) return;
+    
+    const artist = header.dataset.artist;
+    if (!artist) return;
+    
+    const task = AsyncFormat.getTaskByArtist(artist);
+    if (task && (task.status === 'running' || task.status === 'pending')) {
+      checkbox.classList.add('task-in-progress');
+    } else {
+      checkbox.classList.remove('task-in-progress');
+    }
+  });
+}
+
+/**
+ * 检查艺术家是否可以被选中
+ * @param {string} artist 
+ * @returns {boolean}
+ */
+function canSelectArtistForFormat(artist) {
+  if (typeof AsyncFormat === 'undefined') return true;
+  return AsyncFormat.canSelectArtist(artist);
 }
