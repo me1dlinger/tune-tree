@@ -512,16 +512,19 @@ body {
 }
 
 .tree-checkbox {
-    width: 18px;
-    height: 36px;
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--border3);
+    background: transparent;
+    cursor: pointer;
+    border-radius: 2px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text3);
-    font-size: 11px;
-    cursor: pointer;
+    font-size: 9px;
+    color: var(--accent);
     flex-shrink: 0;
-    transition: color var(--transition);
+    margin-left: 12px;
 }
 
 .tree-checkbox:hover {
@@ -662,6 +665,12 @@ body {
     border-color: var(--red);
     color: var(--red);
     background: var(--red-dim);
+}
+
+.toolbar-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .select-count {

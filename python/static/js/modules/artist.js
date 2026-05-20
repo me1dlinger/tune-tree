@@ -104,6 +104,9 @@ function getSortedArtists(artists) {
 /** 最大可选艺术家数量 */
 const MAX_SELECTED_ARTISTS = 10;
 
+/** 艺术家勾选模式开关 */
+let artistSelectionEnabled = false;
+
 /**
  * 将艺术家数组渲染为侧边栏树
  * @param {Array} artists
@@ -116,12 +119,15 @@ function renderArtistTree(artists) {
   }
   tree.innerHTML = artists.map(a => {
     const isSelected = selectedArtists.has(a.artist);
+    const showCheckbox = artistSelectionEnabled && isSelected;
     return `
       <div class="tree-artist ${isSelected ? 'selected' : ''}" id="ta-${eid(a.artist)}">
         <div class="tree-artist-header" onclick="toggleArtist('${esc(a.artist)}')" id="tah-${eid(a.artist)}">
+          ${artistSelectionEnabled ? `
           <div class="tree-checkbox" onclick="toggleArtistSelection(event, '${esc(a.artist)}')">
-            ${isSelected ? '✓' : ''}
+            ${showCheckbox ? '✓' : ''}
           </div>
+          ` : ''}
           <div class="tree-chevron" id="tch-${eid(a.artist)}">▶</div>
           <div class="tree-artist-name">${esc(a.artist)}</div>
           ${a.all_organized ? '<div class="tree-organized" title="已整理"></div>' : ''}
@@ -175,6 +181,21 @@ function clearSelectedArtists() {
     const checkbox = el.querySelector('.tree-checkbox');
     if (checkbox) checkbox.textContent = '';
   });
+  updateToolbar();
+}
+
+/** 切换艺术家勾选模式 */
+function toggleArtistSelectionMode() {
+  artistSelectionEnabled = !artistSelectionEnabled;
+  const btn = document.getElementById('artist-select-toggle');
+  if (btn) {
+    btn.classList.toggle('active', artistSelectionEnabled);
+    btn.textContent = artistSelectionEnabled ? '取消勾选' : '勾选艺术家';
+  }
+  if (!artistSelectionEnabled) {
+    clearSelectedArtists();
+  }
+  loadArtistTree(document.getElementById('artist-search').value);
   updateToolbar();
 }
 

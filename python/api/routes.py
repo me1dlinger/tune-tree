@@ -48,11 +48,12 @@ api_bp = Blueprint("api", __name__)
 
 SCAN_TIMEOUT_HOURS = 1
 
+
 def _check_scan_timeout():
     """检查扫描是否超时，若超时则重置状态"""
     scan_status = get_scan_status()
-    if scan_status['scanning'] and scan_status['start_time']:
-        elapsed_hours = (datetime.now().timestamp() - scan_status['start_time']) / 3600
+    if scan_status["scanning"] and scan_status["start_time"]:
+        elapsed_hours = (datetime.now().timestamp() - scan_status["start_time"]) / 3600
         if elapsed_hours >= SCAN_TIMEOUT_HOURS:
             logger.warning(f"扫描超时，已运行 {elapsed_hours:.2f} 小时，自动重置状态")
             set_scan_finished()
@@ -91,10 +92,12 @@ def auth_verify():
 @require_auth
 def api_scan():
     _check_scan_timeout()
-    
+
     scan_status = get_scan_status()
-    if scan_status['scanning']:
-        return jsonify({"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}), 409
+    if scan_status["scanning"]:
+        return jsonify(
+            {"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}
+        ), 409
 
     if not Path(MUSIC_ROOT).exists():
         return jsonify({"error": f"MUSIC_ROOT '{MUSIC_ROOT}' not found"}), 400
@@ -112,19 +115,13 @@ def api_scan():
 def api_scan_status():
     timed_out = _check_scan_timeout()
     scan_status = get_scan_status()
-    
-    if scan_status['scanning'] and scan_status['start_time']:
-        elapsed = int(datetime.now().timestamp() - scan_status['start_time'])
-        return jsonify({
-            "scanning": True, 
-            "elapsed_seconds": elapsed,
-            "timed_out": False
-        })
-    return jsonify({
-        "scanning": False, 
-        "elapsed_seconds": 0,
-        "timed_out": timed_out
-    })
+
+    if scan_status["scanning"] and scan_status["start_time"]:
+        elapsed = int(datetime.now().timestamp() - scan_status["start_time"])
+        return jsonify(
+            {"scanning": True, "elapsed_seconds": elapsed, "timed_out": False}
+        )
+    return jsonify({"scanning": False, "elapsed_seconds": 0, "timed_out": timed_out})
 
 
 # Artists
@@ -314,14 +311,18 @@ def api_files():
     for entry in entries:
         try:
             stat = entry.stat()
-            entries_data.append({
-                "name": entry.name,
-                "path": str(entry.relative_to(base)),
-                "is_dir": entry.is_dir(),
-                "ext": entry.suffix.lower().lstrip(".") if not entry.is_dir() else "dir",
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-            })
+            entries_data.append(
+                {
+                    "name": entry.name,
+                    "path": str(entry.relative_to(base)),
+                    "is_dir": entry.is_dir(),
+                    "ext": entry.suffix.lower().lstrip(".")
+                    if not entry.is_dir()
+                    else "dir",
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                }
+            )
         except OSError:
             continue
 
@@ -339,18 +340,20 @@ def api_files():
         entries_data.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
 
     total = len(entries_data)
-    page_items = entries_data[offset:offset + limit]
+    page_items = entries_data[offset : offset + limit]
 
     for item in page_items:
         item["mtime"] = datetime.fromtimestamp(item["mtime"]).strftime("%Y-%m-%d %H:%M")
 
-    return jsonify({
-        "path": rel,
-        "items": page_items,
-        "total": total,
-        "limit": limit,
-        "offset": offset
-    })
+    return jsonify(
+        {
+            "path": rel,
+            "items": page_items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
 
 
 # Stats
@@ -367,20 +370,22 @@ def api_stats():
     flac_count = count_tracks_by_extension(".flac")
     mp3_count = count_tracks_by_extension(".mp3")
     last_scan = get_scan_meta("last_scan") or "—"
-    
+
     # 获取扫描状态
     _check_scan_timeout()
     scan_status = get_scan_status()
     scan_info = {
-        "scanning": scan_status['scanning'],
+        "scanning": scan_status["scanning"],
         "scan_timed_out": False,
-        "scan_elapsed_seconds": 0
+        "scan_elapsed_seconds": 0,
     }
-    if scan_status['scanning'] and scan_status['start_time']:
-        scan_info['scan_elapsed_seconds'] = int(datetime.now().timestamp() - scan_status['start_time'])
+    if scan_status["scanning"] and scan_status["start_time"]:
+        scan_info["scan_elapsed_seconds"] = int(
+            datetime.now().timestamp() - scan_status["start_time"]
+        )
         # 检查是否即将超时（超过55分钟视为即将超时）
-        if scan_info['scan_elapsed_seconds'] > 55 * 60:
-            scan_info['scan_timed_out'] = True
+        if scan_info["scan_elapsed_seconds"] > 55 * 60:
+            scan_info["scan_timed_out"] = True
 
     return jsonify(
         {
@@ -421,12 +426,14 @@ def api_duplicates():
 def api_format_preview():
     data = request.get_json(force=True)
     artist = data.get("artist")
-    album_ids = data.get("album_ids", [])
+    album_ids = data.get("album_ids")
     track_ids = data.get("track_ids", [])
     if track_ids and len(track_ids) > 0:
-        result = preview_format(artist, None, track_ids)
-    elif artist and album_ids and len(album_ids) > 0:
+        result = preview_format(artist, track_ids=track_ids)
+    elif artist and album_ids is not None and len(album_ids) > 0:
         result = preview_format(artist, album_ids)
+    elif artist:
+        result = preview_format(artist)
     else:
         return jsonify(
             {"error": "artist and album_ids required, or track_ids required"}
@@ -439,12 +446,14 @@ def api_format_preview():
 def api_format_execute():
     data = request.get_json(force=True)
     artist = data.get("artist")
-    album_ids = data.get("album_ids", [])
+    album_ids = data.get("album_ids")
     track_ids = data.get("track_ids", [])
     if track_ids and len(track_ids) > 0:
-        result = execute_format(artist, None, track_ids)
-    elif artist and album_ids and len(album_ids) > 0:
+        result = execute_format(artist, track_ids=track_ids)
+    elif artist and album_ids is not None and len(album_ids) > 0:
         result = execute_format(artist, album_ids)
+    elif artist:
+        result = execute_format(artist)
     else:
         return jsonify(
             {"error": "artist and album_ids required, or track_ids required"}

@@ -40,7 +40,6 @@ async function openFormatModal() {
       for (const artist of artists) {
         const formatData = await POST('/format/preview', {
           artist: artist,
-          album_ids: [],
         });
         formatPreviewData[artist] = formatData;
       }
@@ -288,7 +287,6 @@ async function executeFormat() {
       for (const artist of artists) {
         const result = await POST('/format/execute', {
           artist: artist,
-          album_ids: [],
         });
         totalMoved += result.moved || 0;
         totalSkipped += result.skipped || 0;

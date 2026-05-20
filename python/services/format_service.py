@@ -32,7 +32,7 @@ def build_target_filename(track) -> str:
         ext = "." + ext
     # 移除文件名中不允许的字符，特别是 / 会被识别为目录分隔符
     title = re.sub(r'[\\/:*?"<>|]', "_", title)
-    title = re.sub(r'\s+', ' ', title).strip()
+    title = re.sub(r"\s+", " ", title).strip()
     # extract feat from title if present
     feat_match = re.search(r"\(feat\.?\s*([^)]+)\)", title, re.IGNORECASE)
     if feat_match:
@@ -43,7 +43,7 @@ def build_target_filename(track) -> str:
 
 
 def preview_format(
-    artist: str, album_ids: list[int] = None, track_ids: list[int] = None
+    artist: str, album_ids: list[int] | None = None, track_ids: list[int] | None = None
 ) -> dict:
     previews = []
     conflict_count = 0
@@ -110,10 +110,27 @@ def preview_format(
                 }
             )
     else:
+        from repository.track_repository import get_albums_by_artist
+
         album_ids = album_ids or []
-        for alb_id in album_ids:
-            rows = get_tracks_by_artist_and_album_id(artist, alb_id)
-            album_name = rows[0]["album"] if rows else str(alb_id)
+        albums_to_process = []
+
+        if len(album_ids) > 0:
+            for alb_id in album_ids:
+                rows = get_tracks_by_artist_and_album_id(artist, alb_id)
+                if rows:
+                    albums_to_process.append((alb_id, rows[0]["album"], rows))
+        else:
+            albums = get_albums_by_artist(artist)
+            for album in albums:
+                alb_id = album["sample_id"]
+                rows = get_tracks_by_artist_and_album_id(artist, alb_id)
+                album_name = rows[0]["album"] if rows else album["album"]
+                albums_to_process.append((alb_id, album_name, rows))
+
+        for alb_id, album_name, rows in albums_to_process:
+            if not rows:
+                continue
             artist_dir = safe_dirname(artist)
             album_dir = safe_dirname(album_name)
             target_base = str(Path(MUSIC_ROOT) / artist_dir / album_dir)
@@ -179,7 +196,7 @@ def preview_format(
 
 
 def execute_format(
-    artist: str, album_ids: list[int] = None, track_ids: list[int] = None
+    artist: str, album_ids: list[int] | None = None, track_ids: list[int] | None = None
 ) -> dict:
     preview = preview_format(artist, album_ids, track_ids)
     moved = errors = skipped = 0
