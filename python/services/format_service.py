@@ -243,3 +243,57 @@ def execute_format(
     commit()
     logger.info(msg)
     return {"moved": moved, "skipped": skipped, "errors": errors, "organized": all_org}
+
+
+def batch_preview_format(artists: list[str]) -> dict:
+    """批量预览多个艺术家的格式化结果，串行处理避免Flask上下文问题"""
+    results = {}
+    total_files = 0
+    total_conflicts = 0
+    total_skipped = 0
+
+    for artist in artists:
+        try:
+            result = preview_format(artist)
+            results[artist] = result
+            total_files += len(result["items"])
+            total_conflicts += result["conflicts"]
+            total_skipped += result["skipped"]
+        except Exception as exc:
+            logger.error(f"预览艺术家 {artist} 失败: {exc}")
+            results[artist] = {"error": str(exc), "items": [], "conflicts": 0, "skipped": 0, "tree": {}}
+
+    return {
+        "results": results,
+        "total_files": total_files,
+        "total_conflicts": total_conflicts,
+        "total_skipped": total_skipped,
+        "artists_count": len(artists)
+    }
+
+
+def batch_execute_format(artists: list[str]) -> dict:
+    """批量执行多个艺术家的格式化，串行处理避免Flask上下文问题"""
+    results = {}
+    total_moved = 0
+    total_skipped = 0
+    total_errors = 0
+
+    for artist in artists:
+        try:
+            result = execute_format(artist)
+            results[artist] = result
+            total_moved += result["moved"]
+            total_skipped += result["skipped"]
+            total_errors += result["errors"]
+        except Exception as exc:
+            logger.error(f"执行艺术家 {artist} 格式化失败: {exc}")
+            results[artist] = {"error": str(exc), "moved": 0, "skipped": 0, "errors": 1}
+
+    return {
+        "results": results,
+        "total_moved": total_moved,
+        "total_skipped": total_skipped,
+        "total_errors": total_errors,
+        "artists_count": len(artists)
+    }

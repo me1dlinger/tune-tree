@@ -34,15 +34,13 @@ async function openFormatModal() {
     currentPreviewTab = 0;
 
     if (hasArtistSelection) {
-      // 多艺术家格式化
+      // 多艺术家格式化 - 使用批量接口一次性提交
       const artists = Array.from(selectedArtists);
 
-      for (const artist of artists) {
-        const formatData = await POST('/format/preview', {
-          artist: artist,
-        });
-        formatPreviewData[artist] = formatData;
-      }
+      const batchResult = await POST('/format/batch-preview', {
+        artists: artists,
+      });
+      formatPreviewData = batchResult.results;
 
       renderMultiArtistPreview();
     } else {
@@ -316,17 +314,15 @@ async function executeFormat() {
     let totalMoved = 0, totalSkipped = 0, totalErrors = 0;
 
     if (hasArtistSelection) {
-      // 多艺术家格式化
+      // 多艺术家格式化 - 使用批量接口一次性提交
       const artists = Object.keys(formatPreviewData);
 
-      for (const artist of artists) {
-        const result = await POST('/format/execute', {
-          artist: artist,
-        });
-        totalMoved += result.moved || 0;
-        totalSkipped += result.skipped || 0;
-        totalErrors += result.errors || 0;
-      }
+      const batchResult = await POST('/format/batch-execute', {
+        artists: artists,
+      });
+      totalMoved = batchResult.total_moved || 0;
+      totalSkipped = batchResult.total_skipped || 0;
+      totalErrors = batchResult.total_errors || 0;
     } else {
       // 单艺术家/专辑/曲目格式化
       let result;

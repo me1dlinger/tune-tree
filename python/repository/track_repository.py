@@ -301,7 +301,19 @@ def count_duplicate_groups():
 def count_tracks_by_extension(ext: str):
     """按扩展名统计 track 数"""
     db = get_db()
-    return db.execute("SELECT COUNT(*) FROM tracks WHERE ext=?", (ext,)).fetchone()[0]
+    normalized_ext = ext.lower()
+    if normalized_ext.startswith("."):
+        ext_without_dot = normalized_ext[1:]
+        return db.execute(
+            "SELECT COUNT(*) FROM tracks WHERE ext=? OR ext=?",
+            (normalized_ext, ext_without_dot)
+        ).fetchone()[0]
+    else:
+        ext_with_dot = "." + normalized_ext
+        return db.execute(
+            "SELECT COUNT(*) FROM tracks WHERE ext=? OR ext=?",
+            (normalized_ext, ext_with_dot)
+        ).fetchone()[0]
 
 # === Scan Meta 操作 ===
 

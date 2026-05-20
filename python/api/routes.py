@@ -13,7 +13,7 @@ import threading
 from config import ACCESS_KEY, MUSIC_ROOT
 from utils.metadata import get_cover_b64, get_lyrics
 from services.scan_service import scan_library
-from services.format_service import preview_format, execute_format
+from services.format_service import preview_format, execute_format, batch_preview_format, batch_execute_format
 from repository.track_repository import (
     get_track_by_id,
     get_track_by_path,
@@ -458,6 +458,28 @@ def api_format_execute():
         return jsonify(
             {"error": "artist and album_ids required, or track_ids required"}
         ), 400
+    return jsonify(result)
+
+
+@api_bp.route("/api/format/batch-preview", methods=["POST"])
+@require_auth
+def api_format_batch_preview():
+    data = request.get_json(force=True)
+    artists = data.get("artists", [])
+    if not artists or len(artists) == 0:
+        return jsonify({"error": "artists list is required"}), 400
+    result = batch_preview_format(artists)
+    return jsonify(result)
+
+
+@api_bp.route("/api/format/batch-execute", methods=["POST"])
+@require_auth
+def api_format_batch_execute():
+    data = request.get_json(force=True)
+    artists = data.get("artists", [])
+    if not artists or len(artists) == 0:
+        return jsonify({"error": "artists list is required"}), 400
+    result = batch_execute_format(artists)
     return jsonify(result)
 
 
