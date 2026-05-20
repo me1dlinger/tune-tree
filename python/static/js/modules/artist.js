@@ -102,10 +102,13 @@ function getSortedArtists(artists) {
 }
 
 /** 最大可选艺术家数量 */
-const MAX_SELECTED_ARTISTS = 30;
+const MAX_SELECTED_ARTISTS = 50;
 
 /** 艺术家勾选模式开关 */
 let artistSelectionEnabled = false;
+
+/** 范围选择的起始艺术家 */
+let rangeSelectStartArtist = null;
 
 /** 是否隐藏已整理的艺术家 */
 let hideOrganizedArtists = false;
@@ -176,6 +179,13 @@ function toggleArtistSelection(e, artist) {
     }
   }
 
+  const rangeBtn = document.getElementById('range-select-btn');
+  if (rangeBtn && rangeBtn.classList.contains('active')) {
+    if (!wasSelected) {
+      selectArtistRange(artist);
+    }
+  }
+
   updateToolbar();
 }
 
@@ -187,6 +197,7 @@ function clearSelectedArtists() {
     const checkbox = el.querySelector('.tree-checkbox');
     if (checkbox) checkbox.textContent = '';
   });
+  rangeSelectStartArtist = null;
   const rangeBtn = document.getElementById('range-select-btn');
   if (rangeBtn) {
     rangeBtn.classList.remove('active');
@@ -207,6 +218,11 @@ function toggleHideOrganized() {
   }
   
   loadArtistTree(document.getElementById('artist-search').value);
+  updateToolbar();
+}
+
+/** 切换艺术家勾选模式 */
+function toggleArtistSelectionMode() {
   updateToolbar();
 }
 
@@ -233,63 +249,100 @@ function toggleArtistSelectionMode() {
   updateToolbar();
 }
 
+/** 切换隐藏已整理艺术家 */
+function toggleHideOrganized() {
+  hideOrganizedArtists = !hideOrganizedArtists;
+  const btn = document.getElementById('hide-organized-toggle');
+  const textSpan = btn.querySelector('span');
+  
+  if (btn && textSpan) {
+    btn.classList.toggle('active', hideOrganizedArtists);
+    textSpan.textContent = hideOrganizedArtists ? '显示已整理' : '隐藏已整理';
+  }
+  
+  loadArtistTree(document.getElementById('artist-search').value);
+  updateToolbar();
+}
+
 /** 开始/取消范围选择 */
 function toggleRangeSelectMode() {
   const rangeBtn = document.getElementById('range-select-btn');
-  const searchInput = document.getElementById('artist-search');
 
+  if (rangeSelectStartArtist) {
+    rangeSelectStartArtist = null;
+    rangeBtn.classList.remove('active');
+    rangeBtn.title = '';
+    showToast('已取消范围选择', 'info');
+  } else {
+    const searchInput = document.getElementById('artist-search');
+    const currentArtists = getSortedArtists(allArtists.filter(a =>
+      !searchInput.value || a.artist.toLowerCase().includes(searchInput.value.toLowerCase())
+    ));
+
+    if (currentArtists.length === 0) {
+      showToast('当前列表无艺术家', 'warn');
+      return;
+    }
+
+    rangeBtn.classList.add('active');
+    showToast('现在点击第一个艺术家作为范围起点', 'info');
+  }
+}
+
+/** 选择艺术家范围（从起始艺术家到当前艺术家） */
+function selectArtistRange(artist) {
   if (!artistSelectionEnabled) {
     showToast('请先开启勾选艺术家模式', 'warn');
     return;
   }
 
-  // 检查是否有已勾选的艺术家
-  if (selectedArtists.size === 0) {
-    showToast('请先勾选至少一个艺术家', 'warn');
-    return;
-  }
-
-  // 获取当前列表中的艺术家（考虑隐藏已整理）
-  let currentArtists = getSortedArtists(allArtists.filter(a =>
+  const searchInput = document.getElementById('artist-search');
+  const currentArtists = getSortedArtists(allArtists.filter(a =>
     !searchInput.value || a.artist.toLowerCase().includes(searchInput.value.toLowerCase())
   ));
-
-  // 如果开启隐藏已整理，过滤掉已整理的艺术家
-  if (hideOrganizedArtists) {
-    currentArtists = currentArtists.filter(a => !a.all_organized);
-  }
 
   if (currentArtists.length === 0) {
     showToast('当前列表无艺术家', 'warn');
     return;
   }
 
-  // 找出已勾选艺术家的最小和最大索引
-  let minIndex = -1;
-  let maxIndex = -1;
-
-  for (let i = 0; i < currentArtists.length; i++) {
-    if (selectedArtists.has(currentArtists[i].artist)) {
-      if (minIndex === -1) minIndex = i;
-      maxIndex = i;
+  if (!rangeSelectStartArtist) {
+    rangeSelectStartArtist = artist;
+    const rangeBtn = document.getElementById('range-select-btn');
+    if (rangeBtn) {
+      rangeBtn.classList.add('active');
+      rangeBtn.title = `起点：${artist}`;
     }
-  }
-
-  if (minIndex === -1 || maxIndex === -1 || minIndex === maxIndex) {
-    showToast('请勾选多个艺术家以进行范围选择', 'warn');
+    showToast(`已设置范围起点：${artist}，现在点击另一个艺术家作为终点`, 'info');
     return;
   }
 
-  // 自动设置范围起点和终点
-  const startArtist = currentArtists[minIndex].artist;
-  const endArtist = currentArtists[maxIndex].artist;
+  const startIndex = currentArtists.findIndex(a => a.artist === rangeSelectStartArtist);
+  const endIndex = currentArtists.findIndex(a => a.artist === artist);
 
-  // 自动执行范围选择
+  if (startIndex === -1 || endIndex === -1) {
+    showToast('无法确定范围（艺术家可能已被过滤）', 'warn');
+    rangeSelectStartArtist = null;
+    const rangeBtn = document.getElementById('range-select-btn');
+    if (rangeBtn) {
+      rangeBtn.classList.remove('active');
+      rangeBtn.title = '';
+    }
+    return;
+  }
+
+  const minIndex = Math.min(startIndex, endIndex);
+  const maxIndex = Math.max(startIndex, endIndex);
+
   let count = 0;
   let skippedCount = 0;
-  
   for (let i = minIndex; i <= maxIndex; i++) {
     const artistData = currentArtists[i];
+    // 如果开启隐藏已整理，跳过已格式化的艺术家
+    if (hideOrganizedArtists && artistData.all_organized) {
+      skippedCount++;
+      continue;
+    }
     const a = artistData.artist;
     if (!selectedArtists.has(a)) {
       if (selectedArtists.size >= MAX_SELECTED_ARTISTS) {
@@ -301,17 +354,25 @@ function toggleRangeSelectMode() {
     }
   }
 
+  const startName = currentArtists[minIndex].artist;
+  const endName = currentArtists[maxIndex].artist;
+  rangeSelectStartArtist = null;
+
+  const rangeBtn = document.getElementById('range-select-btn');
+  if (rangeBtn) {
+    rangeBtn.classList.remove('active');
+    rangeBtn.title = '';
+  }
+
   loadArtistTree(searchInput.value);
   updateToolbar();
-
-  let msg = `已自动选择 ${startArtist} 到 ${endArtist} 之间的 ${count} 个艺术家`;
+  
+  let msg = `已选择 ${startName} 到 ${endName} 之间的 ${count} 个艺术家`;
   if (skippedCount > 0) {
     msg += `（跳过 ${skippedCount} 个已整理）`;
   }
   showToast(msg, 'success');
 }
-
-
 
 /**
  * 展开/收起艺术家，并加载其专辑
