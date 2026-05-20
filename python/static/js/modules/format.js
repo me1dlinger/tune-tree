@@ -20,7 +20,7 @@ let currentPreviewTab = 0;
 async function openFormatModal() {
   const hasArtistSelection = selectedArtists.size > 0;
   const hasAlbumTrackSelection = selectedAlbums.size > 0 || selectedTracks.size > 0;
-  
+
   if (!hasArtistSelection && !hasAlbumTrackSelection) return;
 
   const btn = document.getElementById('format-exec-btn');
@@ -32,18 +32,18 @@ async function openFormatModal() {
   try {
     formatPreviewData = {};
     currentPreviewTab = 0;
-    
+
     if (hasArtistSelection) {
       // 多艺术家格式化
       const artists = Array.from(selectedArtists);
-      
+
       for (const artist of artists) {
         const formatData = await POST('/format/preview', {
           artist: artist,
         });
         formatPreviewData[artist] = formatData;
       }
-      
+
       renderMultiArtistPreview();
     } else {
       // 单艺术家/专辑/曲目格式化
@@ -228,22 +228,22 @@ function buildPreviewContent(formatData, artistName, hideSingleArtistStats = fal
 function switchPreviewTab(index) {
   const artists = Object.keys(formatPreviewData);
   if (index < 0 || index >= artists.length) return;
-  
+
   currentPreviewTab = index;
-  
+
   // 更新 tab 样式
   document.querySelectorAll('.preview-tab').forEach((tab, i) => {
     tab.classList.toggle('active', i === index);
   });
-  
+
   // 更新内容
   const currentData = formatPreviewData[artists[index]];
   const contentHtml = buildPreviewContent(currentData, artists[index], true);
-  
+
   // 替换内容区域（保留整体统计和 tabs）
   const body = document.getElementById('format-modal-body');
   const overallStats = body.querySelector('.preview-overall-stats')?.outerHTML || '';
-  
+
   body.innerHTML = `
     ${overallStats}
     <div class="preview-tabs">${body.querySelector('.preview-tabs').innerHTML}</div>
@@ -254,33 +254,33 @@ function switchPreviewTab(index) {
 /** 移除预览 tab */
 function removePreviewTab(event, index) {
   event.stopPropagation();
-  
+
   const artists = Object.keys(formatPreviewData);
   const artistToRemove = artists[index];
-  
+
   delete formatPreviewData[artistToRemove];
-  
+
   // 从选中集合中移除
   selectedArtists.delete(artistToRemove);
-  
+
   const newArtists = Object.keys(formatPreviewData);
   if (newArtists.length === 0) {
     closeModal('format-modal');
     showToast('已移除所有艺术家', 'info');
     return;
   }
-  
+
   // 调整当前 tab 索引
   if (currentPreviewTab >= newArtists.length) {
     currentPreviewTab = newArtists.length - 1;
   }
-  
+
   renderMultiArtistPreview();
 }
 
 /** 获取状态样式类名 */
 function getStatusClass(status) {
-  switch(status) {
+  switch (status) {
     case 'skip': return 'path-skipped';
     case 'conflict': return 'path-conflict';
     default: return 'path-new';
@@ -305,7 +305,7 @@ function getStatusTag(status) {
 async function executeFormat() {
   const hasArtistSelection = selectedArtists.size > 0;
   const hasAlbumTrackSelection = selectedAlbums.size > 0 || selectedTracks.size > 0;
-  
+
   if (!hasArtistSelection && !hasAlbumTrackSelection) return;
 
   const btn = document.getElementById('format-exec-btn');
@@ -318,7 +318,7 @@ async function executeFormat() {
     if (hasArtistSelection) {
       // 多艺术家格式化
       const artists = Object.keys(formatPreviewData);
-      
+
       for (const artist of artists) {
         const result = await POST('/format/execute', {
           artist: artist,

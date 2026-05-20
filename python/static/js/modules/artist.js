@@ -126,7 +126,7 @@ function renderArtistTree(artists) {
   tree.innerHTML = artists.map(a => {
     // 如果开启隐藏已整理，跳过已格式化的艺术家
     if (hideOrganizedArtists && a.all_organized) return '';
-    
+
     const isSelected = selectedArtists.has(a.artist);
     const showCheckbox = artistSelectionEnabled && isSelected;
     return `
@@ -211,12 +211,12 @@ function toggleHideOrganized() {
   hideOrganizedArtists = !hideOrganizedArtists;
   const btn = document.getElementById('hide-organized-toggle');
   const textSpan = btn.querySelector('span');
-  
+
   if (btn && textSpan) {
     btn.classList.toggle('active', hideOrganizedArtists);
     textSpan.textContent = hideOrganizedArtists ? '显示已整理' : '隐藏已整理';
   }
-  
+
   loadArtistTree(document.getElementById('artist-search').value);
   updateToolbar();
 }
@@ -254,12 +254,12 @@ function toggleHideOrganized() {
   hideOrganizedArtists = !hideOrganizedArtists;
   const btn = document.getElementById('hide-organized-toggle');
   const textSpan = btn.querySelector('span');
-  
+
   if (btn && textSpan) {
     btn.classList.toggle('active', hideOrganizedArtists);
     textSpan.textContent = hideOrganizedArtists ? '显示已整理' : '隐藏已整理';
   }
-  
+
   loadArtistTree(document.getElementById('artist-search').value);
   updateToolbar();
 }
@@ -366,7 +366,7 @@ function selectArtistRange(artist) {
 
   loadArtistTree(searchInput.value);
   updateToolbar();
-  
+
   let msg = `已选择 ${startName} 到 ${endName} 之间的 ${count} 个艺术家`;
   if (skippedCount > 0) {
     msg += `（跳过 ${skippedCount} 个已整理）`;
@@ -392,10 +392,10 @@ async function toggleArtist(artist) {
     albums.classList.add('open');
     chevron.classList.add('open');
     header.classList.add('active');
-    
+
     // 刷新艺术家列表，隐藏已格式化的艺术家
     await loadArtistTree(document.getElementById('artist-search').value);
-    
+
     await selectArtist(artist, document.getElementById('talb-' + eid(artist)));
   }
 }
