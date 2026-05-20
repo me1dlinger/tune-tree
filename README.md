@@ -41,14 +41,20 @@
 ### 目录浏览
 ![目录浏览](screenshots/image2.png)
 
+### 艺术家多选格式化
+![艺术家多选格式化](screenshots/image3.png)
+
+### 专辑多选可视化
+![专辑多选可视化](screenshots/image4.png)
+
 ### 统计概览
-![统计概览](screenshots/image3.png)
+![统计概览](screenshots/image5.png)
 
 ### 重复文件详情
-![重复文件详情](screenshots/image4.png)
+![重复文件详情](screenshots/image6.png)
 
 ### 夜间模式
-![夜间模式](screenshots/image5.png)
+![夜间模式](screenshots/image7.png)
 
 ## 技术栈
 
