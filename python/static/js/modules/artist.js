@@ -102,10 +102,13 @@ function getSortedArtists(artists) {
 }
 
 /** 最大可选艺术家数量 */
-const MAX_SELECTED_ARTISTS = 10;
+const MAX_SELECTED_ARTISTS = 30;
 
 /** 艺术家勾选模式开关 */
 let artistSelectionEnabled = false;
+
+/** 是否隐藏已整理的艺术家 */
+let hideOrganizedArtists = false;
 
 /**
  * 将艺术家数组渲染为侧边栏树
@@ -118,13 +121,16 @@ function renderArtistTree(artists) {
     return;
   }
   tree.innerHTML = artists.map(a => {
+    // 如果开启隐藏已整理，跳过已格式化的艺术家
+    if (hideOrganizedArtists && a.all_organized) return '';
+    
     const isSelected = selectedArtists.has(a.artist);
     const showCheckbox = artistSelectionEnabled && isSelected;
     return `
       <div class="tree-artist ${isSelected ? 'selected' : ''}" id="ta-${eid(a.artist)}">
-        <div class="tree-artist-header" onclick="toggleArtist('${esc(a.artist)}')" id="tah-${eid(a.artist)}">
+        <div class="tree-artist-header" onclick="toggleArtist('${escJs(a.artist)}')" id="tah-${eid(a.artist)}">
           ${artistSelectionEnabled ? `
-          <div class="tree-checkbox" onclick="toggleArtistSelection(event, '${esc(a.artist)}')">
+          <div class="tree-checkbox" onclick="toggleArtistSelection(event, '${escJs(a.artist)}')">
             ${showCheckbox ? '✓' : ''}
           </div>
           ` : ''}
@@ -138,7 +144,7 @@ function renderArtistTree(artists) {
         </div>
       </div>
     `;
-  }).join('');
+  }).filter(html => html !== '').join('');
 }
 
 /**
@@ -181,6 +187,26 @@ function clearSelectedArtists() {
     const checkbox = el.querySelector('.tree-checkbox');
     if (checkbox) checkbox.textContent = '';
   });
+  const rangeBtn = document.getElementById('range-select-btn');
+  if (rangeBtn) {
+    rangeBtn.classList.remove('active');
+    rangeBtn.title = '';
+  }
+  updateToolbar();
+}
+
+/** 切换隐藏已整理艺术家 */
+function toggleHideOrganized() {
+  hideOrganizedArtists = !hideOrganizedArtists;
+  const btn = document.getElementById('hide-organized-toggle');
+  const textSpan = btn.querySelector('span');
+  
+  if (btn && textSpan) {
+    btn.classList.toggle('active', hideOrganizedArtists);
+    textSpan.textContent = hideOrganizedArtists ? '显示已整理' : '隐藏已整理';
+  }
+  
+  loadArtistTree(document.getElementById('artist-search').value);
   updateToolbar();
 }
 
@@ -188,16 +214,104 @@ function clearSelectedArtists() {
 function toggleArtistSelectionMode() {
   artistSelectionEnabled = !artistSelectionEnabled;
   const btn = document.getElementById('artist-select-toggle');
-  if (btn) {
+  const textSpan = document.getElementById('artist-select-text');
+  const rangeBtn = document.getElementById('range-select-btn');
+  if (btn && textSpan) {
     btn.classList.toggle('active', artistSelectionEnabled);
-    btn.textContent = artistSelectionEnabled ? '取消勾选' : '勾选艺术家';
+    textSpan.textContent = artistSelectionEnabled ? '取消勾选' : '勾选艺术家';
+  }
+  if (rangeBtn) {
+    rangeBtn.style.display = artistSelectionEnabled ? 'flex' : 'none';
+    rangeBtn.classList.remove('active');
+    rangeBtn.title = '';
   }
   if (!artistSelectionEnabled) {
     clearSelectedArtists();
+    rangeSelectStartArtist = null;
   }
   loadArtistTree(document.getElementById('artist-search').value);
   updateToolbar();
 }
+
+/** 开始/取消范围选择 */
+function toggleRangeSelectMode() {
+  const rangeBtn = document.getElementById('range-select-btn');
+  const searchInput = document.getElementById('artist-search');
+
+  if (!artistSelectionEnabled) {
+    showToast('请先开启勾选艺术家模式', 'warn');
+    return;
+  }
+
+  // 检查是否有已勾选的艺术家
+  if (selectedArtists.size === 0) {
+    showToast('请先勾选至少一个艺术家', 'warn');
+    return;
+  }
+
+  // 获取当前列表中的艺术家（考虑隐藏已整理）
+  let currentArtists = getSortedArtists(allArtists.filter(a =>
+    !searchInput.value || a.artist.toLowerCase().includes(searchInput.value.toLowerCase())
+  ));
+
+  // 如果开启隐藏已整理，过滤掉已整理的艺术家
+  if (hideOrganizedArtists) {
+    currentArtists = currentArtists.filter(a => !a.all_organized);
+  }
+
+  if (currentArtists.length === 0) {
+    showToast('当前列表无艺术家', 'warn');
+    return;
+  }
+
+  // 找出已勾选艺术家的最小和最大索引
+  let minIndex = -1;
+  let maxIndex = -1;
+
+  for (let i = 0; i < currentArtists.length; i++) {
+    if (selectedArtists.has(currentArtists[i].artist)) {
+      if (minIndex === -1) minIndex = i;
+      maxIndex = i;
+    }
+  }
+
+  if (minIndex === -1 || maxIndex === -1 || minIndex === maxIndex) {
+    showToast('请勾选多个艺术家以进行范围选择', 'warn');
+    return;
+  }
+
+  // 自动设置范围起点和终点
+  const startArtist = currentArtists[minIndex].artist;
+  const endArtist = currentArtists[maxIndex].artist;
+
+  // 自动执行范围选择
+  let count = 0;
+  let skippedCount = 0;
+  
+  for (let i = minIndex; i <= maxIndex; i++) {
+    const artistData = currentArtists[i];
+    const a = artistData.artist;
+    if (!selectedArtists.has(a)) {
+      if (selectedArtists.size >= MAX_SELECTED_ARTISTS) {
+        showToast(`最多只能选择 ${MAX_SELECTED_ARTISTS} 个艺术家，已选择 ${selectedArtists.size} 个`, 'warn');
+        break;
+      }
+      selectedArtists.add(a);
+      count++;
+    }
+  }
+
+  loadArtistTree(searchInput.value);
+  updateToolbar();
+
+  let msg = `已自动选择 ${startArtist} 到 ${endArtist} 之间的 ${count} 个艺术家`;
+  if (skippedCount > 0) {
+    msg += `（跳过 ${skippedCount} 个已整理）`;
+  }
+  showToast(msg, 'success');
+}
+
+
 
 /**
  * 展开/收起艺术家，并加载其专辑
@@ -217,7 +331,11 @@ async function toggleArtist(artist) {
     albums.classList.add('open');
     chevron.classList.add('open');
     header.classList.add('active');
-    await selectArtist(artist, albums);
+    
+    // 刷新艺术家列表，隐藏已格式化的艺术家
+    await loadArtistTree(document.getElementById('artist-search').value);
+    
+    await selectArtist(artist, document.getElementById('talb-' + eid(artist)));
   }
 }
 
@@ -238,7 +356,7 @@ async function selectArtist(artist, albumsEl) {
     if (albumsEl) {
       albumsEl.innerHTML = artistAlbums.map(al => `
         <div class="tree-album" id="talbcard-${eid(artist + '|' + al.album)}"
-             onclick="selectAlbumFromTree('${esc(artist)}','${esc(al.album)}')">
+             onclick="selectAlbumFromTree('${escJs(artist)}','${escJs(al.album)}')">
           <div class="tree-album-name">${esc(al.album)}</div>
           ${al.all_organized ? '<div style="font-size:8px;color:var(--accent)">●</div>' : ''}
           <div class="tree-album-count">${al.track_count}</div>
@@ -327,12 +445,12 @@ async function renderArtistView() {
               </svg>
             </div>
             <div class="album-select-overlay">
-              <div class="album-checkbox" onclick="toggleAlbum(event,'${esc(al.album)}')">
+              <div class="album-checkbox" onclick="toggleAlbum(event,'${escJs(al.album)}')">
                 ${selectedAlbums.has(al.album) ? '✓' : ''}
               </div>
             </div>
           </div>
-          <div class="album-info" onclick="expandAlbum('${esc(al.album)}')">
+          <div class="album-info" onclick="expandAlbum('${escJs(al.album)}')">
             <div class="album-name">${esc(al.album)}${al.all_organized ? '<span class="album-organized">●</span>' : ''}</div>
             <div class="album-year">${al.year || '—'} · ${al.track_count} 曲</div>
           </div>
@@ -368,7 +486,7 @@ async function loadTrackSection(artist, album) {
     div.id = sectionId;
     div.innerHTML = `
       <div class="track-section-header">
-        <div class="check-all ${selectedAlbums.has(album) ? 'checked' : ''}" onclick="toggleAlbumTracks('${esc(album)}')">
+        <div class="check-all ${selectedAlbums.has(album) ? 'checked' : ''}" onclick="toggleAlbumTracks('${escJs(album)}')">
           ${selectedAlbums.has(album) ? '✓' : ''}
         </div>
         <span>${esc(album)}</span>

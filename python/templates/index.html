@@ -79,6 +79,30 @@
           <button class="sort-chip" id="sort-artist-count" onclick="setArtistSort('count')">歌曲数</button>
           <button class="sort-chip" id="sort-artist-name" onclick="setArtistSort('name')">名称</button>
         </div>
+        <div class="sidebar-filter-toggle">
+          <button class="filter-toggle-btn" id="hide-organized-toggle" onclick="toggleHideOrganized()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+            </svg>
+            <span>隐藏已整理</span>
+          </button>
+        </div>
+        <div class="sidebar-selection-tools">
+          <button class="toolbar-btn sidebar-selection-btn" id="artist-select-toggle" onclick="toggleArtistSelectionMode()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span id="artist-select-text">勾选艺术家</span>
+          </button>
+          <button class="toolbar-btn sidebar-selection-btn" id="range-select-btn" onclick="toggleRangeSelectMode()" style="display:none;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+            <span id="range-select-text">选择范围</span>
+          </button>
+        </div>
         <div id="scan-status" class="scan-status" style="display:none;">
           <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="2">
@@ -97,9 +121,6 @@
         <div class="page active" id="page-artist">
           <div class="main-toolbar">
             <span class="toolbar-path" id="breadcrumb"><span>全部艺术家</span></span>
-            <button class="toolbar-btn" id="artist-select-toggle" onclick="toggleArtistSelectionMode()">
-              勾选艺术家
-            </button>
             <button class="toolbar-btn" id="select-all-btn" onclick="selectAllAlbums()">全选专辑</button>
             <button class="toolbar-btn primary" id="format-btn" onclick="openFormatModal()"
               style="display:none;">格式化目录</button>

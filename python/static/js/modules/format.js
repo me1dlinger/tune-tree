@@ -9,7 +9,7 @@
 /** 当前格式化预览数据（跨函数共享），支持多艺术家 */
 let formatPreviewData = {};
 
-/** 当前激活的预览tab索引 */
+/** 当前激活的预览 tab 索引 */
 let currentPreviewTab = 0;
 
 /* ═══════════════════════════════════════════════════════════
@@ -74,7 +74,7 @@ async function openFormatModal() {
   }
 }
 
-/** 渲染多艺术家预览界面（带tab） */
+/** 渲染多艺术家预览界面（带 tab） */
 function renderMultiArtistPreview() {
   const artists = Object.keys(formatPreviewData);
   if (artists.length === 0) return;
@@ -92,21 +92,48 @@ function renderMultiArtistPreview() {
     (totalConflicts > 0 ? ` · ${totalConflicts} 个冲突` : '') +
     (totalSkipped > 0 ? ` · ${totalSkipped} 个跳过` : '');
 
-  // 构建tab HTML
-  const tabsHtml = artists.map((artist, index) => `
-    <div class="preview-tab ${index === currentPreviewTab ? 'active' : ''}" 
-         onclick="switchPreviewTab(${index})"
-         id="preview-tab-${index}">
-      ${esc(artist)}
-      <button class="preview-tab-close" onclick="removePreviewTab(event, ${index})">×</button>
-    </div>
-  `).join('');
+  // 构建 tab HTML，每个 tab 显示文件数
+  const tabsHtml = artists.map((artist, index) => {
+    const data = formatPreviewData[artist];
+    return `
+      <div class="preview-tab ${index === currentPreviewTab ? 'active' : ''}" 
+           onclick="switchPreviewTab(${index})"
+           id="preview-tab-${index}">
+        ${esc(artist)}
+        <span class="preview-tab-count">(${data.items.length} 文件)</span>
+        <button class="preview-tab-close" onclick="removePreviewTab(event, ${index})">×</button>
+      </div>
+    `;
+  }).join('');
 
-  // 构建当前tab内容
+  // 构建整体统计区域
+  const overallStatsHtml = `
+    <div class="preview-overall-stats">
+      <div class="overall-stat-item">
+        <span class="overall-stat-label">总文件数</span>
+        <span class="overall-stat-value">${totalFiles}</span>
+      </div>
+      <div class="overall-stat-item ${totalConflicts > 0 ? 'warn' : ''}">
+        <span class="overall-stat-label">冲突</span>
+        <span class="overall-stat-value">${totalConflicts}</span>
+      </div>
+      <div class="overall-stat-item ${totalSkipped > 0 ? 'info' : ''}">
+        <span class="overall-stat-label">跳过</span>
+        <span class="overall-stat-value">${totalSkipped}</span>
+      </div>
+      <div class="overall-stat-item">
+        <span class="overall-stat-label">艺术家数</span>
+        <span class="overall-stat-value">${artists.length}</span>
+      </div>
+    </div>
+  `;
+
+  // 构建当前 tab 内容（始终显示单个艺术家统计）
   const currentData = formatPreviewData[artists[currentPreviewTab]];
-  const contentHtml = buildPreviewContent(currentData, artists[currentPreviewTab]);
+  const contentHtml = buildPreviewContent(currentData, artists[currentPreviewTab], false);
 
   document.getElementById('format-modal-body').innerHTML = `
+    ${overallStatsHtml}
     <div class="preview-tabs">${tabsHtml}</div>
     ${contentHtml}
   `;
@@ -125,8 +152,8 @@ function renderSingleArtistPreview(formatData, artistName) {
   document.getElementById('format-modal-body').innerHTML = buildPreviewContent(formatData, artistName);
 }
 
-/** 构建预览内容HTML */
-function buildPreviewContent(formatData, artistName) {
+/** 构建预览内容 HTML */
+function buildPreviewContent(formatData, artistName, hideSingleArtistStats = false) {
   const { items, conflicts, skipped, tree } = formatData;
 
   let treeHtml = '';
@@ -169,13 +196,18 @@ function buildPreviewContent(formatData, artistName) {
     }
   }
 
-  return `
+  // 根据参数决定是否显示单个艺术家的统计
+  const statHtml = hideSingleArtistStats ? '' : `
     <div class="preview-stat">
       <div class="preview-stat-item">文件总数 <strong>${items.length}</strong></div>
       <div class="preview-stat-item ${conflicts ? 'warn' : ''}">冲突 <strong>${conflicts}</strong></div>
       <div class="preview-stat-item ${skipped ? 'info' : ''}">跳过 <strong>${skipped}</strong></div>
       <div class="preview-stat-item">艺术家 <strong>${esc(artistName)}</strong></div>
     </div>
+  `;
+
+  return `
+    ${statHtml}
     ${treeHtml ? `<div class="preview-tree">${treeHtml}</div>` : ''}
     <table class="preview-table">
       <thead><tr><th>原文件名</th><th>新文件名</th><th>状态</th></tr></thead>
@@ -192,31 +224,34 @@ function buildPreviewContent(formatData, artistName) {
   `;
 }
 
-/** 切换预览tab */
+/** 切换预览 tab */
 function switchPreviewTab(index) {
   const artists = Object.keys(formatPreviewData);
   if (index < 0 || index >= artists.length) return;
   
   currentPreviewTab = index;
   
-  // 更新tab样式
+  // 更新 tab 样式
   document.querySelectorAll('.preview-tab').forEach((tab, i) => {
     tab.classList.toggle('active', i === index);
   });
   
   // 更新内容
   const currentData = formatPreviewData[artists[index]];
-  const contentHtml = buildPreviewContent(currentData, artists[index]);
+  const contentHtml = buildPreviewContent(currentData, artists[index], true);
   
-  // 替换内容区域（保留tabs）
+  // 替换内容区域（保留整体统计和 tabs）
   const body = document.getElementById('format-modal-body');
+  const overallStats = body.querySelector('.preview-overall-stats')?.outerHTML || '';
+  
   body.innerHTML = `
+    ${overallStats}
     <div class="preview-tabs">${body.querySelector('.preview-tabs').innerHTML}</div>
-    ${contentHtml}
+    ${buildPreviewContent(currentData, artists[index], false)}
   `;
 }
 
-/** 移除预览tab */
+/** 移除预览 tab */
 function removePreviewTab(event, index) {
   event.stopPropagation();
   
@@ -235,7 +270,7 @@ function removePreviewTab(event, index) {
     return;
   }
   
-  // 调整当前tab索引
+  // 调整当前 tab 索引
   if (currentPreviewTab >= newArtists.length) {
     currentPreviewTab = newArtists.length - 1;
   }
