@@ -48,67 +48,13 @@ def preview_format(
     previews = []
     conflict_count = 0
     skip_count = 0
-    seen_targets: set[str] = set()
+    seen_artists: dict[str, str] = {}
+    seen_albums: dict[str, str] = {}
+    seen_files: dict[str, str] = {}
     tree_structure = {}
 
     if track_ids and len(track_ids) > 0:
         rows = get_tracks_by_ids(track_ids)
-
-        for row in rows:
-            if row["pending"]:
-                continue
-            artist_name = row["artist"] or "Unknown"
-            album_name = row["album"] or "Unknown"
-            artist_dir = safe_dirname(artist_name)
-            album_dir = safe_dirname(album_name)
-            target_base = str(Path(MUSIC_ROOT) / artist_dir / album_dir)
-
-            new_name = build_target_filename(row)
-            target_path = str(Path(target_base) / new_name)
-
-            # Check if already in correct position (manually formatted)
-            if row["path"] == target_path and row["filename"] == new_name:
-                status = "skip"
-                skip_count += 1
-            elif target_path in seen_targets:
-                status = "conflict"
-                conflict_count += 1
-                stem = Path(new_name).stem
-                sufx = Path(new_name).suffix
-                i = 1
-                while target_path in seen_targets:
-                    new_name = f"{stem} ({i}){sufx}"
-                    target_path = str(Path(target_base) / new_name)
-                    i += 1
-            else:
-                status = "normal"
-            seen_targets.add(target_path)
-
-            # Build tree structure
-            if artist_name not in tree_structure:
-                tree_structure[artist_name] = {}
-            if album_name not in tree_structure[artist_name]:
-                tree_structure[artist_name][album_name] = {
-                    "dir": f"{artist_dir}/{album_dir}",
-                    "tracks": [],
-                }
-            tree_structure[artist_name][album_name]["tracks"].append(
-                {
-                    "filename": new_name,
-                    "track_num": row["track_num"],
-                }
-            )
-
-            previews.append(
-                {
-                    "old_path": row["path"],
-                    "old_name": row["filename"],
-                    "new_path": target_path,
-                    "new_name": new_name,
-                    "status": status,
-                    "track_id": row["id"],
-                }
-            )
     else:
         from repository.track_repository import get_albums_by_artist
 
@@ -128,64 +74,78 @@ def preview_format(
                 album_name = rows[0]["album"] if rows else album["album"]
                 albums_to_process.append((alb_id, album_name, rows))
 
+        all_rows = []
         for alb_id, album_name, rows in albums_to_process:
-            if not rows:
-                continue
-            artist_dir = safe_dirname(artist)
-            album_dir = safe_dirname(album_name)
-            target_base = str(Path(MUSIC_ROOT) / artist_dir / album_dir)
+            if rows:
+                all_rows.extend(rows)
+        rows = all_rows
 
-            # Initialize tree structure for this artist/album
-            if artist not in tree_structure:
-                tree_structure[artist] = {}
-            if album_name not in tree_structure[artist]:
-                tree_structure[artist][album_name] = {
-                    "dir": f"{artist_dir}/{album_dir}",
-                    "tracks": [],
-                }
+    for row in rows:
+        if row["pending"]:
+            continue
+        artist_name = row["artist"] or "Unknown"
+        album_name = row["album"] or "Unknown"
+        artist_dir = safe_dirname(artist_name)
+        album_dir = safe_dirname(album_name)
 
-            for row in rows:
-                if row["pending"]:
-                    continue
-                new_name = build_target_filename(row)
-                target_path = str(Path(target_base) / new_name)
+        artist_key = artist_dir.lower()
 
-                # Check if already in correct position (manually formatted)
-                if row["path"] == target_path and row["filename"] == new_name:
-                    status = "skip"
-                    skip_count += 1
-                elif target_path in seen_targets:
-                    status = "conflict"
-                    conflict_count += 1
-                    stem = Path(new_name).stem
-                    sufx = Path(new_name).suffix
-                    i = 1
-                    while target_path in seen_targets:
-                        new_name = f"{stem} ({i}){sufx}"
-                        target_path = str(Path(target_base) / new_name)
-                        i += 1
-                else:
-                    status = "normal"
-                seen_targets.add(target_path)
+        if artist_key in seen_artists:
+            actual_artist_dir = seen_artists[artist_key]
+        else:
+            actual_artist_dir = artist_dir
+            seen_artists[artist_key] = artist_dir
 
-                # Add to tree structure
-                tree_structure[artist][album_name]["tracks"].append(
-                    {
-                        "filename": new_name,
-                        "track_num": row["track_num"],
-                    }
-                )
+        album_key = f"{artist_key}::{album_dir.lower()}"
 
-                previews.append(
-                    {
-                        "old_path": row["path"],
-                        "old_name": row["filename"],
-                        "new_path": target_path,
-                        "new_name": new_name,
-                        "status": status,
-                        "track_id": row["id"],
-                    }
-                )
+        if album_key in seen_albums:
+            actual_album_dir = seen_albums[album_key]
+        else:
+            actual_album_dir = album_dir
+            seen_albums[album_key] = album_dir
+
+        target_base = str(Path(MUSIC_ROOT) / actual_artist_dir / actual_album_dir)
+
+        new_name = build_target_filename(row)
+        stem = Path(new_name).stem
+        ext = Path(new_name).suffix
+        file_key = f"{target_base.lower()}::{stem.lower()}::{ext.lower()}"
+
+        if row["path"] == target_base + "/" + new_name and row["filename"] == new_name:
+            status = "skip"
+            skip_count += 1
+        elif file_key in seen_files:
+            status = "skip"
+            skip_count += 1
+        else:
+            status = "normal"
+            seen_files[file_key] = new_name
+
+        if artist_name not in tree_structure:
+            tree_structure[artist_name] = {}
+        if album_name not in tree_structure[artist_name]:
+            tree_structure[artist_name][album_name] = {
+                "dir": f"{actual_artist_dir}/{actual_album_dir}",
+                "tracks": [],
+            }
+        tree_structure[artist_name][album_name]["tracks"].append(
+            {
+                "filename": new_name,
+                "track_num": row["track_num"],
+            }
+        )
+
+        target_path = str(Path(target_base) / new_name)
+        previews.append(
+            {
+                "old_path": row["path"],
+                "old_name": row["filename"],
+                "new_path": target_path,
+                "new_name": new_name,
+                "status": status,
+                "track_id": row["id"],
+            }
+        )
 
     return {
         "items": previews,
@@ -261,14 +221,20 @@ def batch_preview_format(artists: list[str]) -> dict:
             total_skipped += result["skipped"]
         except Exception as exc:
             logger.error(f"预览艺术家 {artist} 失败: {exc}")
-            results[artist] = {"error": str(exc), "items": [], "conflicts": 0, "skipped": 0, "tree": {}}
+            results[artist] = {
+                "error": str(exc),
+                "items": [],
+                "conflicts": 0,
+                "skipped": 0,
+                "tree": {},
+            }
 
     return {
         "results": results,
         "total_files": total_files,
         "total_conflicts": total_conflicts,
         "total_skipped": total_skipped,
-        "artists_count": len(artists)
+        "artists_count": len(artists),
     }
 
 
@@ -295,5 +261,5 @@ def batch_execute_format(artists: list[str]) -> dict:
         "total_moved": total_moved,
         "total_skipped": total_skipped,
         "total_errors": total_errors,
-        "artists_count": len(artists)
+        "artists_count": len(artists),
     }
