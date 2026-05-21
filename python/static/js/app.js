@@ -28,16 +28,16 @@ async function initApp() {
   await checkScanStatus();
   await loadArtistTree();
 
-  // 自动展开第一位艺术家（按当前排序方式）
+  // 自动选择第一位艺术家并显示专辑信息
   if (allArtists && allArtists.length > 0) {
     const sortedArtists = getSortedArtists(allArtists);
     const firstArtist = sortedArtists[0].artist;
-    const header = document.getElementById('tah-' + eid(firstArtist));
-    if (header) header.click();
+    // 等待艺术家视图加载完成后再加载其他页面数据
+    await selectArtistFromName(firstArtist);
   }
 
   loadFiles('');
-  loadStats();
+  loadStats(); 
   loadPending();
   loadLogs();
 }

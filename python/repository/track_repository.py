@@ -236,6 +236,41 @@ def get_albums_by_artist(artist: str):
         ORDER BY year, album COLLATE NOCASE
     """, (artist,)).fetchall()
 
+
+def get_artist_full_info(artist: str):
+    """获取艺术家的完整信息，包括所有专辑及其下的所有歌曲"""
+    db = get_db()
+    
+    albums = db.execute("""
+        SELECT album,
+               MIN(year) AS year,
+               COUNT(*) AS track_count,
+               MIN(has_cover) AS has_cover_some,
+               MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized,
+               MIN(id) AS sample_id
+        FROM tracks
+        WHERE artist=? AND album IS NOT NULL AND album != ''
+        GROUP BY album
+        ORDER BY year, album COLLATE NOCASE
+    """, (artist,)).fetchall()
+    
+    tracks = db.execute("""
+        SELECT * FROM tracks 
+        WHERE artist=? 
+        ORDER BY album, disc_num, track_num, filename
+    """, (artist,)).fetchall()
+    
+    albums_with_tracks = []
+    for album in albums:
+        album_dict = dict(album)
+        album_dict['tracks'] = [dict(t) for t in tracks if t['album'] == album['album']]
+        albums_with_tracks.append(album_dict)
+    
+    return {
+        'artist': artist,
+        'albums': albums_with_tracks
+    }
+
 # === 统计操作 ===
 
 def count_total_tracks():

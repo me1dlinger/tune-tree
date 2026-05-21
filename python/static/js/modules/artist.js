@@ -5,6 +5,101 @@
  */
 
 /* ═══════════════════════════════════════════════════════════
+   ARTIST CACHE（浏览器缓存）
+═══════════════════════════════════════════════════════════ */
+
+/** 艺术家缓存的 localStorage 键名 */
+const ARTIST_CACHE_KEY = 'tunetree_artist_cache';
+
+/** 最大缓存艺术家数量 */
+const MAX_CACHE_SIZE = 20;
+
+/**
+ * 获取艺术家缓存
+ * @returns {Object} 缓存对象，key为艺术家名，value为完整信息
+ */
+function getArtistCache() {
+  try {
+    const data = localStorage.getItem(ARTIST_CACHE_KEY);
+    return data ? JSON.parse(data) : { items: [], cache: {} };
+  } catch (e) {
+    console.error('Failed to read artist cache:', e);
+    return { items: [], cache: {} };
+  }
+}
+
+/**
+ * 保存艺术家缓存
+ * @param {Object} cacheData - 缓存数据对象
+ */
+function saveArtistCache(cacheData) {
+  try {
+    localStorage.setItem(ARTIST_CACHE_KEY, JSON.stringify(cacheData));
+  } catch (e) {
+    console.error('Failed to save artist cache:', e);
+  }
+}
+
+/**
+ * 从缓存中获取艺术家数据
+ * @param {string} artist - 艺术家名称
+ * @returns {Object|null} 艺术家完整信息，如果不存在返回null
+ */
+function getArtistFromCache(artist) {
+  const cache = getArtistCache();
+  return cache.cache[artist] || null;
+}
+
+/**
+ * 将艺术家数据存入缓存（FIFO策略）
+ * @param {string} artist - 艺术家名称
+ * @param {Object} data - 艺术家完整信息
+ */
+function setArtistToCache(artist, data) {
+  const cache = getArtistCache();
+
+  // 如果已存在，先移除（后面重新添加到末尾）
+  if (cache.cache[artist]) {
+    const index = cache.items.indexOf(artist);
+    if (index > -1) {
+      cache.items.splice(index, 1);
+    }
+  }
+
+  // 添加到缓存
+  cache.items.push(artist);
+  cache.cache[artist] = data;
+
+  // 如果超过最大缓存数，移除最早的（FIFO）
+  while (cache.items.length > MAX_CACHE_SIZE) {
+    const oldestArtist = cache.items.shift();
+    delete cache.cache[oldestArtist];
+  }
+
+  saveArtistCache(cache);
+}
+
+/**
+ * 清除艺术家缓存
+ */
+function clearArtistCache() {
+  try {
+    localStorage.removeItem(ARTIST_CACHE_KEY);
+  } catch (e) {
+    console.error('Failed to clear artist cache:', e);
+  }
+}
+
+/**
+ * 获取缓存统计信息
+ * @returns {Object} { count: 当前缓存数量, max: 最大缓存数量 }
+ */
+function getArtistCacheStats() {
+  const cache = getArtistCache();
+  return { count: cache.items.length, max: MAX_CACHE_SIZE };
+}
+
+/* ═══════════════════════════════════════════════════════════
    ARTIST TREE（侧边栏）
 ═══════════════════════════════════════════════════════════ */
 
@@ -446,8 +541,12 @@ async function loadArtistAlbumsOnly(artist, albumsEl) {
   }
 }
 
+/** 缓存艺术家的所有歌曲数据 */
+let artistTracksCache = {};
+
 /**
- * 选中艺术家，加载专辑列表，渲染主视图
+ * 选中艺术家，加载专辑列表和所有歌曲，渲染主视图
+ * 优先从localStorage缓存获取，缓存不存在时才请求API
  * @param {string} artist
  * @param {HTMLElement|null} albumsEl — 侧边栏专辑容器（null 表示仅刷新主视图）
  */
@@ -458,7 +557,23 @@ async function selectArtist(artist, albumsEl) {
   selectedTracks.clear();
 
   try {
-    artistAlbums = await GET(`/artists/${encodeURIComponent(artist)}/albums`);
+    // 先从缓存中获取
+    let fullInfo = getArtistFromCache(artist);
+    let fromCache = !!fullInfo;
+
+    // 如果缓存中没有，请求API
+    if (!fullInfo) {
+      fullInfo = await GET(`/artists/${encodeURIComponent(artist)}/full`);
+      // 将数据存入缓存（FIFO策略）
+      setArtistToCache(artist, fullInfo);
+    }
+
+    artistAlbums = fullInfo.albums;
+
+    artistTracksCache = {};
+    fullInfo.albums.forEach(al => {
+      artistTracksCache[al.album] = al.tracks;
+    });
 
     if (albumsEl) {
       albumsEl.innerHTML = artistAlbums.map(al => `
@@ -473,6 +588,13 @@ async function selectArtist(artist, albumsEl) {
 
     renderArtistView();
     switchPage('artist');
+
+    // 调试信息：显示是否从缓存获取
+    if (fromCache) {
+      console.debug(`Artist "${artist}" loaded from cache`);
+    } else {
+      console.debug(`Artist "${artist}" loaded from API`);
+    }
   } catch (e) {
     showToast('加载失败: ' + e.message, 'error');
   }
@@ -499,7 +621,7 @@ function selectAlbumFromTree(artist, album) {
 ═══════════════════════════════════════════════════════════ */
 
 /** 渲染艺术家主视图（专辑网格 + 曲目列表） */
-async function renderArtistView() {
+function renderArtistView() {
   if (!currentArtist) return;
   const view = document.getElementById('artist-view');
   const a = currentArtist;
@@ -565,12 +687,11 @@ async function renderArtistView() {
       `).join('')}
     </div>
 
-    <div id="track-sections"></div>
+    <div id="track-sections">
+      ${albumsToShow.map(al => renderTrackSection(al)).join('')}
+    </div>
   `;
 
-  for (const al of albumsToShow) {
-    await loadTrackSection(a.artist, al.album);
-  }
   updateToolbar();
 }
 
@@ -579,7 +700,66 @@ async function renderArtistView() {
 ═══════════════════════════════════════════════════════════ */
 
 /**
- * 加载并渲染单张专辑的曲目列表
+ * 渲染单张专辑的曲目列表（从缓存中获取数据）
+ * @param {object} album — 包含 tracks 数组的专辑对象
+ */
+function renderTrackSection(album) {
+  const tracks = album.tracks || [];
+  const albumName = album.album;
+
+  return `
+    <div class="track-section" id="ts-${eid(albumName)}">
+      <div class="track-section-header">
+        <div class="check-all ${selectedAlbums.has(albumName) ? 'checked' : ''}" onclick="toggleAlbumTracks('${escJs(albumName)}')">
+          ${selectedAlbums.has(albumName) ? '✓' : ''}
+        </div>
+        <span>${esc(albumName)}</span>
+      </div>
+      <div class="track-header-row">
+        <div class="th"></div><div class="th"></div><div class="th">#</div>
+        <div class="th">曲目</div><div class="th">专辑</div>
+        <div class="th" style="text-align:right;">时长</div>
+        <div class="th" style="text-align:center;">格式</div>
+        <div class="th" style="text-align:right;">质量</div>
+        <div class="th" style="text-align:right;">添加时间</div>
+      </div>
+      <div id="tl-${eid(albumName)}">
+        ${tracks.map(t => {
+    const dur = t.duration ? fmtDur(t.duration) : '—';
+    const sr = t.sample_rate
+      ? (t.sample_rate >= 1000 ? Math.round(t.sample_rate / 1000) + 'kHz' : t.sample_rate + 'Hz')
+      : '—';
+    const fmt = (t.ext || '').replace('.', '').toUpperCase();
+    return `
+            <div class="track-row ${selectedTracks.has(t.id) ? 'selected' : ''}" id="tr-${t.id}"
+                 onclick="showTrackDetail(${t.id})">
+              <div class="tc tc-check">
+                <div class="track-checkbox" onclick="toggleTrack(event,${t.id})">
+                  ${selectedTracks.has(t.id) ? '✓' : ''}
+                </div>
+              </div>
+              <div class="tc tc-play">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </div>
+              <div class="tc tc-num">${t.track_num || '—'}</div>
+              <div class="tc tc-title">${esc(t.title || t.filename)}</div>
+              <div class="tc tc-album">${esc(t.album || '')}</div>
+              <div class="tc tc-time">${dur}</div>
+              <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
+              <div class="tc tc-quality">${sr}</div>
+              <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
+            </div>
+          `;
+  }).join('') || '<div class="loading-row">暂无曲目</div>'}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 加载并渲染单张专辑的曲目列表（兼容旧代码，从缓存中获取）
  * @param {string} artist
  * @param {string} album
  */
@@ -591,6 +771,9 @@ async function loadTrackSection(artist, album) {
     const div = document.createElement('div');
     div.className = 'track-section';
     div.id = sectionId;
+
+    const tracks = artistTracksCache[album] || [];
+
     div.innerHTML = `
       <div class="track-section-header">
         <div class="check-all ${selectedAlbums.has(album) ? 'checked' : ''}" onclick="toggleAlbumTracks('${escJs(album)}')">
@@ -606,50 +789,39 @@ async function loadTrackSection(artist, album) {
         <div class="th" style="text-align:right;">质量</div>
         <div class="th" style="text-align:right;">添加时间</div>
       </div>
-      <div id="tl-${eid(album)}"><div class="loading-row">加载中...</div></div>
-    `;
-    container.appendChild(div);
-  }
-
-  try {
-    const tracks = await GET(
-      `/artists/${encodeURIComponent(artist)}/albums/${encodeURIComponent(album)}/tracks`
-    );
-    const tlEl = document.getElementById('tl-' + eid(album));
-    if (!tlEl) return;
-
-    tlEl.innerHTML = tracks.map(t => {
+      <div id="tl-${eid(album)}">
+        ${tracks.map(t => {
       const dur = t.duration ? fmtDur(t.duration) : '—';
       const sr = t.sample_rate
         ? (t.sample_rate >= 1000 ? Math.round(t.sample_rate / 1000) + 'kHz' : t.sample_rate + 'Hz')
         : '—';
       const fmt = (t.ext || '').replace('.', '').toUpperCase();
       return `
-        <div class="track-row ${selectedTracks.has(t.id) ? 'selected' : ''}" id="tr-${t.id}"
-             onclick="showTrackDetail(${t.id})">
-          <div class="tc tc-check">
-            <div class="track-checkbox" onclick="toggleTrack(event,${t.id})">
-              ${selectedTracks.has(t.id) ? '✓' : ''}
+            <div class="track-row ${selectedTracks.has(t.id) ? 'selected' : ''}" id="tr-${t.id}"
+                 onclick="showTrackDetail(${t.id})">
+              <div class="tc tc-check">
+                <div class="track-checkbox" onclick="toggleTrack(event,${t.id})">
+                  ${selectedTracks.has(t.id) ? '✓' : ''}
+                </div>
+              </div>
+              <div class="tc tc-play">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </div>
+              <div class="tc tc-num">${t.track_num || '—'}</div>
+              <div class="tc tc-title">${esc(t.title || t.filename)}</div>
+              <div class="tc tc-album">${esc(t.album || '')}</div>
+              <div class="tc tc-time">${dur}</div>
+              <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
+              <div class="tc tc-quality">${sr}</div>
+              <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
             </div>
-          </div>
-          <div class="tc tc-play">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="5 3 19 12 5 21 5 3"/>
-            </svg>
-          </div>
-          <div class="tc tc-num">${t.track_num || '—'}</div>
-          <div class="tc tc-title">${esc(t.title || t.filename)}</div>
-          <div class="tc tc-album">${esc(t.album || '')}</div>
-          <div class="tc tc-time">${dur}</div>
-          <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
-          <div class="tc tc-quality">${sr}</div>
-          <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
-        </div>
-      `;
-    }).join('') || '<div class="loading-row">暂无曲目</div>';
-  } catch (e) {
-    const tlEl = document.getElementById('tl-' + eid(album));
-    if (tlEl) tlEl.innerHTML = `<div class="loading-row" style="color:var(--red)">加载失败</div>`;
+          `;
+    }).join('') || '<div class="loading-row">暂无曲目</div>'}
+      </div>
+    `;
+    container.appendChild(div);
   }
 }
 
@@ -662,7 +834,7 @@ async function loadTrackSection(artist, album) {
  * @param {MouseEvent} e
  * @param {string} album
  */
-async function toggleAlbum(e, album) {
+function toggleAlbum(e, album) {
   e.stopPropagation();
   const wasSelected = selectedAlbums.has(album);
 
@@ -691,38 +863,32 @@ async function toggleAlbum(e, album) {
   }
 
   if (wasSelected !== selectedAlbums.has(album)) {
-    try {
-      const tracks = await GET(
-        `/artists/${encodeURIComponent(currentArtist.artist)}/albums/${encodeURIComponent(album)}/tracks`
-      );
-      if (selectedAlbums.has(album)) {
-        tracks.forEach(t => selectedTracks.add(t.id));
-      } else {
-        tracks.forEach(t => selectedTracks.delete(t.id));
-      }
+    const tracks = artistTracksCache[album] || [];
+    if (selectedAlbums.has(album)) {
+      tracks.forEach(t => selectedTracks.add(t.id));
+    } else {
+      tracks.forEach(t => selectedTracks.delete(t.id));
+    }
 
-      const tlEl = document.getElementById('tl-' + eid(album));
-      if (tlEl) {
-        tracks.forEach(t => {
-          const row = document.getElementById('tr-' + t.id);
-          if (row) {
-            row.classList.toggle('selected', selectedTracks.has(t.id));
-            const cb = row.querySelector('.track-checkbox');
-            if (cb) cb.textContent = selectedTracks.has(t.id) ? '✓' : '';
-          }
-        });
+    const tlEl = document.getElementById('tl-' + eid(album));
+    if (tlEl) {
+      tracks.forEach(t => {
+        const row = document.getElementById('tr-' + t.id);
+        if (row) {
+          row.classList.toggle('selected', selectedTracks.has(t.id));
+          const cb = row.querySelector('.track-checkbox');
+          if (cb) cb.textContent = selectedTracks.has(t.id) ? '✓' : '';
+        }
+      });
 
-        const section = document.getElementById('ts-' + eid(album));
-        if (section) {
-          const checkAll = section.querySelector('.check-all');
-          if (checkAll) {
-            checkAll.textContent = selectedAlbums.has(album) ? '✓' : '';
-            checkAll.classList.toggle('checked', selectedAlbums.has(album));
-          }
+      const section = document.getElementById('ts-' + eid(album));
+      if (section) {
+        const checkAll = section.querySelector('.check-all');
+        if (checkAll) {
+          checkAll.textContent = selectedAlbums.has(album) ? '✓' : '';
+          checkAll.classList.toggle('checked', selectedAlbums.has(album));
         }
       }
-    } catch (err) {
-      console.error('Failed to sync album tracks:', album, err);
     }
   }
 
@@ -836,7 +1002,7 @@ function toggleTrack(e, id) {
 }
 
 /** 全选 / 取消全选当前艺术家所有专辑 */
-async function selectAllAlbums() {
+function selectAllAlbums() {
   const allSelected = artistAlbums.every(al => selectedAlbums.has(al.album));
   selectedAlbums.clear();
   selectedTracks.clear();
@@ -844,18 +1010,12 @@ async function selectAllAlbums() {
   if (!allSelected) {
     artistAlbums.forEach(al => selectedAlbums.add(al.album));
     for (const al of artistAlbums) {
-      try {
-        const tracks = await GET(
-          `/artists/${encodeURIComponent(currentArtist.artist)}/albums/${encodeURIComponent(al.album)}/tracks`
-        );
-        tracks.forEach(t => selectedTracks.add(t.id));
-      } catch (e) {
-        console.error('Failed to load tracks for album:', al.album, e);
-      }
+      const tracks = artistTracksCache[al.album] || [];
+      tracks.forEach(t => selectedTracks.add(t.id));
     }
   }
 
-  await renderArtistView();
+  renderArtistView();
 }
 
 /**

@@ -25,6 +25,7 @@ from repository.track_repository import (
     get_duplicate_tracks,
     get_artists,
     get_albums_by_artist,
+    get_artist_full_info,
     count_total_tracks,
     count_total_artists,
     count_total_albums,
@@ -145,6 +146,13 @@ def api_artist_albums(artist: str):
 def api_album_tracks(artist: str, album: str):
     rows = get_tracks_by_artist_and_album(artist, album)
     return jsonify([dict(r) for r in rows])
+
+
+@api_bp.route("/api/artists/<path:artist>/full")
+@require_auth
+def api_artist_full(artist: str):
+    result = get_artist_full_info(artist)
+    return jsonify(result)
 
 
 # Cover art
