@@ -91,6 +91,33 @@ function clearArtistCache() {
 }
 
 /**
+ * 清除指定艺术家列表的缓存
+ * @param {string[]} artists - 要清除缓存的艺术家名称数组
+ */
+function clearArtistsFromCache(artists) {
+  if (!artists || artists.length === 0) return;
+
+  const cache = getArtistCache();
+  let cleared = 0;
+
+  artists.forEach(artist => {
+    if (cache.cache[artist]) {
+      delete cache.cache[artist];
+      const index = cache.items.indexOf(artist);
+      if (index > -1) {
+        cache.items.splice(index, 1);
+      }
+      cleared++;
+    }
+  });
+
+  if (cleared > 0) {
+    saveArtistCache(cache);
+    console.debug(`Cleared cache for ${cleared} artists:`, artists);
+  }
+}
+
+/**
  * 获取缓存统计信息
  * @returns {Object} { count: 当前缓存数量, max: 最大缓存数量 }
  */
@@ -602,10 +629,16 @@ async function selectArtist(artist, albumsEl) {
 
 /**
  * 从侧边栏专辑行选中单张专辑
+ * 如果当前艺术家不是目标艺术家，先加载艺术家数据
  * @param {string} artist
  * @param {string} album
  */
-function selectAlbumFromTree(artist, album) {
+async function selectAlbumFromTree(artist, album) {
+  // 检查当前艺术家是否正确，如果不正确或不存在，先加载艺术家数据
+  if (!currentArtist || currentArtist.artist !== artist) {
+    await selectArtist(artist, null);
+  }
+
   document.querySelectorAll('.tree-album').forEach(el => el.classList.remove('active'));
   const card = document.getElementById('talbcard-' + eid(artist + '|' + album));
   if (card) card.classList.add('active');

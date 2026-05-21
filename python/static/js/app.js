@@ -79,11 +79,23 @@ async function doScan() {
   try {
     const r = await POST('/scan', {});
     showToast(`扫描完成：新增 ${r.added} 更新 ${r.updated} 移除 ${r.removed}`, 'success');
+    
+    // 清除发生变化艺术家的缓存
+    const changedArtists = r.changed_artists || [];
+    if (changedArtists.length > 0) {
+      clearArtistsFromCache(changedArtists);
+      console.debug(`Scan: cleared cache for ${changedArtists.length} changed artists`);
+    }
+    
     await loadArtistTree();
     loadStats();
     loadPending();
     loadLogs();
-    if (currentArtist) await selectArtist(currentArtist.artist, null);
+    
+    // 如果当前艺术家在变化列表中，重新加载他的数据
+    if (currentArtist && changedArtists.includes(currentArtist.artist)) {
+      await selectArtist(currentArtist.artist, null);
+    }
   } catch (e) {
     if (e.message === 'scan_in_progress') {
       showToast('扫描正在进行中，请稍后', 'info');

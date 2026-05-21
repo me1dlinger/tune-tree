@@ -51,7 +51,7 @@ def _batch_update(db, tracks_data: list):
     """, tracks_data)
 
 def _process_file(filepath, existing_tracks, scanned_at):
-    """处理单个音频文件，返回（操作类型，数据）"""
+    """处理单个音频文件，返回（操作类型，数据，艺术家）"""
     path_str = str(filepath)
     filename = filepath.name
     
@@ -66,12 +66,14 @@ def _process_file(filepath, existing_tracks, scanned_at):
 
     existing = existing_tracks.get(path_str)
     if existing and abs(existing["mtime"] - mtime) < 1 and existing["size"] == size:
-        return ("skip", None)
+        return ("skip", None, None)
 
     meta = read_metadata(path_str)
     missing = [f for f in ("title", "artist", "album") if not meta.get(f)]
     pending = 1 if missing else 0
     missing_str = ",".join(missing) if missing else ""
+
+    artist = meta.get("artist") or ""
 
     track_data = (
         path_str, filename, filepath.suffix.lower().lstrip("."),
@@ -85,9 +87,9 @@ def _process_file(filepath, existing_tracks, scanned_at):
     )
 
     if existing:
-        return ("update", track_data[1:] + (path_str,))
+        return ("update", track_data[1:] + (path_str,), artist)
     else:
-        return ("insert", track_data)
+        return ("insert", track_data, artist)
 
 
 def scan_library(root: str) -> dict:
@@ -101,6 +103,9 @@ def scan_library(root: str) -> dict:
     added = updated = skipped = 0
     scanned_at = time.time()
     scan_start_time = time.time()  # 记录扫描开始时间
+    
+    # 收集变化的艺术家
+    changed_artists = set()
     
     # 收集所有音频文件路径
     audio_files = []
@@ -127,15 +132,19 @@ def scan_library(root: str) -> dict:
                 if result is None:
                     continue
                     
-                op_type, data = result
+                op_type, data, artist = result
                 found_paths.add(future_to_path[future])
                 
                 if op_type == "skip":
                     skipped += 1
                 elif op_type == "insert":
                     pending_inserts.append(data)
+                    if artist:
+                        changed_artists.add(artist)
                 elif op_type == "update":
                     pending_updates.append(data)
+                    if artist:
+                        changed_artists.add(artist)
                     
                 # 批量写入
                 if len(pending_inserts) >= BATCH_SIZE:
@@ -167,12 +176,20 @@ def scan_library(root: str) -> dict:
     stale_paths = existing_paths - found_paths
     if stale_paths:
         db = get_db()
-        # 分批删除，避免SQL参数过多
+        # 分批删除，避免SQL参数过多，同时收集被删除的艺术家
         chunk_size = 1000
         stale_list = list(stale_paths)
         for i in range(0, len(stale_list), chunk_size):
             chunk = stale_list[i:i+chunk_size]
             placeholders = ",".join("?" * len(chunk))
+            # 查询被删除的艺术家
+            artist_rows = db.execute(
+                f"SELECT DISTINCT artist FROM tracks WHERE path IN ({placeholders})",
+                tuple(chunk)
+            ).fetchall()
+            for row in artist_rows:
+                if row["artist"]:
+                    changed_artists.add(row["artist"])
             db.execute(f"DELETE FROM tracks WHERE path IN ({placeholders})", tuple(chunk))
         removed = len(stale_list)
     else:
@@ -194,4 +211,10 @@ def scan_library(root: str) -> dict:
     add_op_log(now, "scan", f"扫描完成：新增 {added} 更新 {updated} 跳过 {skipped} 移除 {removed} · 耗时 {duration_str}")
     logger.info(f"扫描完成：新增 {added} 更新 {updated} 跳过 {skipped} 移除 {removed} · 耗时 {duration_str}")
     commit()
-    return {"added": added, "updated": updated, "skipped": skipped, "removed": removed}
+    return {
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "removed": removed,
+        "changed_artists": list(changed_artists)
+    }
