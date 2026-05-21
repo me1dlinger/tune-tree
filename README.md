@@ -192,3 +192,83 @@ tune-tree/
 | `.mp3`  | ID3v2          | APIC | USLT |
 | `.flac` | Vorbis Comment | 内嵌   | 歌词字段 |
 
+## Windows / Linux 特殊字符处理
+
+支持跨平台处理特殊字符限制。
+
+### 不允许的字符
+
+以下字符会被自动替换为下划线 `_`：
+
+| 字符 | Windows | Linux | 说明           |
+| ---- | ------- | ----- | ------------ |
+| `\`  | ❌      | ✅    | 反斜杠（目录分隔符） |
+| `/`  | ❌      | ❌    | 正斜杠（目录分隔符） |
+| `:`  | ❌      | ✅    | 冒号          |
+| `*`  | ❌      | ✅    | 星号（通配符）    |
+| `?`  | ❌      | ✅    | 问号（通配符）    |
+| `"`  | ❌      | ✅    | 双引号         |
+| `<`  | ❌      | ✅    | 小于号         |
+| `>`  | ❌      | ✅    | 大于号         |
+| `|`  | ❌      | ✅    | 竖线          |
+
+### 其他处理规则
+
+1. **控制字符**：ASCII `\x00-\x1f` 和 `\x7f` 会被移除
+2. **首字符处理**：
+   - 以 `-` 开头会被替换为 `_`（避免被误认为命令行选项）
+3. **尾字符处理**：
+   - 以 `.` 结尾会被替换为 `_`（Windows 不允许目录名以点号结尾）
+4. **保留名称**：
+   - Windows 保留名称（`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`）会自动添加下划线后缀
+5. **空名称处理**：
+   - 如果处理后名称为空或只有特殊字符，会使用 `Unknown` 作为默认名称
+
+### 示例
+
+```
+原始名称                    → 处理后名称
+------------------------   → ------------------------
+Michael: Jackson           → Michael_Jackson
+Album / Best Of            → Album _ Best Of
+"Classic" Hits             → _Classic_ Hits
+-rock ballads              → _rock ballads
+README.                    → README_
+CON                        → CON_
+aux                        → aux_
+```
+
+### 代码实现
+
+特殊字符处理逻辑位于 `python/utils/formatting.py`：
+
+```python
+def safe_dirname(name: str) -> str:
+    # 1. 替换跨平台非法字符（Windows: \/:*?"<>|，Linux: /）
+    result = re.sub(r'[\\/:*?"<>|]', "_", name)
+    
+    # 2. 移除控制字符（ASCII 0-31 和 127）
+    result = re.sub(r"[\x00-\x1f\x7f]", "", result)
+    
+    # 3. 去除首尾空格
+    result = result.strip()
+    
+    # 4. 处理 Linux 特殊开头字符（以 - 开头）
+    if result.startswith("-"):
+        result = "_" + result[1:]
+    
+    # 5. 将结尾的点号替换为下划线
+    result = re.sub(r"\.+$", "_", result)
+    
+    # 6. 检查 Windows 保留名称
+    windows_reserved = {
+        "con", "prn", "aux", "nul",
+        "com1-9", "lpt1-9"
+    }
+    if result.lower() in windows_reserved:
+        result = result + "_"
+    
+    # 7. 如果处理后为空或只有特殊字符，返回 Unknown
+    return result or "Unknown"
+```
+
