@@ -50,10 +50,17 @@ async function openFormatModal() {
         const albumIds = artistAlbums
           .filter(al => selectedAlbums.has(al.album))
           .map(al => al.sample_id);
-        formatData = await POST('/format/preview', {
-          artist: currentArtist.artist,
-          album_ids: albumIds,
-        });
+        // 如果 albumIds 为空，改用 track_ids（可能是只选了单首歌曲导致）
+        if (albumIds.length > 0) {
+          formatData = await POST('/format/preview', {
+            artist: currentArtist.artist,
+            album_ids: albumIds,
+          });
+        } else {
+          formatData = await POST('/format/preview', {
+            track_ids: Array.from(selectedTracks),
+          });
+        }
       } else {
         formatData = await POST('/format/preview', {
           track_ids: Array.from(selectedTracks),
@@ -330,10 +337,17 @@ async function executeFormat() {
         const albumIds = artistAlbums
           .filter(al => selectedAlbums.has(al.album))
           .map(al => al.sample_id);
-        result = await POST('/format/execute', {
-          artist: currentArtist.artist,
-          album_ids: albumIds,
-        });
+        // 如果 albumIds 为空，改用 track_ids（可能是只选了单首歌曲导致）
+        if (albumIds.length > 0) {
+          result = await POST('/format/execute', {
+            artist: currentArtist.artist,
+            album_ids: albumIds,
+          });
+        } else {
+          result = await POST('/format/execute', {
+            track_ids: Array.from(selectedTracks),
+          });
+        }
       } else {
         result = await POST('/format/execute', {
           track_ids: Array.from(selectedTracks),

@@ -111,7 +111,10 @@ def preview_format(
         ext = Path(new_name).suffix
         file_key = f"{target_base.lower()}::{stem.lower()}::{ext.lower()}"
 
-        if row["path"] == target_base + "/" + new_name and row["filename"] == new_name:
+        # 使用 Path 对象进行路径比较，避免字符串拼接带来的编码或分隔符问题
+        target_path = str(Path(target_base) / new_name)
+        # 对路径进行 Unicode 规范化，处理日文等非ASCII字符的规范化差异
+        if target_path == row["path"]:
             status = "skip"
             skip_count += 1
         elif file_key in seen_files:
@@ -135,7 +138,6 @@ def preview_format(
             }
         )
 
-        target_path = str(Path(target_base) / new_name)
         previews.append(
             {
                 "old_path": row["path"],
@@ -155,6 +157,25 @@ def preview_format(
     }
 
 
+def delete_empty_dirs(path: Path) -> None:
+    """递归删除空目录（从子目录到父目录）"""
+    if not path.exists():
+        return
+    
+    # 先递归删除子目录中的空目录
+    for child in path.iterdir():
+        if child.is_dir():
+            delete_empty_dirs(child)
+    
+    # 检查当前目录是否为空
+    try:
+        if path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+            logger.info(f"删除空目录: {path}")
+    except Exception as exc:
+        logger.warning(f"删除目录失败 {path}: {exc}")
+
+
 def execute_format(
     artist: str, album_ids: list[int] | None = None, track_ids: list[int] | None = None
 ) -> dict:
@@ -166,24 +187,30 @@ def execute_format(
     if track_ids and len(track_ids) > 0:
         artist = get_artist_by_track_id(track_ids[0]) or "Unknown"
 
+    # 收集所有原目录以便后续检查是否为空
+    original_dirs = set()
+
     for item in preview["items"]:
         # Skip already formatted files and mark them as organized
         if item["status"] == "skip":
             skipped += 1
-            # Mark as organized if not already
+            # Mark as organized and not pending if not already
             db = get_db()
             existing = db.execute(
-                "SELECT organized FROM tracks WHERE id=?", (item["track_id"],)
+                "SELECT organized, pending FROM tracks WHERE id=?", (item["track_id"],)
             ).fetchone()
-            if existing and existing["organized"] == 0:
+            if existing and (existing["organized"] == 0 or existing["pending"] == 1):
                 db.execute(
-                    "UPDATE tracks SET organized=1 WHERE id=?", (item["track_id"],)
+                    "UPDATE tracks SET organized=1, pending=0 WHERE id=?", (item["track_id"],)
                 )
             continue
 
         src = Path(item["old_path"])
         dst = Path(item["new_path"])
         try:
+            # 记录原目录
+            original_dirs.add(src.parent)
+            
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dst))
             update_track_path_and_name(item["track_id"], str(dst), dst.name)
@@ -192,6 +219,10 @@ def execute_format(
             logger.error("move failed %s -> %s: %s", src, dst, exc)
             add_op_log(now, "error", f"移动失败：{src} → {dst}: {exc}")
             errors += 1
+
+    # 删除空目录（从子目录到父目录递归删除）
+    for original_dir in original_dirs:
+        delete_empty_dirs(original_dir)
 
     # mark artist as organized if all albums done
     all_org = count_tracks_by_artist_with_status(artist, 0, 0) == 0
