@@ -697,7 +697,7 @@ function renderArtistView() {
         <div class="album-card ${selectedAlbums.has(al.album) ? 'selected' : ''}" id="alcard-${eid(al.album)}">
           <div class="album-cover-wrap">
             ${al.has_cover_some && al.sample_id
-      ? `<img class="album-cover-img" src="/api/cover/${al.sample_id}?token=${TOKEN}" onerror="this.style.display='none'" loading="lazy">`
+      ? `<img class="album-cover-img" src="${coverUrl(al.sample_id)}" onerror="this.style.display='none'" loading="lazy">`
       : ''
     }
             <div class="album-cover-placeholder" ${al.has_cover_some && al.sample_id ? 'style="display:none"' : ''}>

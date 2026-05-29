@@ -11,9 +11,20 @@ import logging
 import threading
 
 from config import ACCESS_KEY, MUSIC_ROOT
-from utils.metadata import get_cover_b64, get_lyrics
+from utils.metadata import (
+    get_cover_b64,
+    get_lyrics,
+    write_metadata,
+    write_cover,
+    write_lyrics,
+)
 from services.scan_service import scan_library
-from services.format_service import preview_format, execute_format, batch_preview_format, batch_execute_format
+from services.format_service import (
+    preview_format,
+    execute_format,
+    batch_preview_format,
+    batch_execute_format,
+)
 from repository.track_repository import (
     get_track_by_id,
     get_track_by_path,
@@ -41,6 +52,7 @@ from repository.track_repository import (
     get_op_logs,
     clear_op_logs,
     delete_track_by_id,
+    update_track_metadata,
     commit,
 )
 
@@ -185,7 +197,7 @@ def api_cover(track_id: int):
         base64.b64decode(b64),
         mimetype=mime,
         headers={
-            "Cache-Control": "public, max-age=3600, must-revalidate",
+            "Cache-Control": "public, max-age=0, must-revalidate",
             "ETag": etag,
             "Last-Modified": datetime.fromtimestamp(file_mtime).strftime(
                 "%a, %d %b %Y %H:%M:%S GMT"
@@ -215,6 +227,77 @@ def api_track_delete(track_id: int):
     delete_track_by_id(track_id)
     commit()
     return jsonify({"ok": True, "deleted": track_id})
+
+
+MAX_COVER_SIZE = 5 * 1024 * 1024
+
+
+@api_bp.route("/api/tracks/<int:track_id>/metadata", methods=["PUT"])
+@require_auth
+def api_track_update_metadata(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"ok": True, "updated": {}})
+    try:
+        updated = write_metadata(row["path"], data)
+    except Exception as exc:
+        logger.error("metadata write error track %d: %s", track_id, exc)
+        return jsonify({"error": str(exc)}), 500
+    if updated:
+        update_track_metadata(track_id, updated)
+        if any(k in updated for k in ("artist", "album", "title")):
+            update_track_metadata(track_id, {"organized": 0})
+        commit()
+    return jsonify({"ok": True, "updated": updated})
+
+
+@api_bp.route("/api/tracks/<int:track_id>/cover", methods=["PUT"])
+@require_auth
+def api_track_update_cover(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    if "cover" not in request.files:
+        return jsonify({"error": "cover file required"}), 400
+    f = request.files["cover"]
+    if not f.filename:
+        return jsonify({"error": "cover file required"}), 400
+    mime = f.mimetype
+    if mime not in ("image/jpeg", "image/png"):
+        return jsonify({"error": "only JPEG/PNG format supported"}), 400
+    image_data = f.read()
+    if len(image_data) > MAX_COVER_SIZE:
+        return jsonify({"error": "cover file too large (max 5MB)"}), 400
+    try:
+        write_cover(row["path"], image_data, mime)
+    except Exception as exc:
+        logger.error("cover write error track %d: %s", track_id, exc)
+        return jsonify({"error": str(exc)}), 500
+    update_track_metadata(track_id, {"has_cover": 1})
+    commit()
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/api/tracks/<int:track_id>/lyrics", methods=["PUT"])
+@require_auth
+def api_track_update_lyrics(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    data = request.get_json(force=True)
+    lyrics = data.get("lyrics", "")
+    try:
+        write_lyrics(row["path"], lyrics)
+    except Exception as exc:
+        logger.error("lyrics write error track %d: %s", track_id, exc)
+        return jsonify({"error": str(exc)}), 500
+    has_lyrics = 0 if lyrics == "" else 1
+    update_track_metadata(track_id, {"has_lyrics": has_lyrics})
+    commit()
+    return jsonify({"ok": True})
 
 
 @api_bp.route("/api/tracks/batch-delete", methods=["POST"])

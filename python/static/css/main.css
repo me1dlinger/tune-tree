@@ -1366,6 +1366,14 @@ body {
     flex-direction: column;
 }
 
+.detail-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
 .detail-title {
     font-size: 17px;
     font-weight: 600;
@@ -2286,4 +2294,172 @@ body {
     .detail-body {
         padding: 8px 12px;
     }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   METADATA EDIT MODAL
+   ═══════════════════════════════════════════════════════════ */
+
+.edit-modal {
+    width: 480px;
+}
+
+.detail-edit-btn {
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--text3);
+    cursor: pointer;
+    border-radius: var(--radius);
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+    padding: 0;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.detail-edit-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-dim2);
+}
+
+.edit-cover-area {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 20px;
+}
+
+.edit-cover-preview {
+    width: 100px;
+    height: 100px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    color: var(--text3);
+}
+
+.edit-cover-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 4px;
+}
+
+.edit-cover-actions .toolbar-btn {
+    font-size: 11px;
+    gap: 4px;
+}
+
+.edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.edit-field label {
+    display: block;
+    font-size: 11px;
+    color: var(--text3);
+    margin-bottom: 4px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.edit-field input {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    outline: none;
+    transition: border-color var(--transition);
+}
+
+.edit-field input:focus {
+    border-color: var(--accent);
+}
+
+.edit-field input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.edit-field input[type="number"]::-webkit-inner-spin-button,
+.edit-field input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.edit-field-row {
+    display: flex;
+    gap: 12px;
+}
+
+.edit-field-row .edit-field {
+    flex: 1;
+}
+
+.edit-lyrics-toggle {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.edit-lyrics-panel {
+    margin-top: 8px;
+}
+
+.edit-lyrics-textarea {
+    width: 100%;
+    min-height: 200px;
+    padding: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    transition: border-color var(--transition);
+}
+
+.edit-lyrics-textarea:focus {
+    border-color: var(--accent);
+}
+
+#metadata-edit-save-btn.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+#metadata-edit-save-btn.loading::after {
+    content: '';
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--bg);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }

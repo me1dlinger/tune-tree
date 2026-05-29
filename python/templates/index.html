@@ -292,6 +292,21 @@
     </div>
   </div>
 
+  <!-- METADATA EDIT MODAL -->
+  <div class="modal-overlay" id="metadata-edit-modal">
+    <div class="modal edit-modal">
+      <div class="modal-header">
+        <div class="modal-title">编辑元数据</div>
+        <button class="modal-close" onclick="closeMetadataEdit()">✕</button>
+      </div>
+      <div class="modal-body"></div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" onclick="closeMetadataEdit()">取消</button>
+        <button class="toolbar-btn primary" id="metadata-edit-save-btn" onclick="saveMetadataEdit()">保存</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toast-container"></div>
 
   <!-- JavaScript Modules (load order matters) -->
@@ -308,6 +323,7 @@
   <script defer src="{{ url_for('static', filename='js/modules/logs.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/format.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/detail.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/modules/metadata-edit.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 

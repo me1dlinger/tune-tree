@@ -42,3 +42,6 @@ const POST = (path, body) => api('POST', path, body);
 
 /** DELETE 快捷方法 */
 const DELETE = (path) => api('DELETE', path);
+
+/** PUT 快捷方法 */
+const PUT = (path, body) => api('PUT', path, body);

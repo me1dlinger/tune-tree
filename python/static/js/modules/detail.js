@@ -45,6 +45,17 @@ function dr(label, val) {
  * @param {{ has_cover: boolean, id: number }} track
  * @param {HTMLElement} coverEl
  */
+let _coverBustIds = new Set();
+
+function bustCoverCache(trackId) {
+  _coverBustIds.add(trackId);
+}
+
+function coverUrl(trackId) {
+  const bust = _coverBustIds.has(trackId) ? `&_t=${Date.now()}` : '';
+  return `/api/cover/${trackId}?token=${TOKEN}${bust}`;
+}
+
 function renderCover(track, coverEl) {
   const placeholder = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
     <path d="M9 18V5l12-2v13"/>
@@ -53,15 +64,18 @@ function renderCover(track, coverEl) {
   </svg>`;
 
   if (track.has_cover) {
-    const coverUrl = `/api/cover/${track.id}?token=${TOKEN}`;
+    const url = coverUrl(track.id);
     const img = document.createElement('img');
-    img.src = coverUrl;
+    img.src = url;
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;cursor:zoom-in;';
+    img.onload = function () {
+      _coverBustIds.delete(track.id);
+    };
     img.onerror = function () {
       coverEl.innerHTML = placeholder;
     };
     img.onclick = function () {
-      openCoverImageViewer(coverUrl);
+      openCoverImageViewer(url);
     };
     coverEl.innerHTML = '';
     coverEl.appendChild(img);
@@ -103,7 +117,15 @@ function buildDetailBody(t, lyricsPrefix = '') {
   const lyricsId = lyricsPrefix ? `lyrics-${lyricsPrefix}-${t.id}` : `lyrics-${t.id}`;
 
   return `
-    <div class="detail-title">${esc(t.title || t.filename)}</div>
+    <div class="detail-title-row">
+      <div class="detail-title">${esc(t.title || t.filename)}</div>
+      <button class="detail-edit-btn" onclick="openMetadataEdit(window._currentTrack)" title="编辑元数据">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+      </button>
+    </div>
     <div class="detail-artist">${esc(t.artist || '未知艺术家')}${t.album ? ' — ' + esc(t.album) : ''}</div>
     <div class="detail-section">
       <div class="detail-section-label">元数据</div>
@@ -153,6 +175,7 @@ function buildDetailBody(t, lyricsPrefix = '') {
 async function showTrackDetail(id) {
   try {
     const t = await GET(`/tracks/${id}`);
+    window._currentTrack = t;
     const panel = document.getElementById('detail-panel');
     panel.classList.remove('hidden');
     renderCover(t, document.getElementById('detail-cover'));
@@ -169,6 +192,7 @@ async function showTrackDetail(id) {
 async function showFileMeta(path) {
   try {
     const t = await GET(`/tracks/by-path?path=${encodeURIComponent(path)}`);
+    window._currentTrack = t;
     const panel = document.getElementById('detail-panel');
     panel.classList.remove('hidden');
     renderCover(t, document.getElementById('detail-cover'));
