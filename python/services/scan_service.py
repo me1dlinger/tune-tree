@@ -4,9 +4,14 @@
 import logging
 import os
 import time
+import unicodedata
 import concurrent.futures
 from datetime import datetime
 from pathlib import Path
+
+def _normalize_path(path: str) -> str:
+    """对路径进行Unicode正规化，处理日语假名等字符的不同表示形式"""
+    return unicodedata.normalize('NFC', path)
 from utils.metadata import read_metadata
 from models.db import get_db
 from repository.track_repository import (
@@ -26,7 +31,7 @@ MAX_WORKERS = 8  # 线程池大小，根据CPU核心数调整
 def _load_existing_tracks() -> dict[str, dict]:
     db = get_db()
     rows = db.execute("SELECT path, id, mtime, size FROM tracks").fetchall()
-    return {row["path"]: {"id": row["id"], "mtime": row["mtime"], "size": row["size"]} for row in rows}
+    return {_normalize_path(row["path"]): {"id": row["id"], "mtime": row["mtime"], "size": row["size"]} for row in rows}
 
 def _batch_insert(db, tracks_data: list):
     if not tracks_data:
@@ -53,6 +58,7 @@ def _batch_update(db, tracks_data: list):
 def _process_file(filepath, existing_tracks, scanned_at):
     """处理单个音频文件，返回（操作类型，数据，艺术家）"""
     path_str = str(filepath)
+    path_normalized = _normalize_path(path_str)
     filename = filepath.name
     
     try:
@@ -63,8 +69,8 @@ def _process_file(filepath, existing_tracks, scanned_at):
     mtime = stat.st_mtime
     ctime = stat.st_ctime
     size = stat.st_size
-
-    existing = existing_tracks.get(path_str)
+    
+    existing = existing_tracks.get(path_normalized)
     if existing and abs(existing["mtime"] - mtime) < 1 and existing["size"] == size:
         return ("skip", None, None)
 
@@ -76,7 +82,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
     artist = meta.get("artist") or ""
 
     track_data = (
-        path_str, filename, filepath.suffix.lower().lstrip("."),
+        path_normalized, filename, filepath.suffix.lower().lstrip("."),
         size, mtime, ctime,
         meta["title"], meta["artist"], meta["album"],
         meta["album_artist"], meta["year"],
@@ -87,7 +93,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
     )
 
     if existing:
-        return ("update", track_data[1:] + (path_str,), artist)
+        return ("update", track_data[1:] + (path_normalized,), artist)
     else:
         return ("insert", track_data, artist)
 
@@ -119,11 +125,11 @@ def scan_library(root: str) -> dict:
     
     # 使用线程池并行处理文件
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        # 提交所有任务，使用字典映射future到文件路径
+        # 提交所有任务，使用字典映射future到正规化后的文件路径
         future_to_path = {}
         for filepath in audio_files:
             future = executor.submit(_process_file, filepath, existing_tracks, scanned_at)
-            future_to_path[future] = str(filepath)
+            future_to_path[future] = _normalize_path(str(filepath))
         
         # 处理结果
         for future in concurrent.futures.as_completed(future_to_path):
