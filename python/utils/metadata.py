@@ -5,10 +5,44 @@
 import base64
 import logging
 import re
+import unicodedata
 from pathlib import Path
 from mutagen import File as MutagenFile
 
 logger = logging.getLogger("tunetree")
+
+def _normalize_path(path: str) -> str:
+    """对路径进行Unicode正规化，处理日语假名等字符的不同表示形式"""
+    return unicodedata.normalize('NFC', path)
+
+def _find_file(path: str) -> str:
+    """尝试多种Unicode正规化形式查找文件，返回可访问的路径"""
+    # 尝试原始路径
+    if Path(path).exists():
+        return path
+    
+    # 尝试NFC正规化
+    nfc_path = unicodedata.normalize('NFC', path)
+    if Path(nfc_path).exists():
+        return nfc_path
+    
+    # 尝试NFD正规化
+    nfd_path = unicodedata.normalize('NFD', path)
+    if Path(nfd_path).exists():
+        return nfd_path
+    
+    # 尝试NFKC正规化
+    nfkc_path = unicodedata.normalize('NFKC', path)
+    if Path(nfkc_path).exists():
+        return nfkc_path
+    
+    # 尝试NFKD正规化
+    nfkd_path = unicodedata.normalize('NFKD', path)
+    if Path(nfkd_path).exists():
+        return nfkd_path
+    
+    # 都找不到，返回原始路径
+    return path
 
 
 def _safe_str(val) -> str | None:
@@ -44,7 +78,8 @@ def read_metadata(path: str) -> dict:
         "has_lyrics": 0,
     }
     try:
-        audio = MutagenFile(path, easy=True)
+        actual_path = _find_file(path)
+        audio = MutagenFile(actual_path, easy=True)
         if audio is None:
             return meta
 
@@ -63,9 +98,9 @@ def read_metadata(path: str) -> dict:
             meta["bitrate"] = getattr(info, "bitrate", None)
 
         # check cover / lyrics via non-easy tags
-        raw = MutagenFile(path)
+        raw = MutagenFile(actual_path)
         if raw:
-            ext = Path(path).suffix.lower()
+            ext = Path(actual_path).suffix.lower()
             if ext == ".flac":
                 meta["has_cover"] = 1 if raw.pictures else 0
                 meta["has_lyrics"] = (
@@ -85,8 +120,10 @@ def read_metadata(path: str) -> dict:
 def get_cover_b64(path: str) -> str | None:
     """Extract embedded album art, return base64-encoded JPEG/PNG or None."""
     try:
-        ext = Path(path).suffix.lower()
-        raw = MutagenFile(path)
+        actual_path = _find_file(path)
+        logger.info(f"actual path: {actual_path}")
+        ext = Path(actual_path).suffix.lower()
+        raw = MutagenFile(actual_path)
         if raw is None:
             return None
         if ext == ".flac":
@@ -116,11 +153,13 @@ TAG_MAP = {
 
 
 def write_metadata(path: str, fields: dict) -> dict:
+    actual_path = _find_file(path)
+    logger.info(f"write metadata to {actual_path}")
     """Write metadata tags to mp3/flac. fields keys: artist/album/album_artist/year/track_num.
     Returns dict of actually updated fields."""
     if not fields:
         return {}
-    audio = MutagenFile(path, easy=True)
+    audio = MutagenFile(actual_path, easy=True)
     if audio is None:
         raise ValueError(f"Cannot open audio file: {path}")
     updated = {}
@@ -141,8 +180,9 @@ def write_metadata(path: str, fields: dict) -> dict:
 
 def write_cover(path: str, image_data: bytes, mime_type: str) -> None:
     """Write embedded cover art to mp3/flac. Removes existing cover first."""
-    ext = Path(path).suffix.lower()
-    raw = MutagenFile(path)
+    actual_path = _find_file(path)
+    ext = Path(actual_path).suffix.lower()
+    raw = MutagenFile(actual_path)
     if raw is None:
         raise ValueError(f"Cannot open audio file: {path}")
     if ext == ".flac":
@@ -158,7 +198,7 @@ def write_cover(path: str, image_data: bytes, mime_type: str) -> None:
     elif ext == ".mp3":
         from mutagen.id3 import APIC, ID3
 
-        tags = ID3(path)
+        tags = ID3(actual_path)
         del tags["APIC"]
         tags.add(
             APIC(
@@ -169,15 +209,16 @@ def write_cover(path: str, image_data: bytes, mime_type: str) -> None:
                 data=image_data,
             )
         )
-        tags.save(path)
+        tags.save(actual_path)
     else:
         raise ValueError(f"Unsupported format for cover write: {ext}")
 
 
 def write_lyrics(path: str, lyrics_text: str) -> None:
     """Write lyrics tag to mp3/flac. Empty string removes lyrics."""
-    ext = Path(path).suffix.lower()
-    raw = MutagenFile(path)
+    actual_path = _find_file(path)
+    ext = Path(actual_path).suffix.lower()
+    raw = MutagenFile(actual_path)
     if raw is None:
         raise ValueError(f"Cannot open audio file: {path}")
     if ext == ".flac":
@@ -190,21 +231,22 @@ def write_lyrics(path: str, lyrics_text: str) -> None:
     elif ext == ".mp3":
         from mutagen.id3 import USLT, ID3
 
-        tags = ID3(path)
+        tags = ID3(actual_path)
         to_remove = [k for k in tags if k.startswith("USLT")]
         for k in to_remove:
             del tags[k]
         if lyrics_text:
             tags.add(USLT(encoding=3, lang="eng", desc="", text=lyrics_text))
-        tags.save(path)
+        tags.save(actual_path)
     else:
         raise ValueError(f"Unsupported format for lyrics write: {ext}")
 
 
 def get_lyrics(path: str) -> str | None:
     try:
-        ext = Path(path).suffix.lower()
-        raw = MutagenFile(path)
+        actual_path = _find_file(path)
+        ext = Path(actual_path).suffix.lower()
+        raw = MutagenFile(actual_path)
         if raw is None:
             return None
         if ext == ".flac":

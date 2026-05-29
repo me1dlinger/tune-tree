@@ -31,7 +31,7 @@ MAX_WORKERS = 8  # 线程池大小，根据CPU核心数调整
 def _load_existing_tracks() -> dict[str, dict]:
     db = get_db()
     rows = db.execute("SELECT path, id, mtime, size FROM tracks").fetchall()
-    return {_normalize_path(row["path"]): {"id": row["id"], "mtime": row["mtime"], "size": row["size"]} for row in rows}
+    return {_normalize_path(row["path"]): {"id": row["id"], "mtime": row["mtime"], "size": row["size"], "original_path": row["path"]} for row in rows}
 
 def _batch_insert(db, tracks_data: list):
     if not tracks_data:
@@ -48,11 +48,11 @@ def _batch_update(db, tracks_data: list):
     if not tracks_data:
         return
     db.executemany("""
-        UPDATE tracks SET filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
+        UPDATE tracks SET path=?,filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
         album=?,album_artist=?,year=?,track_num=?,disc_num=?,duration=?,
         sample_rate=?,bitrate=?,has_cover=?,has_lyrics=?,pending=?,
         missing_tags=?,scanned_at=?
-        WHERE path=?
+        WHERE id=?
     """, tracks_data)
 
 def _process_file(filepath, existing_tracks, scanned_at):
@@ -82,7 +82,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
     artist = meta.get("artist") or ""
 
     track_data = (
-        path_normalized, filename, filepath.suffix.lower().lstrip("."),
+        path_str, filename, filepath.suffix.lower().lstrip("."),
         size, mtime, ctime,
         meta["title"], meta["artist"], meta["album"],
         meta["album_artist"], meta["year"],
@@ -93,7 +93,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
     )
 
     if existing:
-        return ("update", track_data[1:] + (path_normalized,), artist)
+        return ("update", track_data + (existing["id"],), artist)
     else:
         return ("insert", track_data, artist)
 
