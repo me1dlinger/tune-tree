@@ -5,6 +5,7 @@ Track 数据访问层
 
 from models.db import get_db
 from utils.metadata import normalize_str
+from utils.formatting import safe_dirname
 
 # === Track CRUD 操作 ===
 
@@ -405,16 +406,17 @@ def get_artist_directory_path(artist: str) -> str | None:
     
     from pathlib import Path
     track_path = Path(row["path"])
-    
     parts = track_path.parts
-    artist_norm = normalize_str(artist.lower().strip())
-    
+    artist_safe = safe_dirname(artist)
+    artist_norm = normalize_str(artist_safe.lower().strip())
     for i in range(len(parts) - 1, 0, -1):
         folder_name = parts[i]
-        if normalize_str(folder_name.lower()) == artist_norm:
+        folder_safe = safe_dirname(folder_name)
+        folder_norm = normalize_str(folder_safe.lower())
+        if folder_norm == artist_norm:
             return str(Path(*parts[:i+1]))
     
-    return str(track_path.parent)
+    return str(track_path.parent.parent)
 
 
 # === 统计操作 ===

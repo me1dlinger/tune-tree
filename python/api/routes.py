@@ -182,7 +182,6 @@ def api_artist_cover_get(artist: str):
     artist_dir = get_artist_directory_path(artist)
     if not artist_dir:
         abort(404)
-    
     cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
     if not cover_path.exists():
         abort(404)
@@ -537,6 +536,7 @@ def api_files():
     limit = request.args.get("limit", type=int, default=500)
     offset = request.args.get("offset", type=int, default=0)
     sort = request.args.get("sort", default="name")
+    folders_first = request.args.get("folders_first", default="true").lower() == "true"
     search = request.args.get("search", default="").strip().lower()
 
     try:
@@ -570,20 +570,25 @@ def api_files():
         entries_data = [e for e in entries_data if search in e["name"].lower()]
 
     if sort == "date":
-        entries_data.sort(key=lambda e: (e["is_dir"], -e["mtime"]), reverse=False)
         dirs = [e for e in entries_data if e["is_dir"]]
         files = [e for e in entries_data if not e["is_dir"]]
         dirs.sort(key=lambda e: -e["mtime"])
         files.sort(key=lambda e: -e["mtime"])
-        entries_data = dirs + files
+        if folders_first:
+            entries_data = dirs + files
+        else:
+            entries_data = files + dirs
     else:
-        entries_data.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+        if folders_first:
+            entries_data.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+        else:
+            entries_data.sort(key=lambda e: (e["is_dir"], e["name"].lower()))
 
     total = len(entries_data)
     page_items = entries_data[offset : offset + limit]
 
     for item in page_items:
-        item["mtime"] = datetime.fromtimestamp(item["mtime"]).strftime("%Y-%m-%d %H:%M")
+        item["mtime"] = datetime.fromtimestamp(item["mtime"]).strftime("%Y-%m-%d %H:%M:%S")
 
     return jsonify(
         {

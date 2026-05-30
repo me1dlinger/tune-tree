@@ -162,13 +162,16 @@
               <button class="sort-chip active" id="sort-name" onclick="setFileSort('name')">名称</button>
               <button class="sort-chip" id="sort-date" onclick="setFileSort('date')">时间</button>
             </div>
+            <div style="display:flex;gap:4px;margin-left:8px;">
+              <button class="sort-chip active" id="folders-first" onclick="toggleFoldersFirst()">文件夹优先</button>
+            </div>
           </div>
           <div class="files-view" id="files-view">
             <div class="file-header-row">
               <div class="fh"></div>
               <div class="fh">文件名</div>
               <div class="fh">路径</div>
-              <div class="fh">类型</div>
+              <div class="fh" style="text-align:center;">类型</div>
               <div class="fh" style="text-align:right;">大小</div>
               <div class="fh" style="text-align:right;">修改时间</div>
             </div>

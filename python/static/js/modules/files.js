@@ -31,7 +31,8 @@ async function fetchFiles() {
       path: filePath,
       limit: PAGE_SIZE,
       offset: currentOffset,
-      sort: fileSort || 'name'
+      sort: fileSort || 'name',
+      folders_first: foldersFirst ? 'true' : 'false'
     });
     if (currentSearch) {
       params.set('search', currentSearch);
@@ -128,6 +129,20 @@ function setFileSort(mode) {
   fileSort = mode;
   document.querySelectorAll('.sort-chip').forEach(c => c.classList.remove('active'));
   document.getElementById('sort-' + mode).classList.add('active');
+  currentOffset = 0;
+  fetchFiles();
+}
+
+function toggleFoldersFirst() {
+  foldersFirst = !foldersFirst;
+  const btn = document.getElementById('folders-first');
+  if (foldersFirst) {
+    btn.classList.add('active');
+    btn.textContent = '文件夹优先';
+  } else {
+    btn.classList.remove('active');
+    btn.textContent = '文件优先';
+  }
   currentOffset = 0;
   fetchFiles();
 }

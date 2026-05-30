@@ -1234,7 +1234,7 @@ body {
 
 .file-row {
     display: grid;
-    grid-template-columns: 32px 1fr 140px 80px 70px 70px;
+    grid-template-columns: 32px 1fr 280px 80px 70px 200px;
     align-items: center;
     height: 36px;
     border-bottom: 1px solid var(--border);
@@ -1294,7 +1294,7 @@ body {
 
 .file-header-row {
     display: grid;
-    grid-template-columns: 32px 1fr 140px 80px 70px 70px;
+    grid-template-columns: 32px 1fr 280px 80px 70px 200px;
     height: 28px;
     align-items: center;
     border-bottom: 1px solid var(--border);

@@ -34,6 +34,9 @@ let theme = localStorage.getItem('tt-theme') || 'light';
 /** 文件浏览器排序方式：'name' | 'date' */
 let fileSort = 'name';
 
+/** 文件浏览器是否文件夹优先：true = 文件夹在前，false = 文件在前 */
+let foldersFirst = true;
+
 /** 文件浏览器当前路径 */
 let filePath = '';
 
