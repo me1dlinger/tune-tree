@@ -33,10 +33,10 @@ async function loadStats() {
     if (scanInfo.scanning) {
       const elapsed = formatElapsedTime(scanInfo.scan_elapsed_seconds || 0);
       if (scanInfo.scan_timed_out) {
-        scanStatusText = `⚠️ 扫描超时（已运行 ${elapsed}），请刷新页面后重新扫描`;
+        scanStatusText = `扫描超时（已运行 ${elapsed}），请刷新页面后重新扫描`;
         scanStatusClass = 'scan-timed-out';
       } else {
-        scanStatusText = `🔄 正在扫描中（已运行 ${elapsed}）`;
+        scanStatusText = `正在扫描中（已运行 ${elapsed}）`;
         scanStatusClass = 'scan-running';
       }
     }
