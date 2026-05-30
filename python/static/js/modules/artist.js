@@ -14,6 +14,9 @@ const ARTIST_CACHE_KEY = 'tunetree_artist_cache';
 /** 最大缓存艺术家数量 */
 const MAX_CACHE_SIZE = 20;
 
+/** 缓存过期时间（小时） */
+const CACHE_EXPIRE_HOURS = 6;
+
 /**
  * 获取艺术家缓存
  * @returns {Object} 缓存对象，key为艺术家名，value为完整信息
@@ -41,17 +44,40 @@ function saveArtistCache(cacheData) {
 }
 
 /**
- * 从缓存中获取艺术家数据
- * @param {string} artist - 艺术家名称
- * @returns {Object|null} 艺术家完整信息，如果不存在返回null
+ * 检查缓存是否过期
+ * @param {number} cachedAt - 缓存时间戳
+ * @returns {boolean} true表示已过期
  */
-function getArtistFromCache(artist) {
-  const cache = getArtistCache();
-  return cache.cache[artist] || null;
+function isCacheExpired(cachedAt) {
+  if (!cachedAt) return true;
+  const now = Date.now();
+  const expireMs = CACHE_EXPIRE_HOURS * 60 * 60 * 1000;
+  return (now - cachedAt) > expireMs;
 }
 
 /**
- * 将艺术家数据存入缓存（FIFO策略）
+ * 从缓存中获取艺术家数据（检查过期时间）
+ * @param {string} artist - 艺术家名称
+ * @returns {Object|null} 艺术家完整信息，如果不存在或已过期返回null
+ */
+function getArtistFromCache(artist) {
+  const cache = getArtistCache();
+  const cachedData = cache.cache[artist];
+  if (!cachedData) return null;
+  
+  // 检查缓存是否过期
+  if (isCacheExpired(cachedData._cachedAt)) {
+    console.debug(`Artist "${artist}" cache expired (${CACHE_EXPIRE_HOURS} hours)`);
+    return null;
+  }
+  
+  // 返回数据，但移除内部使用的时间戳字段
+  const { _cachedAt, ...data } = cachedData;
+  return data;
+}
+
+/**
+ * 将艺术家数据存入缓存（FIFO策略），并记录缓存时间
  * @param {string} artist - 艺术家名称
  * @param {Object} data - 艺术家完整信息
  */
@@ -66,9 +92,12 @@ function setArtistToCache(artist, data) {
     }
   }
 
-  // 添加到缓存
+  // 添加到缓存，包含缓存时间戳
   cache.items.push(artist);
-  cache.cache[artist] = data;
+  cache.cache[artist] = {
+    ...data,
+    _cachedAt: Date.now()
+  };
 
   // 如果超过最大缓存数，移除最早的（FIFO）
   while (cache.items.length > MAX_CACHE_SIZE) {
