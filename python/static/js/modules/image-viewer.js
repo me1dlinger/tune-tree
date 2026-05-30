@@ -11,6 +11,7 @@ let startY = 0;
 let translateX = 0;
 let translateY = 0;
 let isAnimating = false;
+let currentFilename = 'image';
 
 /* ═══════════════════════════════════════════════════════════
    HTML 结构
@@ -273,7 +274,7 @@ async function downloadImage() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'image-' + Date.now() + '.' + getExtensionFromUrl(img.src);
+    a.download = currentFilename + '.' + getExtensionFromUrl(img.src);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -344,6 +345,7 @@ function showImageViewer(imageUrl, options = {}) {
   translateY = 0;
   isDragging = false;
   isAnimating = false;
+  currentFilename = filename;
 
   // Set image source
   img.onload = () => {

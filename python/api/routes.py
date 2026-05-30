@@ -25,6 +25,7 @@ from services.format_service import (
     batch_preview_format,
     batch_execute_format,
 )
+from services.metadata_scraper import MetadataScraper
 from repository.track_repository import (
     get_track_by_id,
     get_track_by_path,
@@ -51,6 +52,7 @@ from repository.track_repository import (
     set_scan_finished,
     get_op_logs,
     clear_op_logs,
+    add_op_log,
     delete_track_by_id,
     update_track_metadata,
     commit,
@@ -588,3 +590,112 @@ def api_logs_clear():
     clear_op_logs()
     commit()
     return jsonify({"ok": True})
+
+
+# === 元数据刮削相关接口 ===
+
+scraper = MetadataScraper()
+
+
+@api_bp.route("/api/tracks/<int:track_id>/scrape", methods=["POST"])
+@require_auth
+def api_scrape_metadata(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    
+    data = request.get_json(force=True) or {}
+    preferred_api = data.get("preferred_api")
+    
+    current_meta = {
+        "title": row["title"],
+        "artist": row["artist"],
+        "album": row["album"],
+    }
+    
+    add_op_log(datetime.now().isoformat(), "scrape_start", f"开始刮削元数据: {row['filename']}")
+    
+    try:
+        scraped_data = scraper.scrape(row["path"], current_meta, preferred_api)
+        
+        if scraped_data:
+            add_op_log(datetime.now().isoformat(), "scrape_success", 
+                      f"成功从 {scraped_data['_source']} 获取元数据: {row['filename']}")
+            return jsonify({
+                "ok": True,
+                "original": current_meta,
+                "scraped": scraped_data
+            })
+        else:
+            add_op_log(datetime.now().isoformat(), "scrape_fail", 
+                      f"未能找到匹配的元数据: {row['filename']}")
+            return jsonify({"ok": False, "error": "未找到匹配的元数据"})
+    except Exception as e:
+        logger.error(f"刮削元数据失败: {e}")
+        add_op_log(datetime.now().isoformat(), "scrape_error", 
+                  f"刮削元数据出错: {row['filename']} - {str(e)}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@api_bp.route("/api/tracks/<int:track_id>/apply-scrape", methods=["POST"])
+@require_auth
+def api_apply_scraped_metadata(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"ok": False, "error": "缺少数据"}), 400
+    
+    add_op_log(datetime.now().isoformat(), "apply_scrape_start", 
+              f"开始应用刮削的元数据: {row['filename']}")
+    
+    try:
+        # 准备元数据更新
+        meta_fields = {}
+        for key in ["title", "artist", "album", "album_artist", "year", "track_num"]:
+            if key in data and data[key] is not None:
+                meta_fields[key] = data[key]
+        
+        # 更新元数据标签
+        updated = {}
+        if meta_fields:
+            updated = write_metadata(row["path"], meta_fields)
+            if updated:
+                update_track_metadata(track_id, updated)
+                if any(k in updated for k in ("artist", "album", "title")):
+                    update_track_metadata(track_id, {"organized": 0})
+        
+        # 更新封面
+        cover_updated = False
+        if data.get("_cover_data"):
+            cover_data = base64.b64decode(data["_cover_data"])
+            write_cover(row["path"], cover_data, "image/jpeg")
+            update_track_metadata(track_id, {"has_cover": 1})
+            cover_updated = True
+        
+        # 更新歌词
+        lyrics_updated = False
+        if data.get("lyrics") is not None:
+            write_lyrics(row["path"], data["lyrics"])
+            has_lyrics = 1 if data["lyrics"] else 0
+            update_track_metadata(track_id, {"has_lyrics": has_lyrics})
+            lyrics_updated = True
+        
+        commit()
+        
+        add_op_log(datetime.now().isoformat(), "apply_scrape_success", 
+                  f"成功应用元数据: {row['filename']}")
+        
+        return jsonify({
+            "ok": True,
+            "updated": updated,
+            "cover_updated": cover_updated,
+            "lyrics_updated": lyrics_updated
+        })
+    except Exception as e:
+        logger.error(f"应用刮削的元数据失败: {e}")
+        add_op_log(datetime.now().isoformat(), "apply_scrape_error", 
+                  f"应用元数据出错: {row['filename']} - {str(e)}")
+        return jsonify({"ok": False, "error": str(e)}), 500

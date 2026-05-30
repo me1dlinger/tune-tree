@@ -1,6 +1,7 @@
+
 /**
  * metadata-edit.js — 元数据在线编辑模块
- * 包含：编辑弹窗渲染、临时状态管理、封面管理、歌词编辑、保存提交。
+ * 包含：编辑弹窗渲染、临时状态管理、封面管理、歌词编辑、保存提交、元数据刮削
  * 依赖：api.js（PUT）、state.js（TOKEN）、ui.js（openModal/closeModal/showToast）、detail.js（showTrackDetail）
  */
 
@@ -10,6 +11,7 @@
 
 let editState = null;
 let originalData = null;
+let scrapedData = null;
 let newCoverFile = null;
 let newCoverPreviewUrl = null;
 let lyricsExpanded = false;
@@ -29,6 +31,7 @@ function openMetadataEdit(track) {
     lyrics: track.lyrics || '',
   };
   editState = { ...originalData };
+  scrapedData = null;
   newCoverFile = null;
   newCoverPreviewUrl = null;
   lyricsExpanded = false;
@@ -42,6 +45,7 @@ function openMetadataEdit(track) {
 function closeMetadataEdit() {
   editState = null;
   originalData = null;
+  scrapedData = null;
   newCoverFile = null;
   if (newCoverPreviewUrl) {
     URL.revokeObjectURL(newCoverPreviewUrl);
@@ -57,25 +61,34 @@ function closeMetadataEdit() {
 
 function renderEditModal(track) {
   const coverUrl = track.has_cover ? `/api/cover/${track.id}?token=${TOKEN}` : '';
-  const coverPreview = newCoverPreviewUrl
-    ? `<img src="${newCoverPreviewUrl}" style="width:100%;height:100%;object-fit:cover;">`
-    : coverUrl
-      ? `<img src="${coverUrl}" style="width:100%;height:100%;object-fit:cover;">`
-      : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-           <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-         </svg>`;
+  const coverFilename = `${(track.artist || 'unknown').replace(/[\\/:*?"<>|]/g, '_')}-${(track.album || 'unknown').replace(/[\\/:*?"<>|]/g, '_')}`;
+  let coverPreview = '';
+
+  if (newCoverPreviewUrl) {
+    coverPreview = newCoverPreviewUrl;
+  } else if (scrapedData && scrapedData._cover_data) {
+    coverPreview = `data:image/jpeg;base64,${scrapedData._cover_data}`;
+  } else if (coverUrl) {
+    coverPreview = coverUrl;
+  }
+
+  const coverImg = coverPreview
+    ? `<img src="${coverPreview}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" onclick="openCoverImageViewer('${coverPreview}', '${coverFilename}')">`
+    : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+         <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+       </svg>`;
 
   return `
     <div class="edit-cover-area">
-      <div class="edit-cover-preview">${coverPreview}</div>
+      <div class="edit-cover-preview">${coverImg}</div>
       <div class="edit-cover-actions">
-        ${coverUrl ? `<a class="toolbar-btn" href="${coverUrl}" download="cover.jpg" title="下载封面">
+        ${coverUrl ? `<button class="toolbar-btn" onclick="downloadCoverImage('${coverUrl}', '${coverFilename}')" title="下载封面">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           下载封面
-        </a>` : ''}
+        </button>` : ''}
         <label class="toolbar-btn" title="上传替换封面">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -87,30 +100,39 @@ function renderEditModal(track) {
       </div>
     </div>
     <div class="edit-form">
+      <div class="scrape-section">
+        <button class="toolbar-btn scrape-btn" onclick="scrapeMetadata()" id="scrape-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          智能刮削元数据
+        </button>
+        ${scrapedData ? `<div class="scrape-success">✓ 已从 ${scrapedData._source} 获取元数据</div>` : ''}
+      </div>
       <div class="edit-field">
         <label>歌名</label>
-        <input type="text" value="${esc(editState.title)}" data-field="title" oninput="handleFieldInput(this)">
+        ${renderFieldWithComparison('title')}
       </div>
       <div class="edit-field">
         <label>艺术家</label>
-        <input type="text" value="${esc(editState.artist)}" data-field="artist" oninput="handleFieldInput(this)">
+        ${renderFieldWithComparison('artist')}
       </div>
       <div class="edit-field">
         <label>专辑名</label>
-        <input type="text" value="${esc(editState.album)}" data-field="album" oninput="handleFieldInput(this)">
+        ${renderFieldWithComparison('album')}
       </div>
       <div class="edit-field">
         <label>专辑艺术家</label>
-        <input type="text" value="${esc(editState.album_artist)}" data-field="album_artist" oninput="handleFieldInput(this)">
+        ${renderFieldWithComparison('album_artist')}
       </div>
       <div class="edit-field-row">
         <div class="edit-field">
           <label>音轨号</label>
-          <input type="number" min="0" value="${esc(String(editState.track_num))}" data-field="track_num" oninput="handleFieldInput(this)">
+          ${renderFieldWithComparison('track_num')}
         </div>
         <div class="edit-field">
           <label>年份</label>
-          <input type="text" value="${esc(editState.year)}" data-field="year" oninput="handleFieldInput(this)">
+          ${renderFieldWithComparison('year')}
         </div>
       </div>
     </div>
@@ -124,8 +146,42 @@ function renderEditModal(track) {
       </button>
     </div>
     <div class="edit-lyrics-panel" style="display:${lyricsExpanded ? 'block' : 'none'};">
-      <textarea class="edit-lyrics-textarea" oninput="handleLyricsInput(this)">${esc(editState.lyrics)}</textarea>
+      ${renderLyricsWithComparison()}
     </div>
+  `;
+}
+
+function renderFieldWithComparison(field) {
+  const currentValue = esc(String(editState[field] || ''));
+  const originalValue = esc(String(originalData[field] || ''));
+  const scrapedValue = scrapedData ? esc(String(scrapedData[field] || '')) : null;
+  const hasChange = scrapedData && scrapedValue !== originalValue && scrapedValue !== '';
+
+  if (field === 'track_num') {
+    return `
+      <input type="number" min="0" value="${currentValue}" data-field="${field}" oninput="handleFieldInput(this)">
+      ${hasChange ? `<div class="scraped-suggestion" onclick="useScrapedValue('${field}')">推荐: ${scrapedValue}</div>` : ''}
+      ${originalValue !== '' ? `<div class="original-value">原值: ${originalValue}</div>` : ''}
+    `;
+  }
+
+  return `
+    <input type="text" value="${currentValue}" data-field="${field}" oninput="handleFieldInput(this)">
+    ${hasChange ? `<div class="scraped-suggestion" onclick="useScrapedValue('${field}')">推荐: ${scrapedValue}</div>` : ''}
+    ${originalValue !== '' ? `<div class="original-value">原值: ${originalValue}</div>` : ''}
+  `;
+}
+
+function renderLyricsWithComparison() {
+  const currentValue = esc(editState.lyrics || '');
+  const originalValue = esc(originalData.lyrics || '');
+  const scrapedValue = scrapedData ? esc(scrapedData.lyrics || '') : null;
+  const hasChange = scrapedData && scrapedValue !== originalValue && scrapedValue !== '';
+
+  return `
+    ${hasChange ? `<div class="scraped-suggestion" onclick="useScrapedValue('lyrics')">使用推荐歌词</div>` : ''}
+    <textarea class="edit-lyrics-textarea" oninput="handleLyricsInput(this)">${currentValue}</textarea>
+    ${originalValue !== '' ? `<div class="original-value">原歌词: ${originalValue.substring(0, 200)}${originalValue.length > 200 ? '...' : ''}</div>` : ''}
   `;
 }
 
@@ -145,6 +201,21 @@ function handleFieldInput(el) {
 
 function handleLyricsInput(el) {
   editState.lyrics = el.value;
+}
+
+function useScrapedValue(field) {
+  if (!scrapedData) return;
+
+  if (field === 'lyrics') {
+    editState.lyrics = scrapedData.lyrics || '';
+  } else if (scrapedData[field] !== null && scrapedData[field] !== undefined) {
+    editState[field] = scrapedData[field];
+  }
+
+  const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
+  GET(`/api/tracks/${trackId}`).then(track => {
+    document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -176,6 +247,25 @@ function handleCoverUpload(input) {
   }
 }
 
+function downloadCoverImage(coverUrl, filename) {
+  fetch(coverUrl)
+    .then(response => response.blob())
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename + '.jpg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('封面已下载', 'success');
+    })
+    .catch(() => {
+      showToast('下载失败', 'error');
+    });
+}
+
 /* ═══════════════════════════════════════════════════════════
    LYRICS TOGGLE
    ═══════════════════════════════════════════════════════════ */
@@ -191,7 +281,44 @@ function toggleLyricsEditor() {
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
         <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
       </svg>
-      ${lyricsExpanded ? '收起歌词编辑' : '编辑歌词'}`;
+      ${lyricsExpanded ? '收起歌词编辑' : '编辑歌词'}
+    `;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   METADATA SCRAPING
+   ═══════════════════════════════════════════════════════════ */
+
+async function scrapeMetadata() {
+  const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
+  const btn = document.getElementById('scrape-btn');
+
+  btn.disabled = true;
+  btn.classList.add('loading');
+  showToast('正在刮削元数据...', 'info');
+
+  try {
+    const result = await POST(`/tracks/${trackId}/scrape`, {});
+    if (result.ok) {
+      scrapedData = result.scraped;
+      for (const key of ['title', 'artist', 'album', 'album_artist', 'year', 'track_num', 'lyrics']) {
+        if (scrapedData[key] !== null && scrapedData[key] !== undefined) {
+          editState[key] = scrapedData[key];
+        }
+      }
+
+      const track = await GET(`/tracks/${trackId}`);
+      document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
+      showToast(`已从 ${scrapedData._source} 获取元数据`, 'success');
+    } else {
+      showToast(result.error || '刮削失败', 'error');
+    }
+  } catch (e) {
+    showToast('刮削出错: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
   }
 }
 
@@ -202,7 +329,7 @@ function toggleLyricsEditor() {
 async function saveMetadataEdit() {
   if (!editState || !originalData) return;
 
-  const trackId = document.querySelector('#metadata-edit-modal').dataset.trackId;
+  const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
   if (!trackId) return;
 
   const saveBtn = document.getElementById('metadata-edit-save-btn');
@@ -210,16 +337,38 @@ async function saveMetadataEdit() {
   saveBtn.classList.add('loading');
 
   try {
-    const metaChanges = {};
-    const metaFields = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year'];
-    for (const f of metaFields) {
-      if (String(editState[f]) !== String(originalData[f])) {
-        metaChanges[f] = editState[f] === '' ? null : editState[f];
+    if (scrapedData) {
+      const applyData = { ...scrapedData };
+      for (const key of ['title', 'artist', 'album', 'album_artist', 'year', 'track_num', 'lyrics']) {
+        if (editState[key] !== originalData[key]) {
+          applyData[key] = editState[key];
+        }
       }
-    }
 
-    if (Object.keys(metaChanges).length > 0) {
-      await PUT(`/tracks/${trackId}/metadata`, metaChanges);
+      await fetch(`/api/tracks/${trackId}/apply-scrape`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Token': TOKEN
+        },
+        body: JSON.stringify(applyData)
+      });
+    } else {
+      const metaChanges = {};
+      const metaFields = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year'];
+      for (const f of metaFields) {
+        if (String(editState[f]) !== String(originalData[f])) {
+          metaChanges[f] = editState[f] === '' ? null : editState[f];
+        }
+      }
+
+      if (Object.keys(metaChanges).length > 0) {
+        await PUT(`/tracks/${trackId}/metadata`, metaChanges);
+      }
+
+      if (String(editState.lyrics) !== String(originalData.lyrics)) {
+        await PUT(`/tracks/${trackId}/lyrics`, { lyrics: editState.lyrics });
+      }
     }
 
     if (newCoverFile) {
@@ -235,10 +384,6 @@ async function saveMetadataEdit() {
         throw new Error(err.error || '封面上传失败');
       }
       bustCoverCache(parseInt(trackId, 10));
-    }
-
-    if (String(editState.lyrics) !== String(originalData.lyrics)) {
-      await PUT(`/tracks/${trackId}/lyrics`, { lyrics: editState.lyrics });
     }
 
     const artistsToInvalidate = [originalData.artist];

@@ -87,10 +87,11 @@ function renderCover(track, coverEl) {
 /**
  * 打开封面图片查看器
  * @param {string} coverUrl - 封面图片 URL
+ * @param {string} filename - 下载时的文件名
  */
-function openCoverImageViewer(coverUrl) {
+function openCoverImageViewer(coverUrl, filename = 'album-cover') {
   if (typeof showImageViewer === 'function') {
-    showImageViewer(coverUrl, { filename: 'album-cover' });
+    showImageViewer(coverUrl, { filename: filename });
   } else {
     window.open(coverUrl, '_blank');
   }
