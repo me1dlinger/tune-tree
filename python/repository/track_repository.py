@@ -3,9 +3,11 @@ Track 数据访问层
 封装所有与 tracks 表相关的 SQL 操作
 """
 
+import os
 from models.db import get_db
 from utils.metadata import normalize_str
 from utils.formatting import safe_dirname
+from config import MUSIC_ROOT
 
 # === Track CRUD 操作 ===
 
@@ -393,30 +395,37 @@ def get_artist_full_info(artist: str):
 
 
 def get_artist_directory_path(artist: str) -> str | None:
-    """获取艺术家的目录路径（通过任意一首歌曲的路径推断）
-    
-    假设目录结构为: music_root/ArtistName/AlbumName/song.flac
+    """获取艺术家的目录路径
+
+    优先从已整理的歌曲路径推断目录结构。如果艺术家没有任何已整理的歌曲，
+    则在音乐库根目录下创建艺术家目录。
     """
     db = get_db()
     row = db.execute(
-        "SELECT path FROM tracks WHERE artist=? LIMIT 1", (artist,)
+        """
+        SELECT path FROM tracks
+        WHERE artist=? AND organized=1
+        LIMIT 1
+        """,
+        (artist,)
     ).fetchone()
-    if not row:
-        return None
-    
-    from pathlib import Path
-    track_path = Path(row["path"])
-    parts = track_path.parts
-    artist_safe = safe_dirname(artist)
-    artist_norm = normalize_str(artist_safe.lower().strip())
-    for i in range(len(parts) - 1, 0, -1):
-        folder_name = parts[i]
-        folder_safe = safe_dirname(folder_name)
-        folder_norm = normalize_str(folder_safe.lower())
-        if folder_norm == artist_norm:
-            return str(Path(*parts[:i+1]))
-    
-    return str(track_path.parent.parent)
+    if row:
+        from pathlib import Path
+        track_path = Path(row["path"])
+        parts = track_path.parts
+        artist_safe = safe_dirname(artist)
+        artist_norm = normalize_str(artist_safe.lower().strip())
+        for i in range(len(parts) - 1, 0, -1):
+            folder_name = parts[i]
+            folder_safe = safe_dirname(folder_name)
+            folder_norm = normalize_str(folder_safe.lower())
+            if folder_norm == artist_norm:
+                return str(Path(*parts[:i+1]))
+        return str(track_path.parent.parent)
+
+    artist_dir = os.path.join(MUSIC_ROOT, safe_dirname(artist))
+    os.makedirs(artist_dir, exist_ok=True)
+    return artist_dir
 
 
 # === 统计操作 ===

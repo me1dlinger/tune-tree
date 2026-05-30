@@ -795,17 +795,35 @@ async function scrapeArtistCover(artist) {
   try {
     showToast('正在从网易云获取歌手头像...', 'info');
     const result = await POST(`/artists/${encodeURIComponent(artist)}/scrape-cover`, {});
-    
+
     if (result.error) {
       showToast('获取失败: ' + result.error, 'error');
       return;
     }
-    
+
     artistCoverCache[artist] = true;
     await loadArtistCover(artist);
     showToast('歌手头像获取成功', 'success');
   } catch (err) {
     showToast('获取失败: ' + err.message, 'error');
+  }
+}
+
+async function deleteArtistCover(artist) {
+  try {
+    showToast('正在删除歌手头像...', 'info');
+    const result = await DELETE(`/artists/${encodeURIComponent(artist)}/cover`);
+
+    if (result.error) {
+      showToast('删除失败: ' + result.error, 'error');
+      return;
+    }
+
+    delete artistCoverCache[artist];
+    await loadArtistCover(artist);
+    showToast('歌手头像已删除', 'success');
+  } catch (err) {
+    showToast('删除失败: ' + err.message, 'error');
   }
 }
 
@@ -854,6 +872,12 @@ async function loadArtistCover(artist) {
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
           </svg>
         </button>
+        <button class="artist-cover-btn" id="delete-cover-btn" title="删除头像">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
       `;
       actionsDiv.querySelectorAll('button')[0].onclick = (e) => {
         e.stopPropagation();
@@ -862,6 +886,10 @@ async function loadArtistCover(artist) {
       actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
         e.stopPropagation();
         scrapeArtistCover(artist);
+      };
+      actionsDiv.querySelector('#delete-cover-btn').onclick = (e) => {
+        e.stopPropagation();
+        deleteArtistCover(artist);
       };
 
       coverEl.innerHTML = '';

@@ -66,7 +66,7 @@ logger = logging.getLogger("tunetree")
 api_bp = Blueprint("api", __name__)
 
 SCAN_TIMEOUT_HOURS = 1
-
+scraper = MetadataScraper()
 
 def _check_scan_timeout():
     """检查扫描是否超时，若超时则重置状态"""
@@ -446,8 +446,24 @@ def api_artist_cover_exists(artist: str):
     return jsonify({"exists": exists})
 
 
-from services.netease_api import NeteaseApi
+@api_bp.route("/api/artists/<path:artist>/cover", methods=["DELETE"])
+@require_auth
+def api_artist_cover_delete(artist: str):
+    artist_dir = get_artist_directory_path(artist)
+    if not artist_dir:
+        return jsonify({"error": "artist directory not found"}), 404
 
+    cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+    if not cover_path.exists():
+        return jsonify({"error": "cover file not found"}), 404
+
+    try:
+        cover_path.unlink()
+    except Exception as exc:
+        logger.error("artist cover delete error %s: %s", artist, exc)
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"ok": True})
 
 @api_bp.route("/api/artists/<path:artist>/scrape-cover", methods=["POST"])
 @require_auth
@@ -455,23 +471,8 @@ def api_artist_scrape_cover(artist: str):
     artist_dir = get_artist_directory_path(artist)
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
-    
-    artist_names = [a.strip() for a in artist.split(",")]
-    image_data = None
-    successful_artist = None
-    
-    for name in artist_names:
-        if not name:
-            continue
-        try:
-            image_data = NeteaseApi.download_artist_avatar(name)
-            if image_data and len(image_data) >= 1000:
-                successful_artist = name
-                break
-        except Exception as exc:
-            logger.warning(f"netease api failed for artist '{name}': {exc}")
-            continue
-    
+    image_data, successful_artist = scraper.scrape_artist_avatar(artist)
+
     if not image_data or len(image_data) < 1000:
         return jsonify({"error": f"failed to fetch artist avatar for: {artist}"}), 502
     
@@ -929,7 +930,7 @@ def api_logs_clear():
 
 # === 元数据刮削相关接口 ===
 
-scraper = MetadataScraper()
+
 
 
 @api_bp.route("/api/tracks/<int:track_id>/scrape", methods=["POST"])

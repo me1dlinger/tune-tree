@@ -290,3 +290,48 @@ class MetadataScraper:
         logger.debug(f"{api_name} API 搜索结果（按匹配度排序）: {[(r.get('title'), r.get('artist'), r.get('_match_score')) for r in all_results]}")
 
         return all_results
+
+    def scrape_artist_avatar(self, artist: str) -> tuple[Optional[bytes], Optional[str]]:
+        """
+        刮削艺术家头像
+        Returns: (image_data, successful_artist_name) or (None, None) if all failed
+        """
+        artist_names = [a.strip() for a in artist.split(",")]
+        image_data = None
+        successful_artist = None
+
+        for name in artist_names:
+            if not name:
+                continue
+            try:
+                image_data = NeteaseApi.download_artist_avatar(name)
+                if image_data and len(image_data) >= 1000:
+                    successful_artist = name
+                    break
+            except Exception as exc:
+                logger.warning(f"netease api failed for artist '{name}': {exc}")
+                continue
+
+        if not image_data or len(image_data) < 1000:
+            separators = ["/", "&", "\\", "、"]
+            for name in artist_names:
+                if not name:
+                    continue
+                for sep in separators:
+                    if sep in name:
+                        fallback_name = name.split(sep)[0].strip()
+                        if fallback_name and fallback_name != name:
+                            try:
+                                image_data = NeteaseApi.download_artist_avatar(fallback_name)
+                                if image_data and len(image_data) >= 1000:
+                                    successful_artist = fallback_name
+                                    logger.info(f"artist avatar fallback succeeded: '{name}' -> '{fallback_name}'")
+                                    break
+                            except Exception as exc:
+                                logger.warning(f"netease api fallback failed for artist '{fallback_name}': {exc}")
+                            if image_data and len(image_data) >= 1000:
+                                break
+                if image_data and len(image_data) >= 1000:
+                    break
+
+        return image_data, successful_artist
