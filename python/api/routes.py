@@ -274,35 +274,44 @@ def api_artist_scrape_cover(artist: str):
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
     
-    try:
-        image_data = NeteaseApi.download_artist_avatar(artist)
-        
-        if not image_data or len(image_data) < 1000:
-            return jsonify({"error": "failed to fetch artist avatar from netease"}), 502
-        
-        if len(image_data) > MAX_ARTIST_COVER_SIZE:
-            return jsonify({"error": "cover file too large (max 5MB)"}), 400
-        
+    artist_names = [a.strip() for a in artist.split(",")]
+    image_data = None
+    successful_artist = None
+    
+    for name in artist_names:
+        if not name:
+            continue
         try:
-            from PIL import Image
-            import io
-            
-            img = Image.open(io.BytesIO(image_data))
-            if img.format != "JPEG":
-                img = img.convert("RGB")
-            
-            cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
-            img.save(cover_path, "JPEG", quality=90)
-            
+            image_data = NeteaseApi.download_artist_avatar(name)
+            if image_data and len(image_data) >= 1000:
+                successful_artist = name
+                break
         except Exception as exc:
-            logger.error("artist cover save error %s: %s", artist, exc)
-            return jsonify({"error": str(exc)}), 500
+            logger.warning(f"netease api failed for artist '{name}': {exc}")
+            continue
+    
+    if not image_data or len(image_data) < 1000:
+        return jsonify({"error": f"failed to fetch artist avatar for: {artist}"}), 502
+    
+    if len(image_data) > MAX_ARTIST_COVER_SIZE:
+        return jsonify({"error": "cover file too large (max 5MB)"}), 400
+    
+    try:
+        from PIL import Image
+        import io
         
-        return jsonify({"ok": True, "path": str(cover_path)})
+        img = Image.open(io.BytesIO(image_data))
+        if img.format != "JPEG":
+            img = img.convert("RGB")
+        
+        cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+        img.save(cover_path, "JPEG", quality=90)
         
     except Exception as exc:
-        logger.error("netease api error: %s", exc)
-        return jsonify({"error": f"netease api failed: {exc}"}), 502
+        logger.error("artist cover save error %s: %s", artist, exc)
+        return jsonify({"error": str(exc)}), 500
+    
+    return jsonify({"ok": True, "path": str(cover_path), "artist": successful_artist or artist})
 
 
 # Cover art
@@ -540,14 +549,16 @@ def api_files():
     for entry in entries:
         try:
             stat = entry.stat()
+            is_dir = entry.is_dir()
+            ext = entry.suffix.lower().lstrip(".") if not is_dir else "dir"
+            is_audio = ext in ("mp3", "flac") if not is_dir else False
             entries_data.append(
                 {
                     "name": entry.name,
                     "path": str(entry.relative_to(base)),
-                    "is_dir": entry.is_dir(),
-                    "ext": entry.suffix.lower().lstrip(".")
-                    if not entry.is_dir()
-                    else "dir",
+                    "is_dir": is_dir,
+                    "ext": ext,
+                    "is_audio": is_audio,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
                 }
@@ -742,34 +753,34 @@ def api_scrape_metadata(track_id: int):
     
     data = request.get_json(force=True) or {}
     preferred_api = data.get("preferred_api")
-    
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     current_meta = {
         "title": row["title"],
         "artist": row["artist"],
         "album": row["album"],
     }
-    
-    add_op_log(datetime.now().isoformat(), "scrape_start", f"开始刮削元数据: {row['filename']}")
-    
     try:
         scraped_data = scraper.scrape(row["path"], current_meta, preferred_api)
         
         if scraped_data:
-            add_op_log(datetime.now().isoformat(), "scrape_success", 
+            add_op_log(now, "scrape_success", 
                       f"成功从 {scraped_data['_source']} 获取元数据: {row['filename']}")
+            commit()
             return jsonify({
                 "ok": True,
                 "original": current_meta,
                 "scraped": scraped_data
             })
         else:
-            add_op_log(datetime.now().isoformat(), "scrape_fail", 
+            add_op_log(now, "scrape_fail", 
                       f"未能找到匹配的元数据: {row['filename']}")
+            commit()
             return jsonify({"ok": False, "error": "未找到匹配的元数据"})
     except Exception as e:
         logger.error(f"刮削元数据失败: {e}")
-        add_op_log(datetime.now().isoformat(), "scrape_error", 
+        add_op_log(now, "scrape_error", 
                   f"刮削元数据出错: {row['filename']} - {str(e)}")
+        commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -779,14 +790,11 @@ def api_apply_scraped_metadata(track_id: int):
     row = get_track_by_id(track_id)
     if not row:
         abort(404)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     data = request.get_json(force=True)
     if not data:
         return jsonify({"ok": False, "error": "缺少数据"}), 400
-    
-    add_op_log(datetime.now().isoformat(), "apply_scrape_start", 
-              f"开始应用刮削的元数据: {row['filename']}")
-    
     try:
         # 准备元数据更新
         meta_fields = {}
@@ -818,12 +826,9 @@ def api_apply_scraped_metadata(track_id: int):
             has_lyrics = 1 if data["lyrics"] else 0
             update_track_metadata(track_id, {"has_lyrics": has_lyrics})
             lyrics_updated = True
-        
-        commit()
-        
-        add_op_log(datetime.now().isoformat(), "apply_scrape_success", 
+        add_op_log(now, "apply_scrape_success", 
                   f"成功应用元数据: {row['filename']}")
-        
+        commit()
         return jsonify({
             "ok": True,
             "updated": updated,
@@ -832,8 +837,9 @@ def api_apply_scraped_metadata(track_id: int):
         })
     except Exception as e:
         logger.error(f"应用刮削的元数据失败: {e}")
-        add_op_log(datetime.now().isoformat(), "apply_scrape_error",
+        add_op_log(now, "apply_scrape_error",
                   f"应用元数据出错: {row['filename']} - {str(e)}")
+        commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -843,26 +849,27 @@ def api_scrape_all(track_id: int):
     row = get_track_by_id(track_id)
     if not row:
         abort(404)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     current_meta = {
         "title": row["title"],
         "artist": row["artist"],
         "album": row["album"],
     }
-
-    add_op_log(datetime.now().isoformat(), "scrape_all_start", f"开始批量刮削: {row['filename']}")
-
     try:
         results = scraper.search_all_apis(row["path"], current_meta, max_per_api=3)
-        add_op_log(datetime.now().isoformat(), "scrape_all_success",
+        add_op_log(now, "scrape_all_success",
                   f"批量刮削完成: {row['filename']}")
+        commit()
         return jsonify({
             "ok": True,
             "original": current_meta,
             "results": results
         })
+       
     except Exception as e:
         logger.error(f"批量刮削失败: {e}")
-        add_op_log(datetime.now().isoformat(), "scrape_all_error",
+        add_op_log(now, "scrape_all_error",
                   f"批量刮削出错: {row['filename']} - {str(e)}")
+        commit()
         return jsonify({"ok": False, "error": str(e)}), 500

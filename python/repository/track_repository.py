@@ -4,6 +4,7 @@ Track 数据访问层
 """
 
 from models.db import get_db
+from utils.metadata import normalize_str
 
 # === Track CRUD 操作 ===
 
@@ -391,7 +392,10 @@ def get_artist_full_info(artist: str):
 
 
 def get_artist_directory_path(artist: str) -> str | None:
-    """获取艺术家的目录路径（通过任意一首歌曲的路径推断）"""
+    """获取艺术家的目录路径（通过任意一首歌曲的路径推断）
+    
+    假设目录结构为: music_root/ArtistName/AlbumName/song.flac
+    """
     db = get_db()
     row = db.execute(
         "SELECT path FROM tracks WHERE artist=? LIMIT 1", (artist,)
@@ -402,26 +406,15 @@ def get_artist_directory_path(artist: str) -> str | None:
     from pathlib import Path
     track_path = Path(row["path"])
     
-    artist_dir = track_path.parent
+    parts = track_path.parts
+    artist_norm = normalize_str(artist.lower().strip())
     
-    while artist_dir.parent.name != "" and artist_dir.parent.name != artist_dir.name:
-        if artist_dir.parent.name == artist or artist_dir.name == artist:
-            break
-        parent_name = artist_dir.parent.name.lower()
-        current_name = artist_dir.name.lower()
-        artist_lower = artist.lower()
-        
-        if parent_name == artist_lower:
-            artist_dir = artist_dir.parent
-            break
-        if current_name == artist_lower:
-            break
-        
-        artist_dir = artist_dir.parent
-        if artist_dir.parent == artist_dir:
-            break
+    for i in range(len(parts) - 1, 0, -1):
+        folder_name = parts[i]
+        if normalize_str(folder_name.lower()) == artist_norm:
+            return str(Path(*parts[:i+1]))
     
-    return str(artist_dir)
+    return str(track_path.parent)
 
 
 # === 统计操作 ===

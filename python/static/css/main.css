@@ -1672,8 +1672,11 @@ body {
 }
 
 .log-type {
-    width: 60px;
+    width: 160px;
     flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .log-type.move {

@@ -57,11 +57,14 @@ function renderFiles(items) {
 
   const html = items.map(f => `
     <div class="file-row"
-         onclick="${f.is_dir ? `loadFiles('${escJs(f.path)}')` : `showFileMeta('${escJs(f.path)}')`}">
+         onclick="${f.is_dir ? `loadFiles('${escJs(f.path)}')` : (f.is_audio ? `showFileMeta('${escJs(f.path)}')` : '')}"
+         style="${f.is_dir || f.is_audio ? 'cursor:pointer' : ''}">
       <div class="fr fr-icon">
         ${f.is_dir
       ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
-      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
+      : f.is_audio
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
     }
       </div>
       <div class="fr fr-name">${esc(f.name)}</div>

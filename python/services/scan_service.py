@@ -12,7 +12,7 @@ from pathlib import Path
 def _normalize_path(path: str) -> str:
     """对路径进行Unicode正规化，处理日语假名等字符的不同表示形式"""
     return unicodedata.normalize('NFC', path)
-from utils.metadata import read_metadata
+from utils.metadata import read_metadata, normalize_str
 from models.db import get_db
 from repository.track_repository import (
     get_all_track_paths,
@@ -79,12 +79,12 @@ def _process_file(filepath, existing_tracks, scanned_at):
     pending = 1 if missing else 0
     missing_str = ",".join(missing) if missing else ""
 
-    artist = meta.get("artist") or ""
+    artist = normalize_str(meta.get("artist") or "")
 
     track_data = (
         path_str, filename, filepath.suffix.lower().lstrip("."),
         size, mtime, ctime,
-        meta["title"], meta["artist"], meta["album"],
+        meta["title"], normalize_str(meta["artist"]) if meta.get("artist") else None, meta["album"],
         meta["album_artist"], meta["year"],
         meta["track_num"], meta["disc_num"],
         meta["duration"], meta["sample_rate"], meta["bitrate"],

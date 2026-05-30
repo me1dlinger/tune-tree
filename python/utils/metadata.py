@@ -15,6 +15,36 @@ def _normalize_path(path: str) -> str:
     """对路径进行Unicode正规化，处理日语假名等字符的不同表示形式"""
     return unicodedata.normalize('NFC', path)
 
+INVISIBLE_CHARS = {
+    0x00A0,  # Non-breaking space
+    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A,  # Various spaces
+    0x202F,  # Narrow no-break space
+    0x205F,  # Medium mathematical space
+    0x3000,  # Ideographic space (fullwidth space)
+    0x2028,  # Line separator
+    0x2029,  # Paragraph separator
+    0x200B,  # Zero width space
+    0x200C, 0x200D,  # Zero width non-joiner / joiner
+    0xFEFF,  # Byte order mark / zero width no-break space
+    0x180E,  # Mongolian free variation selector
+    0x2060,  # Word joiner
+    0x2061, 0x2062, 0x2063, 0x2064,  # Function application / invisible times / etc.
+    0x206A, 0x206B, 0x206C, 0x206D, 0x206E, 0x206F,  # Invisible operators
+}
+
+def _remove_invisible(text: str) -> str:
+    """移除字符串中的不可见Unicode字符"""
+    return "".join(c for c in text if ord(c) not in INVISIBLE_CHARS)
+
+def normalize_str(text: str) -> str:
+    """对字符串进行Unicode正规化，用于比较和存储
+    使用NFKC正规化，可以将兼容字符统一（如全角转半角）
+    同时移除不可见字符"""
+    if not text:
+        return text
+    normalized = unicodedata.normalize('NFKC', text)
+    return _remove_invisible(normalized)
+
 def _find_file(path: str) -> str:
     """尝试多种Unicode正规化形式查找文件，返回可访问的路径"""
     # 尝试原始路径
