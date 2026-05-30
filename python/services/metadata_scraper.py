@@ -313,7 +313,7 @@ class MetadataScraper:
                 continue
 
         if not image_data or len(image_data) < 1000:
-            separators = ["/", "&", "\\", "、"]
+            separators = ["/", "&", "\\", "、",";"]
             for name in artist_names:
                 if not name:
                     continue
