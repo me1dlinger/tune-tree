@@ -25,12 +25,13 @@
 
 ## 功能特性
 
-- **目录扫描** -- 递归扫描音乐根目录，将所有曲目索引到 SQLite
+- **目录扫描** -- 递归扫描音乐根目录，将所有曲目索引到 SQLite，支持并行处理提高效率
 - **元数据读取** -- 通过 mutagen 提取 ID3v2 / Vorbis Comment 标签、内嵌封面和歌词
-- **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面
-- **文件格式化** -- 预览并执行批量重命名与移动，整理为 `{艺术家}/{专辑}/` 目录结构
+- **元数据刮削** -- 自动从网易云音乐、酷狗、Spotify 获取缺失的元数据和封面
+- **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面，支持夜间模式
+- **文件格式化** -- 预览并执行批量重命名与移动，整理为 `{艺术家}/{专辑}/` 目录结构，支持多艺术家批量操作
 - **重复检测** -- 识别音乐库中的重复文件
-- **待定文件** -- 列出缺少完整元数据的文件
+- **待定文件** -- 列出缺少完整元数据的文件，支持在线编辑元数据
 - **访问控制** -- 基于 Token 的简单认证
 
 ## 平台预览
@@ -120,10 +121,11 @@ tune-tree/
 │   ├── api/                   # API 路由层
 │   │   └── routes.py          # API 端点定义
 │   ├── services/              # 业务逻辑层
-│   │   ├── scan_service.py    # 目录扫描服务
-│   │   └── format_service.py  # 文件格式化服务
+│   │   ├── scan_service.py       # 目录扫描服务
+│   │   ├── format_service.py     # 文件格式化服务
+│   │   └── metadata_scraper.py   # 元数据刮削服务
 │   ├── repository/            # 数据访问层
-│   │   └── track_repository.py # 曲目数据操作
+│   │   └── track_repository.py   # 曲目数据操作
 │   ├── models/                # 数据模型层
 │   │   └── db.py              # 数据库连接与初始化
 │   ├── utils/                 # 工具层
@@ -133,14 +135,18 @@ tune-tree/
 │   │   ├── css/main.css
 │   │   └── js/                # 前端 JavaScript
 │   ├── templates/
-│   │   └── index.html         # 单页前端（Jinja2 + 原生 JS）
-│   ├── instance/              # 应用数据（自动生成）
+│   │   └── index.html         # 单页前端
+│   ├── instance/              # 应用数据
 │   │   ├── library.db         # SQLite 数据库
 │   │   └── tunetree.log       # 操作日志
 │   ├── app.py                 # Flask 应用入口
 │   ├── config.py              # 配置文件
 │   ├── requirements.txt
 │   └── wsgi.py                # Gunicorn / Waitress 入口
+├── screenshots/               # 平台预览截图
+├── conf/                      # 配置文件
+├── Dockerfile                 # Docker 构建文件
+├── docker-compose.yml         # Docker Compose 配置
 └── LICENSE                    # GPLv3
 ```
 
