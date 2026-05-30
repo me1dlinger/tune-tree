@@ -5,6 +5,107 @@
  */
 
 /* ═══════════════════════════════════════════════════════════
+   DOWNLOAD HELPERS
+═══════════════════════════════════════════════════════════ */
+
+function downloadFile(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function downloadTrack(trackId, filename) {
+  try {
+    const { blob, response } = await GET_BLOB(`/tracks/${trackId}/download`);
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let finalFilename = filename;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (match) finalFilename = match[1].replace(/['"]/g, '');
+    }
+    const blobUrl = URL.createObjectURL(blob);
+    downloadFile(blobUrl, finalFilename);
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    showToast(`下载失败: ${e.message}`, 'error');
+  }
+}
+
+async function downloadAlbum(artist, album) {
+  const encodedArtist = encodeURIComponent(artist);
+  const encodedAlbum = encodeURIComponent(album);
+  try {
+    const { blob, response } = await GET_BLOB(`/artists/${encodedArtist}/albums/${encodedAlbum}/download`);
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `${artist} - ${album}.zip`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (match) filename = match[1].replace(/['"]/g, '');
+    }
+    const blobUrl = URL.createObjectURL(blob);
+    downloadFile(blobUrl, filename);
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    showToast(`下载失败: ${e.message}`, 'error');
+  }
+}
+
+async function downloadArtist(artist) {
+  const encodedArtist = encodeURIComponent(artist);
+  try {
+    const { blob, response } = await GET_BLOB(`/artists/${encodedArtist}/download`);
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `${artist}.zip`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (match) filename = match[1].replace(/['"]/g, '');
+    }
+    const blobUrl = URL.createObjectURL(blob);
+    downloadFile(blobUrl, filename);
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    showToast(`下载失败: ${e.message}`, 'error');
+  }
+}
+
+async function downloadSelectedTracks() {
+  if (selectedTracks.size === 0) {
+    showToast('请先选择要下载的歌曲', 'warn');
+    return;
+  }
+  try {
+    const { blob, response } = await apiFetchBlob('POST', '/tracks/download-batch', {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ track_ids: [...selectedTracks] })
+    });
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = 'download.zip';
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (match) filename = match[1].replace(/['"]/g, '');
+    }
+    const blobUrl = URL.createObjectURL(blob);
+    downloadFile(blobUrl, filename);
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    showToast(`下载失败: ${e.message}`, 'error');
+  }
+}
+
+function downloadCurrentArtist() {
+  if (!currentArtist) {
+    showToast('请先选择一个艺术家', 'warn');
+    return;
+  }
+  downloadArtist(currentArtist.artist);
+}
+
+/* ═══════════════════════════════════════════════════════════
    ARTIST CACHE（浏览器缓存）
 ═══════════════════════════════════════════════════════════ */
 
@@ -837,10 +938,7 @@ function uploadArtistCover(artist) {
 
     try {
       showToast('正在上传艺术家封面...', 'info');
-      const result = await fetch(`/api/artists/${encodeURIComponent(artist)}/cover?token=${TOKEN}`, {
-        method: 'POST',
-        body: formData
-      }).then(r => r.json());
+      const result = await apiUpload(`/artists/${encodeURIComponent(artist)}/cover`, formData);
 
       if (result.ok) {
         showToast('艺术家封面上传成功', 'success');
@@ -914,6 +1012,13 @@ function renderArtistView() {
                 ${selectedAlbums.has(al.album) ? '✓' : ''}
               </div>
             </div>
+            <div class="album-download-overlay" onclick="event.stopPropagation();downloadAlbum('${escJs(a.artist)}', '${escJs(al.album)}')">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </div>
           </div>
           <div class="album-info" onclick="expandAlbum('${escJs(al.album)}')">
             <div class="album-name">${esc(al.album)}${al.all_organized ? '<span class="album-organized">●</span>' : ''}</div>
@@ -959,6 +1064,7 @@ function renderTrackSection(album) {
         <div class="th" style="text-align:center;">格式</div>
         <div class="th" style="text-align:right;">质量</div>
         <div class="th" style="text-align:right;">添加时间</div>
+        <div class="th"></div>
       </div>
       <div id="tl-${eid(albumName)}">
         ${tracks.map(t => {
@@ -987,6 +1093,13 @@ function renderTrackSection(album) {
               <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
+              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs(t.filename || t.title)}')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </div>
             </div>
           `;
   }).join('') || '<div class="loading-row">暂无曲目</div>'}
@@ -1025,6 +1138,7 @@ async function loadTrackSection(artist, album) {
         <div class="th" style="text-align:center;">格式</div>
         <div class="th" style="text-align:right;">质量</div>
         <div class="th" style="text-align:right;">添加时间</div>
+        <div class="th"></div>
       </div>
       <div id="tl-${eid(album)}">
         ${tracks.map(t => {
@@ -1053,6 +1167,13 @@ async function loadTrackSection(artist, album) {
               <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
+              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs(t.filename || t.title)}')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </div>
             </div>
           `;
     }).join('') || '<div class="loading-row">暂无曲目</div>'}

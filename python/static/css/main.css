@@ -1011,6 +1011,32 @@ body {
     color: #0a0a0c;
 }
 
+.album-download-overlay {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    background: rgba(10, 10, 12, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+    color: var(--accent);
+}
+
+.album-cover-wrap:hover .album-download-overlay {
+    opacity: 1;
+}
+
+.album-download-overlay:hover {
+    background: var(--accent);
+    color: #0a0a0c;
+}
+
 .album-info {
     padding: 12px 14px;
 }
@@ -1084,13 +1110,29 @@ body {
 
 .track-row {
     display: grid;
-    grid-template-columns: 28px 28px 40px 1fr 1fr 80px 60px 60px 160px;
+    grid-template-columns: 28px 28px 40px 1fr 1fr 80px 60px 60px 160px 32px;
     align-items: center;
     height: 38px;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
     transition: background var(--transition);
     position: relative;
+}
+
+.tc-download {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tc-download svg {
+    cursor: pointer;
+    color: var(--text3);
+    transition: color 0.2s;
+}
+
+.tc-download svg:hover {
+    color: var(--accent);
 }
 
 .track-row:hover {
@@ -1209,7 +1251,7 @@ body {
 
 .track-header-row {
     display: grid;
-    grid-template-columns: 28px 28px 40px 1fr 1fr 80px 60px 60px 160px;
+    grid-template-columns: 28px 28px 40px 1fr 1fr 80px 60px 60px 160px 32px;
     height: 28px;
     align-items: center;
     border-bottom: 1px solid var(--border);
@@ -1234,7 +1276,7 @@ body {
 
 .file-row {
     display: grid;
-    grid-template-columns: 32px 1fr 280px 80px 70px 200px;
+    grid-template-columns: 32px 1fr 280px 80px 70px 200px 32px;
     align-items: center;
     height: 36px;
     border-bottom: 1px solid var(--border);
@@ -1292,9 +1334,25 @@ body {
     text-align: right;
 }
 
+.fr-download {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.fr-download svg {
+    cursor: pointer;
+    color: var(--text3);
+    transition: color 0.2s;
+}
+
+.fr-download svg:hover {
+    color: var(--accent);
+}
+
 .file-header-row {
     display: grid;
-    grid-template-columns: 32px 1fr 280px 80px 70px 200px;
+    grid-template-columns: 32px 1fr 280px 80px 70px 200px 32px;
     height: 28px;
     align-items: center;
     border-bottom: 1px solid var(--border);

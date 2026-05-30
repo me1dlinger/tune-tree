@@ -6,7 +6,7 @@
 
 /**
  * 底层请求方法
- * @param {'GET'|'POST'|'DELETE'} method
+ * @param {'GET'|'POST'|'DELETE'|'PUT'} method
  * @param {string} path  — /api 之后的路径，如 '/artists'
  * @param {object|null} body
  * @returns {Promise<any>}
@@ -45,3 +45,55 @@ const DELETE = (path) => api('DELETE', path);
 
 /** PUT 快捷方法 */
 const PUT = (path, body) => api('PUT', path, body);
+
+/**
+ * 下载文件，返回 {blob: Blob, response: Response}
+ */
+async function apiFetchBlob(method, path, opts = {}) {
+  const options = {
+    method,
+    headers: {
+      'X-Token': TOKEN,
+    },
+    ...opts,
+  };
+
+  const res = await fetch('/api' + path, options);
+
+  if (res.status === 401) {
+    doLogout(true);
+    throw new Error('unauthorized');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  const blob = await res.blob();
+  return { blob, response: res };
+}
+
+/** GET blob */
+const GET_BLOB = (path) => apiFetchBlob('GET', path);
+
+/**
+ * 上传 FormData
+ */
+async function apiUpload(path, formData, method = 'POST') {
+  const res = await fetch('/api' + path, {
+    method,
+    headers: {
+      'X-Token': TOKEN,
+    },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    doLogout(true);
+    throw new Error('unauthorized');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}

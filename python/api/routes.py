@@ -2,7 +2,7 @@
 API 路由模块
 """
 
-from flask import Blueprint, request, jsonify, render_template, abort, Response
+from flask import Blueprint, request, jsonify, render_template, abort, Response, send_file
 from functools import wraps
 from pathlib import Path
 from datetime import datetime
@@ -10,6 +10,9 @@ import base64
 import hashlib
 import logging
 import threading
+import zipfile
+import io
+import os
 
 from config import ACCESS_KEY, MUSIC_ROOT
 from utils.metadata import (
@@ -161,6 +164,186 @@ def api_artist_albums(artist: str):
 def api_album_tracks(artist: str, album: str):
     rows = get_tracks_by_artist_and_album(artist, album)
     return jsonify([dict(r) for r in rows])
+
+
+@api_bp.route("/api/tracks/<int:track_id>/download")
+@require_auth
+def api_track_download(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    track_path = Path(row["path"])
+    if not track_path.exists():
+        abort(404)
+    return send_file(
+        track_path,
+        as_attachment=True,
+        download_name=track_path.name
+    )
+
+
+@api_bp.route("/api/artists/<path:artist>/albums/<path:album>/download")
+@require_auth
+def api_album_download(artist: str, album: str):
+    rows = get_tracks_by_artist_and_album(artist, album)
+    if not rows:
+        abort(404)
+    
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for row in rows:
+            track_path = Path(row["path"])
+            if track_path.exists():
+                arcname = f"{track_path.name}"
+                zipf.write(track_path, arcname)
+    
+    zip_buffer.seek(0)
+    safe_artist = safe_filename(artist)
+    safe_album = safe_filename(album)
+    zipname = f"{safe_artist} - {safe_album}.zip"
+    
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=zipname
+    )
+
+
+@api_bp.route("/api/artists/<path:artist>/download")
+@require_auth
+def api_artist_download(artist: str):
+    rows = get_tracks_by_artist(artist)
+    if not rows:
+        abort(404)
+    
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for row in rows:
+            track_path = Path(row["path"])
+            if track_path.exists():
+                album_folder = track_path.parent.name
+                arcname = f"{album_folder}/{track_path.name}"
+                zipf.write(track_path, arcname)
+    
+    zip_buffer.seek(0)
+    zipname = f"{safe_filename(artist)}.zip"
+    
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=zipname
+    )
+
+
+@api_bp.route("/api/tracks/download-batch", methods=["POST"])
+@require_auth
+def api_tracks_batch_download():
+    data = request.get_json(force=True)
+    track_ids = data.get("track_ids", [])
+    if not track_ids:
+        return jsonify({"error": "no tracks specified"}), 400
+    
+    rows = []
+    for tid in track_ids:
+        row = get_track_by_id(tid)
+        if row:
+            rows.append(row)
+    
+    if not rows:
+        abort(404)
+    
+    if len(rows) == 1:
+        track_path = Path(rows[0]["path"])
+        if track_path.exists():
+            return send_file(
+                track_path,
+                as_attachment=True,
+                download_name=track_path.name
+            )
+    
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for row in rows:
+            track_path = Path(row["path"])
+            if track_path.exists():
+                artist = safe_filename(row.get("artist", "Unknown"))
+                album = safe_filename(row.get("album", "Unknown"))
+                track_name = track_path.name
+                arcname = f"{artist}/{album}/{track_name}"
+                zipf.write(track_path, arcname)
+    
+    zip_buffer.seek(0)
+    
+    if len(rows) <= 3:
+        names = " ".join([Path(r["path"]).stem for r in rows[:3]])
+        zipname = f"{names}.zip"
+    else:
+        names = " ".join([Path(r["path"]).stem for r in rows[:3]])
+        zipname = f"{names}...zip"
+    
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=zipname
+    )
+
+
+@api_bp.route("/api/files/download")
+@require_auth
+def api_files_download():
+    path = request.args.get("path", "").lstrip("/")
+    if not path:
+        abort(400)
+    
+    base = Path(MUSIC_ROOT)
+    file_path = (base / path).resolve()
+    if not str(file_path).startswith(str(base.resolve())):
+        abort(403)
+    
+    if not file_path.exists():
+        abort(404)
+    
+    if file_path.is_file():
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=file_path.name
+        )
+    else:
+        zip_buffer = io.BytesIO()
+        dir_name = file_path.name
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(file_path):
+                dirs.sort()
+                for filename in sorted(files):
+                    file_full = Path(root) / filename
+                    arcname = str(file_full.relative_to(file_path))
+                    zipf.write(file_full, arcname)
+        
+        zip_buffer.seek(0)
+        zipname = f"{dir_name}.zip"
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=zipname
+        )
+
+
+def safe_filename(name: str) -> str:
+    if not name:
+        return "Unknown"
+    import re
+    result = re.sub(r'[\\/:*?"<>|]', "_", name)
+    result = re.sub(r"[\x00-\x1f\x7f]", "", result)
+    result = result.strip()
+    if result.startswith("-"):
+        result = "_" + result[1:]
+    result = re.sub(r"\.+$", "_", result)
+    return result or "Unknown"
 
 
 @api_bp.route("/api/artists/<path:artist>/full")
@@ -862,7 +1045,7 @@ def api_scrape_all(track_id: int):
         "album": row["album"],
     }
     try:
-        results = scraper.search_all_apis(row["path"], current_meta, max_per_api=3)
+        results = scraper.search_all_apis(row["path"], current_meta)
         add_op_log(now, "scrape_all_success",
                   f"批量刮削完成: {row['filename']}")
         commit()

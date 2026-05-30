@@ -488,14 +488,7 @@ async function saveMetadataEdit() {
         }
       }
 
-      await fetch(`/api/tracks/${trackId}/apply-scrape`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Token': TOKEN
-        },
-        body: JSON.stringify(applyData)
-      });
+      await POST(`/tracks/${trackId}/apply-scrape`, applyData);
     } else {
       const metaChanges = {};
       const metaFields = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year'];
@@ -517,15 +510,7 @@ async function saveMetadataEdit() {
     if (newCoverFile) {
       const formData = new FormData();
       formData.append('cover', newCoverFile);
-      const res = await fetch(`/api/tracks/${trackId}/cover`, {
-        method: 'PUT',
-        headers: { 'X-Token': TOKEN },
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || '封面上传失败');
-      }
+      await apiUpload(`/tracks/${trackId}/cover`, formData, 'PUT');
       bustCoverCache(parseInt(trackId, 10));
     }
 

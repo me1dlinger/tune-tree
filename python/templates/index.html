@@ -124,6 +124,10 @@
             <button class="toolbar-btn" id="select-all-btn" onclick="selectAllAlbums()">全选专辑</button>
             <button class="toolbar-btn primary" id="format-btn" onclick="openFormatModal()"
               style="display:none;">格式化目录</button>
+            <button class="toolbar-btn" id="download-artist-btn" onclick="downloadCurrentArtist()"
+              style="display:none;">下载全部</button>
+            <button class="toolbar-btn" id="download-selected-btn" onclick="downloadSelectedTracks()"
+              style="display:none;">下载选中</button>
             <span class="select-count" id="select-count" style="display:none;"></span>
           </div>
           <div class="artist-view" id="artist-view">
@@ -174,6 +178,7 @@
               <div class="fh" style="text-align:center;">类型</div>
               <div class="fh" style="text-align:right;">大小</div>
               <div class="fh" style="text-align:right;">修改时间</div>
+              <div class="fh"></div>
             </div>
             <div id="file-list">
               <div class="loading-row">加载中...</div>

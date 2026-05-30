@@ -75,6 +75,16 @@ function renderFiles(items) {
       </div>
       <div class="fr fr-size">${f.is_dir ? '—' : fmtSize(f.size)}</div>
       <div class="fr fr-date">${f.mtime}</div>
+      <div class="fr fr-download">
+        ${f.is_dir ? '' : `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             onclick="event.stopPropagation();downloadFileOrDir('${escJs(f.path)}', '${escJs(f.name)}', false)">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        `}
+      </div>
     </div>
   `).join('');
 
@@ -145,4 +155,32 @@ function toggleFoldersFirst() {
   }
   currentOffset = 0;
   fetchFiles();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DOWNLOAD
+═══════════════════════════════════════════════════════════ */
+
+function downloadFile(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function downloadFileOrDir(filePath, fileName, isDir) {
+  const params = new URLSearchParams({ path: filePath });
+  const url = `/api/files/download?${params.toString()}&token=${TOKEN}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.statusText);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    downloadFile(blobUrl, isDir ? fileName + '.zip' : fileName);
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    showToast(`下载失败: ${e.message}`, 'error');
+  }
 }

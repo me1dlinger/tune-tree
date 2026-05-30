@@ -6,20 +6,79 @@
 import re
 import logging
 import base64
+import unicodedata
 from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.netease_api import NeteaseApi
 from services.kugou_api import KugouApi
 
 logger = logging.getLogger("tunetree")
 
 
+def normalize_str(text: str) -> str:
+    """对字符串进行Unicode正规化，用于比较"""
+    if not text:
+        return ""
+    return unicodedata.normalize('NFKC', text).lower().strip()
+
+
 class MetadataScraper:
     """
     元数据刮削器，整合多个数据源
     """
-    
+
+    TITLE_WEIGHT = 10
+    ARTIST_WEIGHT = 8
+    ALBUM_WEIGHT = 6
+
     def __init__(self):
         self.api_order = ["kugou", "cloud"]
+
+    def _calculate_match_score(self, result: Dict, keywords: List[str]) -> float:
+        """
+        计算搜索结果与关键词的匹配分数
+
+        评分规则：
+        - 歌名精确匹配：10分
+        - 歌名包含匹配：5分
+        - 艺术家精确匹配：8分
+        - 艺术家包含匹配：4分
+        - 专辑精确匹配：6分
+        - 专辑包含匹配：3分
+        """
+        score = 0.0
+
+        title_keyword = keywords[0] if keywords else ""
+        artist_keyword = keywords[1] if len(keywords) > 1 else ""
+        album_keyword = keywords[2] if len(keywords) > 2 else ""
+
+        result_title = normalize_str(result.get("title", ""))
+        result_artist = normalize_str(result.get("artist", ""))
+        result_album = normalize_str(result.get("album", ""))
+
+        if title_keyword:
+            title_kw_norm = normalize_str(title_keyword)
+            if result_title == title_kw_norm:
+                score += self.TITLE_WEIGHT
+            elif title_kw_norm in result_title or result_title in title_kw_norm:
+                score += self.TITLE_WEIGHT * 0.5
+
+        if artist_keyword:
+            artist_kw_norm = normalize_str(artist_keyword)
+            if result_artist == artist_kw_norm:
+                score += self.ARTIST_WEIGHT
+            elif artist_kw_norm in result_artist or result_artist in artist_kw_norm:
+                score += self.ARTIST_WEIGHT * 0.5
+
+        if album_keyword:
+            album_kw_norm = normalize_str(album_keyword)
+            if result_album == album_kw_norm:
+                score += self.ALBUM_WEIGHT
+            elif album_kw_norm in result_album or result_album in album_kw_norm:
+                score += self.ALBUM_WEIGHT * 0.5
+
+        result["_match_score"] = score
+        return score
 
     def _build_search_keywords(self, filename: str, current_meta: Dict) -> List[str]:
         """
@@ -142,9 +201,10 @@ class MetadataScraper:
 
         return result
 
-    def search_all_apis(self, filename: str, current_meta: Dict, max_per_api: int = 3) -> Dict[str, List[Dict]]:
+    def search_all_apis(self, filename: str, current_meta: Dict) -> Dict[str, List[Dict]]:
         """
-        批量搜索所有 API
+        批量搜索所有 API，每个API返回最多3条结果，按匹配度排序
+        kugou 和 cloud 并行执行
         """
         keywords = self._build_search_keywords(filename, current_meta)
         logger.info(f"批量刮削开始，关键词: {keywords}")
@@ -154,57 +214,79 @@ class MetadataScraper:
             "kugou": []
         }
 
-        for api_name in self.api_order:
-            logger.info(f"正在搜索 {api_name} API...")
-            try:
-                api_results = self._search_api_with_multiple_results(api_name, keywords, max_per_api)
-                results[api_name] = api_results
-                logger.info(f"{api_name} API 返回 {len(api_results)} 条结果")
-            except Exception as e:
-                logger.warning(f"{api_name} API 批量搜索失败: {e}")
-                results[api_name] = []
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_to_api = {
+                executor.submit(self._search_api_with_multiple_results, api_name, keywords, current_meta): api_name
+                for api_name in self.api_order
+            }
+
+            for future in as_completed(future_to_api):
+                api_name = future_to_api[future]
+                try:
+                    api_results = future.result()
+                    results[api_name] = api_results
+                    logger.info(f"{api_name} API 返回 {len(api_results)} 条结果")
+                except Exception as e:
+                    logger.warning(f"{api_name} API 批量搜索失败: {e}")
+                    results[api_name] = []
 
         total = sum(len(v) for v in results.values())
         logger.info(f"批量刮削完成，共返回 {total} 条结果")
 
         return results
 
-    def _search_api_with_multiple_results(self, api_name: str, keywords: List[str], max_results: int) -> List[Dict]:
+    def _fetch_song_detail(self, api_name: str, search_result: Dict, keyword: str, keywords: List[str]) -> Optional[Dict]:
         """
-        搜索并返回多个结果
+        获取单条歌曲详情（供多线程调用）
+        """
+        try:
+            song_info = None
+            if api_name == "cloud":
+                song_info = NeteaseApi.get_song_info(search_result["idOrMd5"])
+            elif api_name == "kugou":
+                song_info = KugouApi.get_song_info(search_result["idOrMd5"])
+            if song_info:
+                result_dict = self._song_info_to_dict(song_info, api_name)
+                result_dict["_search_keyword"] = keyword
+                self._calculate_match_score(result_dict, keywords)
+                return result_dict
+        except Exception as e:
+            logger.warning(f"获取 {api_name} 歌曲详情失败: {e}")
+        return None
+
+    def _search_api_with_multiple_results(self, api_name: str, keywords: List[str], current_meta: Dict = None) -> List[Dict]:
+        """
+        搜索并返回最多3条结果，按匹配度排序
+        先收集所有关键词的搜索结果，然后统一评分排序取前3
+        获取歌曲详情使用多线程并行
         """
         all_results = []
 
         for keyword in keywords:
-            if len(all_results) >= max_results:
-                break
-
             try:
-                search_results = []
                 if api_name == "cloud":
                     search_results = NeteaseApi.search_song(keyword)
                 elif api_name == "kugou":
                     search_results = KugouApi.search_hash(keyword)
 
-                for search_result in search_results[:max_results]:
-                    if len(all_results) >= max_results:
-                        break
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = [
+                        executor.submit(self._fetch_song_detail, api_name, sr, keyword, keywords)
+                        for sr in search_results[:10]
+                    ]
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result:
+                            all_results.append(result)
 
-                    try:
-                        song_info = None
-                        if api_name == "cloud":
-                            song_info = NeteaseApi.get_song_info(search_result["idOrMd5"])
-                        elif api_name == "kugou":
-                            song_info = KugouApi.get_song_info(search_result["idOrMd5"])
-                        if song_info:
-                            result_dict = self._song_info_to_dict(song_info, api_name)
-                            result_dict["_search_keyword"] = keyword
-                            all_results.append(result_dict)
-                    except Exception as e:
-                        logger.warning(f"获取 {api_name} 歌曲详情失败: {e}")
-                        continue
             except Exception as e:
                 logger.warning(f"关键词 '{keyword}' 通过 {api_name} 搜索失败: {e}")
                 continue
+
+        all_results = sorted(all_results, key=lambda x: x.get("_match_score", 0), reverse=True)
+        all_results = all_results[:3]
+        for i, r in enumerate(all_results):
+            r["_sort_index"] = i
+        logger.debug(f"{api_name} API 搜索结果（按匹配度排序）: {[(r.get('title'), r.get('artist'), r.get('_match_score')) for r in all_results]}")
 
         return all_results
