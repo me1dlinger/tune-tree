@@ -682,6 +682,180 @@ async function selectAlbumFromTree(artist, album) {
    ARTIST VIEW（主区域）
 ═══════════════════════════════════════════════════════════ */
 
+/** 艺术家封面缓存 */
+let artistCoverCache = {};
+
+function artistCoverUrl(artist) {
+  const bust = artistCoverCache[artist] ? `&_t=${Date.now()}` : '';
+  return `/api/artists/${encodeURIComponent(artist)}/cover?token=${TOKEN}${bust}`;
+}
+
+async function scrapeArtistCover(artist) {
+  try {
+    showToast('正在从网易云获取歌手头像...', 'info');
+    const result = await POST(`/artists/${encodeURIComponent(artist)}/scrape-cover`, {});
+    
+    if (result.error) {
+      showToast('获取失败: ' + result.error, 'error');
+      return;
+    }
+    
+    artistCoverCache[artist] = true;
+    await loadArtistCover(artist);
+    showToast('歌手头像获取成功', 'success');
+  } catch (err) {
+    showToast('获取失败: ' + err.message, 'error');
+  }
+}
+
+async function loadArtistCover(artist) {
+  const coverEl = document.getElementById('artist-cover-img');
+  if (!coverEl) return;
+
+  coverEl.className = 'artist-cover';
+  coverEl.onclick = null;
+  coverEl.innerHTML = `
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+      <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+    </svg>
+  `;
+
+  try {
+    const exists = await GET(`/artists/${encodeURIComponent(artist)}/cover/exists`);
+    if (exists.exists) {
+      const img = document.createElement('img');
+      img.className = 'artist-cover-image';
+      img.src = artistCoverUrl(artist);
+      img.alt = artist;
+      img.onerror = () => {
+        coverEl.innerHTML = `
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        `;
+        coverEl.onclick = () => uploadArtistCover(artist);
+      };
+
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = 'artist-cover-actions';
+      actionsDiv.innerHTML = `
+        <button class="artist-cover-btn" title="从本地上传">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </button>
+        <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </button>
+      `;
+      actionsDiv.querySelectorAll('button')[0].onclick = (e) => {
+        e.stopPropagation();
+        uploadArtistCover(artist);
+      };
+      actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
+        e.stopPropagation();
+        scrapeArtistCover(artist);
+      };
+
+      coverEl.innerHTML = '';
+      coverEl.appendChild(img);
+      coverEl.appendChild(actionsDiv);
+    } else {
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = 'artist-cover-actions';
+      actionsDiv.innerHTML = `
+        <button class="artist-cover-btn" id="upload-cover-btn" title="从本地上传">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </button>
+        <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </button>
+      `;
+      actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
+        e.stopPropagation();
+        uploadArtistCover(artist);
+      };
+      actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
+        e.stopPropagation();
+        scrapeArtistCover(artist);
+      };
+      coverEl.appendChild(actionsDiv);
+    }
+  } catch (e) {
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'artist-cover-actions';
+    actionsDiv.innerHTML = `
+      <button class="artist-cover-btn" id="upload-cover-btn" title="从本地上传">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </button>
+    `;
+    actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
+      e.stopPropagation();
+      uploadArtistCover(artist);
+    };
+    coverEl.appendChild(actionsDiv);
+  }
+}
+
+/**
+ * 上传艺术家封面
+ * @param {string} artist
+ */
+function uploadArtistCover(artist) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg,image/png';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('图片文件过大，最大支持 5MB', 'error');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('cover', file);
+
+    try {
+      showToast('正在上传艺术家封面...', 'info');
+      const result = await fetch(`/api/artists/${encodeURIComponent(artist)}/cover?token=${TOKEN}`, {
+        method: 'POST',
+        body: formData
+      }).then(r => r.json());
+
+      if (result.ok) {
+        showToast('艺术家封面上传成功', 'success');
+        artistCoverCache[artist] = true;
+        await loadArtistCover(artist);
+      } else {
+        showToast('上传失败: ' + (result.error || '未知错误'), 'error');
+      }
+    } catch (err) {
+      showToast('上传失败: ' + err.message, 'error');
+    }
+  };
+  input.click();
+}
+
 /** 渲染艺术家主视图（专辑网格 + 曲目列表） */
 function renderArtistView() {
   if (!currentArtist) return;
@@ -754,6 +928,7 @@ function renderArtistView() {
     </div>
   `;
 
+  loadArtistCover(a.artist);
   updateToolbar();
 }
 

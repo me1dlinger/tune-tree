@@ -70,6 +70,22 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
   });
 });
 
+// ESC 关闭：按顺序关闭最上层的窗口（先 modal 再侧边栏）
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+
+  const openModals = document.querySelectorAll('.modal-overlay.open');
+  if (openModals.length > 0) {
+    openModals[openModals.length - 1].classList.remove('open');
+    return;
+  }
+
+  const detailPanel = document.getElementById('detail-panel');
+  if (detailPanel && !detailPanel.classList.contains('hidden')) {
+    detailPanel.classList.add('hidden');
+  }
+});
+
 /* ═══════════════════════════════════════════════════════════
    THEME
 ═══════════════════════════════════════════════════════════ */

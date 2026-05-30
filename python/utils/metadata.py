@@ -121,7 +121,6 @@ def get_cover_b64(path: str) -> str | None:
     """Extract embedded album art, return base64-encoded JPEG/PNG or None."""
     try:
         actual_path = _find_file(path)
-        logger.info(f"actual path: {actual_path}")
         ext = Path(actual_path).suffix.lower()
         raw = MutagenFile(actual_path)
         if raw is None:

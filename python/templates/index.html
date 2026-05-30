@@ -307,6 +307,25 @@
     </div>
   </div>
 
+  <!-- SCRAPE RESULTS MODAL -->
+  <div class="modal-overlay" id="scrape-results-modal">
+    <div class="modal scrape-results-modal">
+      <div class="modal-header">
+        <div class="modal-title">刮削结果</div>
+        <button class="modal-close" onclick="closeScrapeResultsModal()">✕</button>
+      </div>
+      <div class="modal-body" id="scrape-results-body">
+        <div class="scrape-loading">
+          <div class="loading-spinner"></div>
+          <div>正在获取元数据...</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" onclick="closeScrapeResultsModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toast-container"></div>
 
   <!-- JavaScript Modules (load order matters) -->

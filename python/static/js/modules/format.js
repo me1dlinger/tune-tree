@@ -148,11 +148,11 @@ function renderMultiArtistPreview() {
 function renderSingleArtistPreview(formatData, artistName) {
   const { items, conflicts, skipped, tree } = formatData;
 
-  document.getElementById('format-modal-info').textContent =
-    `共 ${items.length} 个文件` +
-    (conflicts > 0 ? ` · ${conflicts} 个冲突` : '') +
-    (skipped > 0 ? ` · ${skipped} 个跳过` : '') +
-    ` · 艺术家 <strong>${esc(artistName)}</strong>`;
+  const infoEl = document.getElementById('format-modal-info');
+  infoEl.textContent = `共 ${items.length} 个文件`;
+  if (conflicts > 0) infoEl.textContent += ` · ${conflicts} 个冲突`;
+  if (skipped > 0) infoEl.textContent += ` · ${skipped} 个跳过`;
+  infoEl.textContent += ` · 艺术家 ${artistName}`;
 
   document.getElementById('format-modal-body').innerHTML = buildPreviewContent(formatData, artistName);
 }
@@ -207,7 +207,7 @@ function buildPreviewContent(formatData, artistName, hideSingleArtistStats = fal
       <div class="preview-stat-item">文件总数 <strong>${items.length}</strong></div>
       <div class="preview-stat-item ${conflicts ? 'warn' : ''}">冲突 <strong>${conflicts}</strong></div>
       <div class="preview-stat-item ${skipped ? 'info' : ''}">跳过 <strong>${skipped}</strong></div>
-      <div class="preview-stat-item">艺术家 <strong>${esc(artistName)}</strong></div>
+      <div class="preview-stat-item">艺术家 ${esc(artistName)}</div>
     </div>
   `;
 

@@ -107,7 +107,7 @@ function renderEditModal(track) {
           </svg>
           智能刮削元数据
         </button>
-        ${scrapedData ? `<div class="scrape-success">✓ 已从 ${scrapedData._source} 获取元数据</div>` : ''}
+        ${scrapedData ? `<div class="scrape-success">已从 ${scrapedData._source} 获取元数据</div>` : ''}
       </div>
       <div class="edit-field">
         <label>歌名</label>
@@ -290,36 +290,179 @@ function toggleLyricsEditor() {
    METADATA SCRAPING
    ═══════════════════════════════════════════════════════════ */
 
+let selectedScrapeResult = null;
+
 async function scrapeMetadata() {
   const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
   const btn = document.getElementById('scrape-btn');
 
   btn.disabled = true;
   btn.classList.add('loading');
-  showToast('正在刮削元数据...', 'info');
+
+  document.getElementById('scrape-results-body').innerHTML = `
+    <div class="scrape-loading">
+      <div class="loading-spinner"></div>
+      <div>正在获取元数据...</div>
+    </div>
+  `;
+  openModal('scrape-results-modal');
+  selectedScrapeResult = null;
 
   try {
-    const result = await POST(`/tracks/${trackId}/scrape`, {});
-    if (result.ok) {
-      scrapedData = result.scraped;
-      for (const key of ['title', 'artist', 'album', 'album_artist', 'year', 'track_num', 'lyrics']) {
-        if (scrapedData[key] !== null && scrapedData[key] !== undefined) {
-          editState[key] = scrapedData[key];
-        }
-      }
+    const result = await POST(`/tracks/${trackId}/scrape-all`, {});
 
-      const track = await GET(`/tracks/${trackId}`);
-      document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
-      showToast(`已从 ${scrapedData._source} 获取元数据`, 'success');
+    if (result.ok) {
+      renderScrapeResults(result.results);
     } else {
-      showToast(result.error || '刮削失败', 'error');
+      document.getElementById('scrape-results-body').innerHTML = `
+        <div class="scrape-empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="15" y1="9" x2="9" y2="15"/>
+            <line x1="9" y1="9" x2="15" y2="15"/>
+          </svg>
+          <div>刮削失败: ${result.error || '未知错误'}</div>
+        </div>
+      `;
     }
   } catch (e) {
-    showToast('刮削出错: ' + e.message, 'error');
+    document.getElementById('scrape-results-body').innerHTML = `
+      <div class="scrape-empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="15" y1="9" x2="9" y2="15"/>
+          <line x1="9" y1="9" x2="15" y2="15"/>
+        </svg>
+        <div>请求出错: ${e.message}</div>
+      </div>
+    `;
   } finally {
     btn.disabled = false;
     btn.classList.remove('loading');
   }
+}
+
+function renderScrapeResults(results) {
+  const body = document.getElementById('scrape-results-body');
+  const hasAnyResults = results.cloud.length > 0 || results.kugou.length > 0 > 0;
+
+  if (!hasAnyResults) {
+    body.innerHTML = `
+      <div class="scrape-empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        <div>未找到任何匹配的元数据</div>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '<div class="scrape-results-container">';
+
+  const apiNames = {
+    cloud: '网易云音乐',
+    kugou: '酷狗音乐'
+  };
+
+  for (const [api, items] of Object.entries(results)) {
+    if (items.length === 0) continue;
+
+    html += `
+      <div class="scrape-api-section">
+        <div class="scrape-api-title ${api}">${apiNames[api]} (${items.length})</div>
+        <div class="scrape-results-grid">
+    `;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const coverSrc = item._cover_data ? `data:image/jpeg;base64,${item._cover_data}` : '';
+      const coverHtml = coverSrc
+        ? `<img class="scrape-cover" src="${coverSrc}" alt="cover">`
+        : `<div class="scrape-cover" style="display:flex;align-items:center;justify-content:center;color:var(--text3);">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+            </svg>
+           </div>`;
+
+      html += `
+        <div class="scrape-result-card" data-api="${api}" data-index="${i}" onclick="selectScrapeResult('${api}', ${i})" ondblclick="confirmScrapeResult('${api}', ${i})">
+          ${coverHtml}
+          <div class="scrape-title" title="${esc(item.title || '')}">${item.title || '未知歌名'}</div>
+          <div class="scrape-artist" title="${esc(item.artist || '')}">${item.artist || '未知艺术家'}</div>
+          <div class="scrape-album" title="${esc(item.album || '')}">${item.album || '未知专辑'}</div>
+          <div class="scrape-meta">
+            ${item.track_num ? `<span>音轨: ${item.track_num}</span>` : ''}
+            ${item.year ? `<span>年份: ${item.year}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    html += '</div></div>';
+  }
+
+  html += `
+    <div class="scrape-confirm-btn" style="text-align:center;">
+      <button class="toolbar-btn primary" id="scrape-confirm-btn" onclick="confirmScrapeSelection()" disabled>
+        确认选择
+      </button>
+    </div>
+  `;
+
+  html += '</div>';
+  body.innerHTML = html;
+
+  window._scrapeResultsCache = results;
+}
+
+function selectScrapeResult(api, index) {
+  const cards = document.querySelectorAll('.scrape-result-card');
+  cards.forEach(card => card.classList.remove('selected'));
+
+  const selectedCard = document.querySelector(`.scrape-result-card[data-api="${api}"][data-index="${index}"]`);
+  if (selectedCard) {
+    selectedCard.classList.add('selected');
+  }
+
+  const results = window._scrapeResultsCache;
+  selectedScrapeResult = results[api][index];
+
+  document.getElementById('scrape-confirm-btn').disabled = false;
+}
+
+function confirmScrapeResult(api, index) {
+  selectScrapeResult(api, index);
+  confirmScrapeSelection();
+}
+
+function confirmScrapeSelection() {
+  if (!selectedScrapeResult) {
+    showToast('请先选择一个结果', 'warning');
+    return;
+  }
+
+  scrapedData = selectedScrapeResult;
+
+  for (const key of ['title', 'artist', 'album', 'album_artist', 'year', 'track_num', 'lyrics']) {
+    if (scrapedData[key] !== null && scrapedData[key] !== undefined) {
+      editState[key] = scrapedData[key];
+    }
+  }
+
+  closeScrapeResultsModal();
+
+  const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
+  GET(`/tracks/${trackId}`).then(track => {
+    document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
+    showToast(`已选择 ${selectedScrapeResult._source} 的元数据`, 'success');
+  });
+}
+
+function closeScrapeResultsModal() {
+  selectedScrapeResult = null;
+  window._scrapeResultsCache = null;
+  closeModal('scrape-results-modal');
 }
 
 /* ═══════════════════════════════════════════════════════════

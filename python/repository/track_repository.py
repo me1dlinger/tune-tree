@@ -390,6 +390,40 @@ def get_artist_full_info(artist: str):
     return {"artist": artist, "albums": albums_with_tracks}
 
 
+def get_artist_directory_path(artist: str) -> str | None:
+    """获取艺术家的目录路径（通过任意一首歌曲的路径推断）"""
+    db = get_db()
+    row = db.execute(
+        "SELECT path FROM tracks WHERE artist=? LIMIT 1", (artist,)
+    ).fetchone()
+    if not row:
+        return None
+    
+    from pathlib import Path
+    track_path = Path(row["path"])
+    
+    artist_dir = track_path.parent
+    
+    while artist_dir.parent.name != "" and artist_dir.parent.name != artist_dir.name:
+        if artist_dir.parent.name == artist or artist_dir.name == artist:
+            break
+        parent_name = artist_dir.parent.name.lower()
+        current_name = artist_dir.name.lower()
+        artist_lower = artist.lower()
+        
+        if parent_name == artist_lower:
+            artist_dir = artist_dir.parent
+            break
+        if current_name == artist_lower:
+            break
+        
+        artist_dir = artist_dir.parent
+        if artist_dir.parent == artist_dir:
+            break
+    
+    return str(artist_dir)
+
+
 # === 统计操作 ===
 
 

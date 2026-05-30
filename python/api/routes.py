@@ -7,6 +7,7 @@ from functools import wraps
 from pathlib import Path
 from datetime import datetime
 import base64
+import hashlib
 import logging
 import threading
 
@@ -167,6 +168,141 @@ def api_album_tracks(artist: str, album: str):
 def api_artist_full(artist: str):
     result = get_artist_full_info(artist)
     return jsonify(result)
+
+
+from repository.track_repository import get_artist_directory_path
+
+ARTIST_COVER_FILENAME = "cover.jpg"
+MAX_ARTIST_COVER_SIZE = 5 * 1024 * 1024
+
+
+@api_bp.route("/api/artists/<path:artist>/cover", methods=["GET"])
+@require_auth
+def api_artist_cover_get(artist: str):
+    artist_dir = get_artist_directory_path(artist)
+    if not artist_dir:
+        abort(404)
+    
+    cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+    if not cover_path.exists():
+        abort(404)
+    
+    import os
+    file_mtime = int(cover_path.stat().st_mtime)
+    artist_hash = hashlib.md5(artist.encode('utf-8')).hexdigest()[:8]
+    etag = f'"{artist_hash}-{file_mtime}"'
+    
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+    
+    with open(cover_path, "rb") as f:
+        image_data = f.read()
+    
+    return Response(
+        image_data,
+        mimetype="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=0, must-revalidate",
+            "ETag": etag,
+            "Last-Modified": datetime.fromtimestamp(file_mtime).strftime(
+                "%a, %d %b %Y %H:%M:%S GMT"
+            ),
+        },
+    )
+
+
+@api_bp.route("/api/artists/<path:artist>/cover", methods=["POST"])
+@require_auth
+def api_artist_cover_upload(artist: str):
+    artist_dir = get_artist_directory_path(artist)
+    if not artist_dir:
+        return jsonify({"error": "artist directory not found"}), 404
+    
+    if "cover" not in request.files:
+        return jsonify({"error": "cover file required"}), 400
+    
+    f = request.files["cover"]
+    if not f.filename:
+        return jsonify({"error": "cover file required"}), 400
+    
+    mime = f.mimetype
+    if mime not in ("image/jpeg", "image/png"):
+        return jsonify({"error": "only JPEG/PNG format supported"}), 400
+    
+    image_data = f.read()
+    if len(image_data) > MAX_ARTIST_COVER_SIZE:
+        return jsonify({"error": "cover file too large (max 5MB)"}), 400
+    
+    try:
+        from PIL import Image
+        import io
+        
+        img = Image.open(io.BytesIO(image_data))
+        if img.format != "JPEG":
+            img = img.convert("RGB")
+        
+        cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+        img.save(cover_path, "JPEG", quality=90)
+        
+    except Exception as exc:
+        logger.error("artist cover write error %s: %s", artist, exc)
+        return jsonify({"error": str(exc)}), 500
+    
+    return jsonify({"ok": True, "path": str(cover_path)})
+
+
+@api_bp.route("/api/artists/<path:artist>/cover/exists", methods=["GET"])
+@require_auth
+def api_artist_cover_exists(artist: str):
+    artist_dir = get_artist_directory_path(artist)
+    if not artist_dir:
+        return jsonify({"exists": False})
+    
+    cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+    exists = cover_path.exists()
+    
+    return jsonify({"exists": exists})
+
+
+from services.netease_api import NeteaseApi
+
+
+@api_bp.route("/api/artists/<path:artist>/scrape-cover", methods=["POST"])
+@require_auth
+def api_artist_scrape_cover(artist: str):
+    artist_dir = get_artist_directory_path(artist)
+    if not artist_dir:
+        return jsonify({"error": "artist directory not found"}), 404
+    
+    try:
+        image_data = NeteaseApi.download_artist_avatar(artist)
+        
+        if not image_data or len(image_data) < 1000:
+            return jsonify({"error": "failed to fetch artist avatar from netease"}), 502
+        
+        if len(image_data) > MAX_ARTIST_COVER_SIZE:
+            return jsonify({"error": "cover file too large (max 5MB)"}), 400
+        
+        try:
+            from PIL import Image
+            import io
+            
+            img = Image.open(io.BytesIO(image_data))
+            if img.format != "JPEG":
+                img = img.convert("RGB")
+            
+            cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+            img.save(cover_path, "JPEG", quality=90)
+            
+        except Exception as exc:
+            logger.error("artist cover save error %s: %s", artist, exc)
+            return jsonify({"error": str(exc)}), 500
+        
+        return jsonify({"ok": True, "path": str(cover_path)})
+        
+    except Exception as exc:
+        logger.error("netease api error: %s", exc)
+        return jsonify({"error": f"netease api failed: {exc}"}), 502
 
 
 # Cover art
@@ -696,6 +832,37 @@ def api_apply_scraped_metadata(track_id: int):
         })
     except Exception as e:
         logger.error(f"应用刮削的元数据失败: {e}")
-        add_op_log(datetime.now().isoformat(), "apply_scrape_error", 
+        add_op_log(datetime.now().isoformat(), "apply_scrape_error",
                   f"应用元数据出错: {row['filename']} - {str(e)}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@api_bp.route("/api/tracks/<int:track_id>/scrape-all", methods=["POST"])
+@require_auth
+def api_scrape_all(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+
+    current_meta = {
+        "title": row["title"],
+        "artist": row["artist"],
+        "album": row["album"],
+    }
+
+    add_op_log(datetime.now().isoformat(), "scrape_all_start", f"开始批量刮削: {row['filename']}")
+
+    try:
+        results = scraper.search_all_apis(row["path"], current_meta, max_per_api=3)
+        add_op_log(datetime.now().isoformat(), "scrape_all_success",
+                  f"批量刮削完成: {row['filename']}")
+        return jsonify({
+            "ok": True,
+            "original": current_meta,
+            "results": results
+        })
+    except Exception as e:
+        logger.error(f"批量刮削失败: {e}")
+        add_op_log(datetime.now().isoformat(), "scrape_all_error",
+                  f"批量刮削出错: {row['filename']} - {str(e)}")
         return jsonify({"ok": False, "error": str(e)}), 500
