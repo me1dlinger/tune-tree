@@ -172,7 +172,7 @@ function _renderMetadata(container) {
     container.style.display = 'block';
     let html = '<div class="lyrics-metadata-header"><span class="lyrics-metadata-label">附加信息</span></div>';
     html += '<div class="lyrics-metadata-rows">';
-    html += `<textarea class="lyrics-untimestamped-input" id="lyrics-metadata-raw" placeholder="附加信息（标签、无时间戳歌词等），将原样放在歌词最前面">${esc(rawMeta)}</textarea>`;
+    html += `<textarea class="lyrics-untimestamped-input" id="lyrics-metadata-raw" placeholder="附加信息，将放置在歌词头">${esc(rawMeta)}</textarea>`;
     html += '</div>';
     container.innerHTML = html;
 }
