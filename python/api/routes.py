@@ -735,6 +735,26 @@ def api_track_update_lyrics(track_id: int):
     return jsonify({"ok": True})
 
 
+@api_bp.route("/api/tracks/<int:track_id>/export-lrc", methods=["POST"])
+@require_auth
+def api_track_export_lrc(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    data = request.get_json(force=True)
+    lyrics = data.get("lyrics", "")
+    if not lyrics:
+        return jsonify({"error": "歌词内容为空"}), 400
+    track_path = Path(row["path"])
+    lrc_path = track_path.with_suffix(".lrc")
+    try:
+        lrc_path.write_text(lyrics, encoding="utf-8")
+    except Exception as exc:
+        logger.error("lrc export error track %d: %s", track_id, exc)
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True, "path": str(lrc_path.name)})
+
+
 @api_bp.route("/api/tracks/batch-delete", methods=["POST"])
 @require_auth
 def api_tracks_batch_delete():

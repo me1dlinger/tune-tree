@@ -448,6 +448,99 @@ function resetLyricsEdit() {
     showToast('歌词已还原', 'info');
 }
 
+function _getCurrentLyricsText() {
+    const data = lyricsState.parsedData;
+    if (!data) return '';
+    return LrcParser.serialize(data);
+}
+
+function copyLyricsToClipboard() {
+    const text = _getCurrentLyricsText();
+    if (!text) {
+        showToast('歌词内容为空', 'warn');
+        return;
+    }
+    navigator.clipboard.writeText(text).then(() => {
+        showToast('歌词已复制到剪贴板', 'success');
+    }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('歌词已复制到剪贴板', 'success');
+    });
+}
+
+function exportLrcFile() {
+    const text = _getCurrentLyricsText();
+    if (!text) {
+        showToast('歌词内容为空', 'warn');
+        return;
+    }
+    const track = lyricsState.track;
+    const baseName = track ? (track.filename || track.title || 'lyrics').replace(/\.[^.]+$/, '') : 'lyrics';
+    const lrcName = baseName + '.lrc';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay open';
+    overlay.style.zIndex = '10001';
+    overlay.innerHTML = `
+        <div class="modal" style="width:340px;padding:20px;">
+            <div class="modal-title" style="margin-bottom:16px;">导出LRC文件</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:16px;">文件名：${esc(lrcName)}</div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="toolbar-btn" id="lrc-export-browser">浏览器下载</button>
+                <button class="toolbar-btn" id="lrc-export-server">保存到歌曲目录</button>
+                <button class="toolbar-btn" id="lrc-export-cancel">取消</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#lrc-export-browser').onclick = () => {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = lrcName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        document.body.removeChild(overlay);
+        showToast('LRC文件已下载', 'success');
+    };
+
+    overlay.querySelector('#lrc-export-server').onclick = async () => {
+        if (!track || !track.id) {
+            showToast('无法获取歌曲信息', 'error');
+            return;
+        }
+        try {
+            const result = await POST(`/tracks/${track.id}/export-lrc`, { lyrics: text });
+            if (result.ok) {
+                showToast(`已保存到歌曲目录：${result.path}`, 'success');
+            } else {
+                showToast('保存失败：' + (result.error || '未知错误'), 'error');
+            }
+        } catch (e) {
+            showToast('保存失败：' + e.message, 'error');
+        }
+        document.body.removeChild(overlay);
+    };
+
+    overlay.querySelector('#lrc-export-cancel').onclick = () => {
+        document.body.removeChild(overlay);
+    };
+
+    overlay.onclick = (e) => {
+        if (e.target === overlay) document.body.removeChild(overlay);
+    };
+}
+
 function showLyricsSearchInEditor() {
     const searchPanel = document.getElementById('lyrics-editor-search-panel');
     if (searchPanel.style.display === 'none') {
