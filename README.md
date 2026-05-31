@@ -39,6 +39,24 @@
 ### 艺术家列表及详情
 ![艺术家列表及详情](screenshots/image1.png)
 
+### 编辑元数据
+![编辑元数据](screenshots/image1.1.png)
+
+### 搜索元数据标签
+![搜索元数据标签](screenshots/image1.2.png)
+
+### 搜索歌词、编辑歌词和时间轴
+![搜索歌词、编辑歌词和时间轴](screenshots/image1.3.png)
+
+
+### 单艺术家格式化预览
+![单艺术家格式化预览](screenshots/image1.4.png)
+
+
+### 多选艺术家格式化预览
+![多选艺术家格式化预览](screenshots/image1.5.png)
+
+
 ### 目录浏览
 ![目录浏览](screenshots/image2.png)
 
