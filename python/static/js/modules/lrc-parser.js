@@ -94,9 +94,9 @@ const LrcParser = {
                     parts.push(`[${ts}]${group.secondary.text}`);
                 }
             } else {
-                parts.push(group.primary.text);
+                parts.push(`[${group.primary.text}]`);
                 if (group.secondary) {
-                    parts.push(group.secondary.text);
+                    parts.push(`[${group.secondary.text}]`);
                 }
             }
         }

@@ -2959,6 +2959,32 @@ body {
     gap: 4px;
 }
 
+.lyrics-untimestamped-input {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--text);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    resize: vertical;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.lyrics-untimestamped-input:focus {
+    border-color: var(--accent);
+}
+
+.lyrics-metadata-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--text3);
+    font-size: 12px;
+}
+
 .lyrics-metadata-row {
     display: flex;
     align-items: center;
@@ -3050,6 +3076,7 @@ body {
     padding: 3px 6px;
     background: var(--bg2);
     border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
     border-radius: 2px;
     color: var(--accent);
     font-family: var(--font-mono);
@@ -3140,7 +3167,8 @@ body {
 }
 
 .lyrics-group:hover .lyrics-line-action-btn,
-.lyrics-group.active .lyrics-line-action-btn {
+.lyrics-group.active .lyrics-line-action-btn,
+.lyrics-metadata-row:hover .lyrics-line-action-btn {
     opacity: 1;
 }
 

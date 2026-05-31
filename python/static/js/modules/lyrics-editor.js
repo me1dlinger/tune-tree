@@ -161,30 +161,19 @@ function _renderEditor() {
 
 function _renderMetadata(container) {
     const data = lyricsState.parsedData;
-    if (!data.metadata || data.metadata.length === 0) {
-        container.style.display = 'none';
-        container.innerHTML = '';
-        return;
-    }
+
+    const metaTags = (data.metadata || []).map(m => `[${m.key}:${m.value}]`).join('\n');
+    const untimestampedLines = data.groups
+        .filter(g => g.timestamp === null)
+        .map(g => g.primary.text)
+        .join('\n');
+    const rawMeta = data.metadataRaw || (metaTags ? metaTags + (untimestampedLines ? '\n' + untimestampedLines : '') : untimestampedLines);
 
     container.style.display = 'block';
     let html = '<div class="lyrics-metadata-header"><span class="lyrics-metadata-label">附加信息</span></div>';
     html += '<div class="lyrics-metadata-rows">';
-
-    data.metadata.forEach((tag, idx) => {
-        html += `<div class="lyrics-metadata-row" data-meta-idx="${idx}">
-            <input type="text" class="lyrics-meta-key-input" value="${esc(tag.key)}" 
-                onchange="updateMetadataKey(${idx}, this.value)" placeholder="标签名">
-            <input type="text" class="lyrics-meta-val-input" value="${esc(tag.value)}" 
-                onchange="updateMetadataValue(${idx}, this.value)" placeholder="标签值">
-            <button class="lyrics-line-action-btn lyrics-delete-btn" onclick="removeMetadata(${idx})" title="删除">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-        </div>`;
-    });
-
+    html += `<textarea class="lyrics-untimestamped-input" id="lyrics-metadata-raw" placeholder="附加信息（标签、无时间戳歌词等），将原样放在歌词最前面">${esc(rawMeta)}</textarea>`;
     html += '</div>';
-    html += '<button class="lyrics-add-meta-btn" onclick="addMetadata()">+ 添加附加信息</button>';
     container.innerHTML = html;
 }
 
@@ -193,15 +182,14 @@ function _renderLines(container) {
     let html = '';
 
     data.groups.forEach((group, idx) => {
+        if (group.timestamp === null) return;
         const isActive = idx === lyricsState.activeGroupIndex;
         const hasSecondary = group.secondary !== null;
-        const hasTimestamp = group.timestamp !== null;
 
         html += `<div class="lyrics-group ${isActive ? 'active' : ''}" data-group-idx="${idx}" onclick="setActiveGroup(${idx})">`;
 
         html += `<div class="lyrics-group-timestamp">`;
         html += `<input type="text" class="lyrics-timestamp-input" value="${esc(group.timestampStr)}" 
-            ${!hasTimestamp ? 'placeholder="--:--.---"' : ''} 
             onchange="updateGroupTimestamp(${idx}, this.value)" 
             onclick="event.stopPropagation()">`;
         html += `</div>`;
@@ -428,7 +416,19 @@ function confirmLyricsEdit() {
         return;
     }
 
-    const newLyrics = LrcParser.serialize(data);
+    const metaRawEl = document.getElementById('lyrics-metadata-raw');
+    const rawMeta = metaRawEl ? metaRawEl.value.trim() : '';
+
+    if (rawMeta) {
+        data.metadataRaw = rawMeta;
+    }
+
+    data.metadata = [];
+    let newLyrics = LrcParser.serialize(data);
+
+    if (rawMeta) {
+        newLyrics = rawMeta + '\n' + newLyrics;
+    }
 
     if (typeof window.onLyricsConfirmed === 'function') {
         window.onLyricsConfirmed(newLyrics);
@@ -451,7 +451,19 @@ function resetLyricsEdit() {
 function _getCurrentLyricsText() {
     const data = lyricsState.parsedData;
     if (!data) return '';
-    return LrcParser.serialize(data);
+
+    const metaRawEl = document.getElementById('lyrics-metadata-raw');
+    const rawMeta = metaRawEl ? metaRawEl.value.trim() : '';
+    if (rawMeta) {
+        data.metadataRaw = rawMeta;
+    }
+    data.metadata = [];
+
+    let text = LrcParser.serialize(data);
+    if (rawMeta) {
+        text = rawMeta + '\n' + text;
+    }
+    return text;
 }
 
 function copyLyricsToClipboard() {
