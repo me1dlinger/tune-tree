@@ -65,6 +65,7 @@ function renderCover(track, coverEl) {
 
   if (track.has_cover) {
     const url = coverUrl(track.id);
+    const coverFilename = `${(track.artist || 'unknown').replace(/[\\/:*?"<>|]/g, '_')}-${(track.album || 'unknown').replace(/[\\/:*?"<>|]/g, '_')}`;
     const img = document.createElement('img');
     img.src = url;
     img.style.cssText = 'width:100%;height:100%;object-fit:cover;cursor:zoom-in;';
@@ -75,7 +76,7 @@ function renderCover(track, coverEl) {
       coverEl.innerHTML = placeholder;
     };
     img.onclick = function () {
-      openCoverImageViewer(url);
+      openCoverImageViewer(url, coverFilename);
     };
     coverEl.innerHTML = '';
     coverEl.appendChild(img);

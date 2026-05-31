@@ -2,13 +2,22 @@
 API 路由模块
 """
 
-from flask import Blueprint, request, jsonify, render_template, abort, Response, send_file
+from flask import (
+    Blueprint,
+    request,
+    jsonify,
+    render_template,
+    abort,
+    Response,
+    send_file,
+)
 from functools import wraps
 from pathlib import Path
 from datetime import datetime
 import base64
 import hashlib
 import logging
+import re
 import threading
 import zipfile
 import io
@@ -68,6 +77,7 @@ api_bp = Blueprint("api", __name__)
 
 SCAN_TIMEOUT_HOURS = 1
 scraper = MetadataScraper()
+
 
 def _check_scan_timeout():
     """检查扫描是否超时，若超时则重置状态"""
@@ -176,11 +186,7 @@ def api_track_download(track_id: int):
     track_path = Path(row["path"])
     if not track_path.exists():
         abort(404)
-    return send_file(
-        track_path,
-        as_attachment=True,
-        download_name=track_path.name
-    )
+    return send_file(track_path, as_attachment=True, download_name=track_path.name)
 
 
 @api_bp.route("/api/artists/<path:artist>/albums/<path:album>/download")
@@ -189,25 +195,25 @@ def api_album_download(artist: str, album: str):
     rows = get_tracks_by_artist_and_album(artist, album)
     if not rows:
         abort(404)
-    
+
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
         for row in rows:
             track_path = Path(row["path"])
             if track_path.exists():
                 arcname = f"{track_path.name}"
                 zipf.write(track_path, arcname)
-    
+
     zip_buffer.seek(0)
     safe_artist = safe_filename(artist)
     safe_album = safe_filename(album)
     zipname = f"{safe_artist} - {safe_album}.zip"
-    
+    print(zipname)
     return send_file(
         zip_buffer,
-        mimetype='application/zip',
+        mimetype="application/zip",
         as_attachment=True,
-        download_name=zipname
+        download_name=zipname,
     )
 
 
@@ -217,24 +223,24 @@ def api_artist_download(artist: str):
     rows = get_tracks_by_artist(artist)
     if not rows:
         abort(404)
-    
+
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
         for row in rows:
             track_path = Path(row["path"])
             if track_path.exists():
                 album_folder = track_path.parent.name
                 arcname = f"{album_folder}/{track_path.name}"
                 zipf.write(track_path, arcname)
-    
+
     zip_buffer.seek(0)
     zipname = f"{safe_filename(artist)}.zip"
-    
+
     return send_file(
         zip_buffer,
-        mimetype='application/zip',
+        mimetype="application/zip",
         as_attachment=True,
-        download_name=zipname
+        download_name=zipname,
     )
 
 
@@ -245,27 +251,25 @@ def api_tracks_batch_download():
     track_ids = data.get("track_ids", [])
     if not track_ids:
         return jsonify({"error": "no tracks specified"}), 400
-    
+
     rows = []
     for tid in track_ids:
         row = get_track_by_id(tid)
         if row:
             rows.append(row)
-    
+
     if not rows:
         abort(404)
-    
+
     if len(rows) == 1:
         track_path = Path(rows[0]["path"])
         if track_path.exists():
             return send_file(
-                track_path,
-                as_attachment=True,
-                download_name=track_path.name
+                track_path, as_attachment=True, download_name=track_path.name
             )
-    
+
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
         for row in rows:
             track_path = Path(row["path"])
             if track_path.exists():
@@ -274,21 +278,21 @@ def api_tracks_batch_download():
                 track_name = track_path.name
                 arcname = f"{artist}/{album}/{track_name}"
                 zipf.write(track_path, arcname)
-    
+
     zip_buffer.seek(0)
-    
+
     if len(rows) <= 3:
         names = " ".join([Path(r["path"]).stem for r in rows[:3]])
         zipname = f"{names}.zip"
     else:
         names = " ".join([Path(r["path"]).stem for r in rows[:3]])
         zipname = f"{names}...zip"
-    
+
     return send_file(
         zip_buffer,
-        mimetype='application/zip',
+        mimetype="application/zip",
         as_attachment=True,
-        download_name=zipname
+        download_name=zipname,
     )
 
 
@@ -298,39 +302,35 @@ def api_files_download():
     path = request.args.get("path", "").lstrip("/")
     if not path:
         abort(400)
-    
+
     base = Path(MUSIC_ROOT)
     file_path = (base / path).resolve()
     if not str(file_path).startswith(str(base.resolve())):
         abort(403)
-    
+
     if not file_path.exists():
         abort(404)
-    
+
     if file_path.is_file():
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name=file_path.name
-        )
+        return send_file(file_path, as_attachment=True, download_name=file_path.name)
     else:
         zip_buffer = io.BytesIO()
         dir_name = file_path.name
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(file_path):
                 dirs.sort()
                 for filename in sorted(files):
                     file_full = Path(root) / filename
                     arcname = str(file_full.relative_to(file_path))
                     zipf.write(file_full, arcname)
-        
+
         zip_buffer.seek(0)
         zipname = f"{dir_name}.zip"
         return send_file(
             zip_buffer,
-            mimetype='application/zip',
+            mimetype="application/zip",
             as_attachment=True,
-            download_name=zipname
+            download_name=zipname,
         )
 
 
@@ -338,6 +338,7 @@ def safe_filename(name: str) -> str:
     if not name:
         return "Unknown"
     import re
+
     result = re.sub(r'[\\/:*?"<>|]', "_", name)
     result = re.sub(r"[\x00-\x1f\x7f]", "", result)
     result = result.strip()
@@ -369,18 +370,19 @@ def api_artist_cover_get(artist: str):
     cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
     if not cover_path.exists():
         abort(404)
-    
+
     import os
+
     file_mtime = int(cover_path.stat().st_mtime)
-    artist_hash = hashlib.md5(artist.encode('utf-8')).hexdigest()[:8]
+    artist_hash = hashlib.md5(artist.encode("utf-8")).hexdigest()[:8]
     etag = f'"{artist_hash}-{file_mtime}"'
-    
+
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
-    
+
     with open(cover_path, "rb") as f:
         image_data = f.read()
-    
+
     return Response(
         image_data,
         mimetype="image/jpeg",
@@ -400,37 +402,37 @@ def api_artist_cover_upload(artist: str):
     artist_dir = get_artist_directory_path(artist)
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
-    
+
     if "cover" not in request.files:
         return jsonify({"error": "cover file required"}), 400
-    
+
     f = request.files["cover"]
     if not f.filename:
         return jsonify({"error": "cover file required"}), 400
-    
+
     mime = f.mimetype
     if mime not in ("image/jpeg", "image/png"):
         return jsonify({"error": "only JPEG/PNG format supported"}), 400
-    
+
     image_data = f.read()
     if len(image_data) > MAX_ARTIST_COVER_SIZE:
         return jsonify({"error": "cover file too large (max 5MB)"}), 400
-    
+
     try:
         from PIL import Image
         import io
-        
+
         img = Image.open(io.BytesIO(image_data))
         if img.format != "JPEG":
             img = img.convert("RGB")
-        
+
         cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
         img.save(cover_path, "JPEG", quality=90)
-        
+
     except Exception as exc:
         logger.error("artist cover write error %s: %s", artist, exc)
         return jsonify({"error": str(exc)}), 500
-    
+
     return jsonify({"ok": True, "path": str(cover_path)})
 
 
@@ -440,10 +442,10 @@ def api_artist_cover_exists(artist: str):
     artist_dir = get_artist_directory_path(artist)
     if not artist_dir:
         return jsonify({"exists": False})
-    
+
     cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
     exists = cover_path.exists()
-    
+
     return jsonify({"exists": exists})
 
 
@@ -466,6 +468,7 @@ def api_artist_cover_delete(artist: str):
 
     return jsonify({"ok": True})
 
+
 @api_bp.route("/api/artists/<path:artist>/scrape-cover", methods=["POST"])
 @require_auth
 def api_artist_scrape_cover(artist: str):
@@ -476,26 +479,28 @@ def api_artist_scrape_cover(artist: str):
 
     if not image_data or len(image_data) < 1000:
         return jsonify({"error": f"failed to fetch artist avatar for: {artist}"}), 502
-    
+
     if len(image_data) > MAX_ARTIST_COVER_SIZE:
         return jsonify({"error": "cover file too large (max 5MB)"}), 400
-    
+
     try:
         from PIL import Image
         import io
-        
+
         img = Image.open(io.BytesIO(image_data))
         if img.format != "JPEG":
             img = img.convert("RGB")
-        
+
         cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
         img.save(cover_path, "JPEG", quality=90)
-        
+
     except Exception as exc:
         logger.error("artist cover save error %s: %s", artist, exc)
         return jsonify({"error": str(exc)}), 500
-    
-    return jsonify({"ok": True, "path": str(cover_path), "artist": successful_artist or artist})
+
+    return jsonify(
+        {"ok": True, "path": str(cover_path), "artist": successful_artist or artist}
+    )
 
 
 # Lyrics search and fetch
@@ -511,14 +516,16 @@ def api_lyrics_search():
         results = NeteaseApi.search_song(keyword)
         formatted = []
         for r in results:
-            formatted.append({
-                "id": r["idOrMd5"],
-                "title": r["songName"],
-                "artist": r["singer"],
-                "album": r.get("album", ""),
-                "duration": r["duration"],
-                "source": "netease"
-            })
+            formatted.append(
+                {
+                    "id": r["idOrMd5"],
+                    "title": r["songName"],
+                    "artist": r["singer"],
+                    "album": r.get("album", ""),
+                    "duration": r["duration"],
+                    "source": "netease",
+                }
+            )
         return jsonify({"ok": True, "results": formatted})
     except Exception as e:
         logger.error(f"搜索歌词失败: {e}")
@@ -573,6 +580,65 @@ def api_cover(track_id: int):
             ),
         },
     )
+
+
+AUDIO_MIME = {
+    ".mp3": "audio/mpeg",
+    ".flac": "audio/flac",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".wma": "audio/x-ms-wma",
+    ".opus": "audio/opus",
+}
+
+
+@api_bp.route("/api/tracks/<int:track_id>/audio")
+@require_auth
+def api_track_audio(track_id: int):
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+    track_path = Path(row["path"])
+    if not track_path.exists():
+        abort(404)
+
+    file_size = track_path.stat().st_size
+    mime = AUDIO_MIME.get(track_path.suffix.lower(), "audio/mpeg")
+
+    range_header = request.headers.get("Range")
+    if range_header:
+        byte_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if byte_match:
+            start = int(byte_match.group(1))
+            end = int(byte_match.group(2)) if byte_match.group(2) else file_size - 1
+            end = min(end, file_size - 1)
+            length = end - start + 1
+
+            def generate():
+                with open(track_path, "rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            return Response(
+                generate(),
+                status=206,
+                mimetype=mime,
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(length),
+                },
+            )
+
+    return send_file(track_path, mimetype=mime)
 
 
 # Track detail
@@ -811,7 +877,9 @@ def api_files():
     page_items = entries_data[offset : offset + limit]
 
     for item in page_items:
-        item["mtime"] = datetime.fromtimestamp(item["mtime"]).strftime("%Y-%m-%d %H:%M:%S")
+        item["mtime"] = datetime.fromtimestamp(item["mtime"]).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
     return jsonify(
         {
@@ -970,15 +1038,13 @@ def api_logs_clear():
 # === 元数据刮削相关接口 ===
 
 
-
-
 @api_bp.route("/api/tracks/<int:track_id>/scrape", methods=["POST"])
 @require_auth
 def api_scrape_metadata(track_id: int):
     row = get_track_by_id(track_id)
     if not row:
         abort(404)
-    
+
     data = request.get_json(force=True) or {}
     preferred_api = data.get("preferred_api")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -989,25 +1055,24 @@ def api_scrape_metadata(track_id: int):
     }
     try:
         scraped_data = scraper.scrape(row["path"], current_meta, preferred_api)
-        
+
         if scraped_data:
-            add_op_log(now, "scrape_success", 
-                      f"成功从 {scraped_data['_source']} 获取元数据: {row['filename']}")
+            add_op_log(
+                now,
+                "scrape_success",
+                f"成功从 {scraped_data['_source']} 获取元数据: {row['filename']}",
+            )
             commit()
-            return jsonify({
-                "ok": True,
-                "original": current_meta,
-                "scraped": scraped_data
-            })
+            return jsonify(
+                {"ok": True, "original": current_meta, "scraped": scraped_data}
+            )
         else:
-            add_op_log(now, "scrape_fail", 
-                      f"未能找到匹配的元数据: {row['filename']}")
+            add_op_log(now, "scrape_fail", f"未能找到匹配的元数据: {row['filename']}")
             commit()
             return jsonify({"ok": False, "error": "未找到匹配的元数据"})
     except Exception as e:
         logger.error(f"刮削元数据失败: {e}")
-        add_op_log(now, "scrape_error", 
-                  f"刮削元数据出错: {row['filename']} - {str(e)}")
+        add_op_log(now, "scrape_error", f"刮削元数据出错: {row['filename']} - {str(e)}")
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1019,7 +1084,7 @@ def api_apply_scraped_metadata(track_id: int):
     if not row:
         abort(404)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     data = request.get_json(force=True)
     if not data:
         return jsonify({"ok": False, "error": "缺少数据"}), 400
@@ -1029,7 +1094,7 @@ def api_apply_scraped_metadata(track_id: int):
         for key in ["title", "artist", "album", "album_artist", "year", "track_num"]:
             if key in data and data[key] is not None:
                 meta_fields[key] = data[key]
-        
+
         # 更新元数据标签
         updated = {}
         if meta_fields:
@@ -1038,7 +1103,7 @@ def api_apply_scraped_metadata(track_id: int):
                 update_track_metadata(track_id, updated)
                 if any(k in updated for k in ("artist", "album", "title")):
                     update_track_metadata(track_id, {"organized": 0})
-        
+
         # 更新封面
         cover_updated = False
         if data.get("_cover_data"):
@@ -1046,7 +1111,7 @@ def api_apply_scraped_metadata(track_id: int):
             write_cover(row["path"], cover_data, "image/jpeg")
             update_track_metadata(track_id, {"has_cover": 1})
             cover_updated = True
-        
+
         # 更新歌词
         lyrics_updated = False
         if data.get("lyrics") is not None:
@@ -1054,19 +1119,21 @@ def api_apply_scraped_metadata(track_id: int):
             has_lyrics = 1 if data["lyrics"] else 0
             update_track_metadata(track_id, {"has_lyrics": has_lyrics})
             lyrics_updated = True
-        add_op_log(now, "apply_scrape_success", 
-                  f"成功应用元数据: {row['filename']}")
+        add_op_log(now, "apply_scrape_success", f"成功应用元数据: {row['filename']}")
         commit()
-        return jsonify({
-            "ok": True,
-            "updated": updated,
-            "cover_updated": cover_updated,
-            "lyrics_updated": lyrics_updated
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "updated": updated,
+                "cover_updated": cover_updated,
+                "lyrics_updated": lyrics_updated,
+            }
+        )
     except Exception as e:
         logger.error(f"应用刮削的元数据失败: {e}")
-        add_op_log(now, "apply_scrape_error",
-                  f"应用元数据出错: {row['filename']} - {str(e)}")
+        add_op_log(
+            now, "apply_scrape_error", f"应用元数据出错: {row['filename']} - {str(e)}"
+        )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1086,18 +1153,14 @@ def api_scrape_all(track_id: int):
     }
     try:
         results = scraper.search_all_apis(row["path"], current_meta)
-        add_op_log(now, "scrape_all_success",
-                  f"批量刮削完成: {row['filename']}")
+        add_op_log(now, "scrape_all_success", f"批量刮削完成: {row['filename']}")
         commit()
-        return jsonify({
-            "ok": True,
-            "original": current_meta,
-            "results": results
-        })
-       
+        return jsonify({"ok": True, "original": current_meta, "results": results})
+
     except Exception as e:
         logger.error(f"批量刮削失败: {e}")
-        add_op_log(now, "scrape_all_error",
-                  f"批量刮削出错: {row['filename']} - {str(e)}")
+        add_op_log(
+            now, "scrape_all_error", f"批量刮削出错: {row['filename']} - {str(e)}"
+        )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500

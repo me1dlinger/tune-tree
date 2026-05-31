@@ -17,14 +17,18 @@ function downloadFile(url, filename) {
   document.body.removeChild(a);
 }
 
-async function downloadTrack(trackId, filename) {
+async function downloadTrack(trackId, filename, ext) {
   try {
     const { blob, response } = await GET_BLOB(`/tracks/${trackId}/download`);
     const contentDisposition = response.headers.get('Content-Disposition');
     let finalFilename = filename;
     if (contentDisposition) {
       const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-      if (match) finalFilename = match[1].replace(/['"]/g, '');
+      if (match) {
+        const serverName = match[1].replace(/['"]/g, '');
+        const serverExt = serverName.includes('.') ? serverName.slice(serverName.lastIndexOf('.')) : '';
+        finalFilename = filename + (ext || serverExt);
+      }
     }
     const blobUrl = URL.createObjectURL(blob);
     downloadFile(blobUrl, finalFilename);
@@ -38,13 +42,8 @@ async function downloadAlbum(artist, album) {
   const encodedArtist = encodeURIComponent(artist);
   const encodedAlbum = encodeURIComponent(album);
   try {
-    const { blob, response } = await GET_BLOB(`/artists/${encodedArtist}/albums/${encodedAlbum}/download`);
-    const contentDisposition = response.headers.get('Content-Disposition');
-    let filename = `${artist} - ${album}.zip`;
-    if (contentDisposition) {
-      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-      if (match) filename = match[1].replace(/['"]/g, '');
-    }
+    const { blob } = await GET_BLOB(`/artists/${encodedArtist}/albums/${encodedAlbum}/download`);
+    const filename = album ? `${artist} - ${album}.zip` : `${artist}.zip`;
     const blobUrl = URL.createObjectURL(blob);
     downloadFile(blobUrl, filename);
     URL.revokeObjectURL(blobUrl);
@@ -56,13 +55,8 @@ async function downloadAlbum(artist, album) {
 async function downloadArtist(artist) {
   const encodedArtist = encodeURIComponent(artist);
   try {
-    const { blob, response } = await GET_BLOB(`/artists/${encodedArtist}/download`);
-    const contentDisposition = response.headers.get('Content-Disposition');
-    let filename = `${artist}.zip`;
-    if (contentDisposition) {
-      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-      if (match) filename = match[1].replace(/['"]/g, '');
-    }
+    const { blob } = await GET_BLOB(`/artists/${encodedArtist}/download`);
+    const filename = `${artist}.zip`;
     const blobUrl = URL.createObjectURL(blob);
     downloadFile(blobUrl, filename);
     URL.revokeObjectURL(blobUrl);
@@ -86,8 +80,13 @@ async function downloadSelectedTracks() {
     const contentDisposition = response.headers.get('Content-Disposition');
     let filename = 'download.zip';
     if (contentDisposition) {
-      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-      if (match) filename = match[1].replace(/['"]/g, '');
+      const utf8Match = contentDisposition.match(/filename\*=UTF-8''(.+)/i);
+      if (utf8Match) {
+        filename = decodeURIComponent(utf8Match[1]);
+      } else {
+        const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (match) filename = match[1].replace(/['"]/g, '');
+      }
     }
     const blobUrl = URL.createObjectURL(blob);
     downloadFile(blobUrl, filename);
@@ -846,6 +845,12 @@ async function loadArtistCover(artist) {
       img.className = 'artist-cover-image';
       img.src = artistCoverUrl(artist);
       img.alt = artist;
+      img.style.cursor = 'zoom-in';
+      img.onclick = (e) => {
+        e.stopPropagation();
+        const safeArtist = (artist || 'unknown').replace(/[\\/:*?"<>|]/g, '_');
+        openCoverImageViewer(img.src, safeArtist);
+      };
       img.onerror = () => {
         coverEl.innerHTML = `
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
@@ -1121,7 +1126,7 @@ function renderTrackSection(album) {
               <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
-              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs(t.filename || t.title)}')">
+              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || t.filename))}', '${escJs(t.ext || '')}')">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                   <polyline points="7 10 12 15 17 10"/>
@@ -1195,7 +1200,7 @@ async function loadTrackSection(artist, album) {
               <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
-              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs(t.filename || t.title)}')">
+              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || t.filename))}', '${escJs(t.ext || '')}')">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                   <polyline points="7 10 12 15 17 10"/>

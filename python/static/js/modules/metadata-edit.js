@@ -104,6 +104,13 @@ function renderEditModal(track) {
           </svg>
           智能刮削元数据
         </button>
+        <button class="toolbar-btn" onclick="editLyrics()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          编辑歌词
+        </button>
         ${scrapedData ? `<div class="scrape-success">已从 ${scrapedData._source} 获取元数据</div>` : ''}
       </div>
       <div class="edit-field">
@@ -131,17 +138,6 @@ function renderEditModal(track) {
           <label>年份</label>
           ${renderFieldWithComparison('year')}
         </div>
-      </div>
-    </div>
-    <div class="edit-lyrics-toggle">
-      <div style="display: flex; gap: 8px;">
-        <button class="toolbar-btn" onclick="editLyrics()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-          </svg>
-          编辑歌词
-        </button>
       </div>
     </div>
   `;
@@ -255,7 +251,7 @@ function editLyrics() {
         window.onLyricsConfirmed = (newLyrics) => {
             editState.lyrics = newLyrics;
         };
-        openLyricsEditorModal(track);
+        openLyricsEditorModal(track, editState.lyrics);
     });
 }
 

@@ -341,9 +341,40 @@
         <div class="modal-title">编辑歌词</div>
         <button class="modal-close" onclick="closeLyricsEditorModal()">✕</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body lyrics-editor-body">
         <div class="lyrics-editor-info" id="lyrics-editor-info"></div>
-        <div class="lyrics-editor-search-bar">
+        <div class="lyrics-player-bar">
+          <audio id="lyrics-audio"></audio>
+          <div class="lyrics-player-main">
+            <div class="lyrics-player-controls">
+              <button class="lyrics-player-btn" onclick="seekBackward()" title="快退5s (Ctrl+←)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="19,20 9,12 19,4"/><line x1="5" y1="4" x2="5" y2="20"/></svg>
+              </button>
+              <button class="lyrics-player-btn lyrics-play-btn" id="lyrics-play-btn" onclick="togglePlay()" title="播放/暂停 (Ctrl+Space)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5,3 19,12 5,21"/></svg>
+              </button>
+              <button class="lyrics-player-btn" onclick="seekForward()" title="快进5s (Ctrl+→)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,4 15,12 5,20"/><line x1="19" y1="4" x2="19" y2="20"/></svg>
+              </button>
+              <button class="lyrics-player-btn lyrics-stamp-btn" onclick="stampTimestamp()" title="打轴 (Ctrl+Enter)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </button>
+            </div>
+            <div class="lyrics-player-progress">
+              <span class="lyrics-time" id="lyrics-time-current">00:00.000</span>
+              <div class="lyrics-progress-bar" id="lyrics-progress-bar" onclick="seekToPosition(event)">
+                <div class="lyrics-progress-fill" id="lyrics-progress-fill"></div>
+              </div>
+              <span class="lyrics-time" id="lyrics-time-total">00:00.000</span>
+            </div>
+            <div class="lyrics-player-volume">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              <input type="range" id="lyrics-volume-slider" min="0" max="1" step="0.05" value="0.8" oninput="setVolume(this.value)">
+            </div>
+            <span class="lyrics-audio-filename" id="lyrics-audio-filename"></span>
+          </div>
+        </div>
+        <div class="lyrics-editor-toolbar">
           <button class="toolbar-btn" onclick="showLyricsSearchInEditor()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"/>
@@ -351,11 +382,28 @@
             </svg>
             搜索歌词
           </button>
+          <button class="toolbar-btn" onclick="addNewGroupAtEnd()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            添加行
+          </button>
+          <button class="toolbar-btn" onclick="resetLyricsEdit()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            重置
+          </button>
+          <div class="lyrics-shortcuts-hint">
+            <span>Ctrl+Enter 打轴</span>
+            <span>Ctrl+Space 播放/暂停</span>
+            <span>Ctrl+←/→ 快退/快进5s</span>
+            <span>↑/↓ 切换行</span>
+          </div>
         </div>
         <div class="lyrics-editor-search-panel" id="lyrics-editor-search-panel" style="display:none;">
           <div class="lyrics-search-results" id="lyrics-editor-search-results"></div>
         </div>
-        <textarea id="lyrics-editor-textarea" placeholder="在这里编辑歌词..."></textarea>
+        <div class="lyrics-editor-metadata" id="lyrics-editor-metadata" style="display:none;"></div>
+        <div class="lyrics-editor-content">
+          <div class="lyrics-editor-lines" id="lyrics-editor-lines"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="toolbar-btn" onclick="closeLyricsEditorModal()">取消</button>
@@ -380,6 +428,7 @@
   <script defer src="{{ url_for('static', filename='js/modules/logs.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/format.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/detail.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/modules/lrc-parser.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/lyrics-editor.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/metadata-edit.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>

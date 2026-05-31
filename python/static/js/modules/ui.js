@@ -66,7 +66,12 @@ function showConfirm(title, msg, onOk) {
 // 点击遮罩层关闭 modal
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => {
-    if (e.target === el) el.classList.remove('open');
+    if (e.target !== el) return;
+    if (el.id === 'lyrics-editor-modal') {
+      if (typeof closeLyricsEditorModal === 'function') closeLyricsEditorModal();
+    } else {
+      el.classList.remove('open');
+    }
   });
 });
 
@@ -76,7 +81,12 @@ document.addEventListener('keydown', (e) => {
 
   const openModals = document.querySelectorAll('.modal-overlay.open');
   if (openModals.length > 0) {
-    openModals[openModals.length - 1].classList.remove('open');
+    const topModal = openModals[openModals.length - 1];
+    if (topModal.id === 'lyrics-editor-modal') {
+      if (typeof closeLyricsEditorModal === 'function') closeLyricsEditorModal();
+    } else {
+      topModal.classList.remove('open');
+    }
     return;
   }
 
