@@ -334,6 +334,36 @@
     </div>
   </div>
 
+  <!-- LYRICS EDITOR MODAL -->
+  <div class="modal-overlay" id="lyrics-editor-modal">
+    <div class="modal lyrics-editor-modal">
+      <div class="modal-header">
+        <div class="modal-title">编辑歌词</div>
+        <button class="modal-close" onclick="closeLyricsEditorModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="lyrics-editor-info" id="lyrics-editor-info"></div>
+        <div class="lyrics-editor-search-bar">
+          <button class="toolbar-btn" onclick="showLyricsSearchInEditor()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+            搜索歌词
+          </button>
+        </div>
+        <div class="lyrics-editor-search-panel" id="lyrics-editor-search-panel" style="display:none;">
+          <div class="lyrics-search-results" id="lyrics-editor-search-results"></div>
+        </div>
+        <textarea id="lyrics-editor-textarea" placeholder="在这里编辑歌词..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" onclick="closeLyricsEditorModal()">取消</button>
+        <button class="toolbar-btn primary" id="lyrics-editor-confirm-btn" onclick="confirmLyricsEdit()">确认</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toast-container"></div>
 
   <!-- JavaScript Modules (load order matters) -->
@@ -350,6 +380,7 @@
   <script defer src="{{ url_for('static', filename='js/modules/logs.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/format.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/detail.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/modules/lyrics-editor.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/metadata-edit.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

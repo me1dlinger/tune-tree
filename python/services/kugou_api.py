@@ -54,6 +54,11 @@ class KugouApi:
         album_info_url = 'http://mobilecdn.kugou.com/api/v3/album/info?albumid={}&plat=0&pagesize=100&area_code=1'
         header = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:7.0a1) Gecko/20110623 Firefox/7.0a1 Fennec/7.0a1'}
         song_json = requests.get(song_info_url.format(hash), headers=header, timeout=10).json()
+        if(song_json.get("errcode") == 1002 or 'data' not in song_json):
+            return {
+            "errcode": song_json.get("errcode", "")
+            }
+        song_json = song_json["data"]
         duration = song_json.get("timeLength", 0)
         album_img = song_json.get("album_img", "")
 
@@ -84,7 +89,6 @@ class KugouApi:
                     pic_buffer.seek(0)
             except Exception as e:
                 logger.warning(f"获取封面失败: {e}")
-
         return {
             "singer": song_json.get("author_name", ""),
             "songName": song_json.get("songName", ""),

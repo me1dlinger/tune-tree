@@ -11,15 +11,17 @@ from config import SECRET_KEY
 from models.db import init_db, close_db
 from api.routes import api_bp
 
-def log_filename_wrapper(base_filename, when, interval):
-    from datetime import datetime, timezone
-    if when == "midnight":
-        current_time = datetime.now(timezone.utc)
-        current_time = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
-        current_time = current_time.replace(hour=23, minute=59, second=59, microsecond=999999)
-        date_str = current_time.strftime("%Y-%m-%d")
-        return f"{base_filename}.{date_str}.log"
-    return f"{base_filename}.{when}"
+def make_log_filename_wrapper(when, interval):
+    def log_filename_wrapper(base_filename):
+        from datetime import datetime, timezone
+        if when == "midnight":
+            current_time = datetime.now(timezone.utc)
+            current_time = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            current_time = current_time.replace(hour=23, minute=59, second=59, microsecond=999999)
+            date_str = current_time.strftime("%Y-%m-%d")
+            return f"{base_filename}.{date_str}.log"
+        return f"{base_filename}.{when}"
+    return log_filename_wrapper
 
 os.makedirs("instance", exist_ok=True)
 log_handler = TimedRotatingFileHandler(
@@ -30,7 +32,7 @@ log_handler = TimedRotatingFileHandler(
     utc=True,
     encoding="utf-8"
 )
-log_handler.namer = log_filename_wrapper
+log_handler.namer = make_log_filename_wrapper("midnight", 1)
 log_handler.setLevel(logging.INFO)
 log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 

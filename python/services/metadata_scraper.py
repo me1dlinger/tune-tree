@@ -22,6 +22,11 @@ def normalize_str(text: str) -> str:
     return unicodedata.normalize('NFKC', text).lower().strip()
 
 
+class RateLimitException(Exception):
+    """API 风控异常"""
+    pass
+
+
 class MetadataScraper:
     """
     元数据刮削器，整合多个数据源
@@ -33,8 +38,10 @@ class MetadataScraper:
 
     def __init__(self):
         self.api_order = ["kugou", "cloud"]
+        self._kugou_rate_limited = False
 
-    def _calculate_match_score(self, result: Dict, keywords: List[str]) -> float:
+    def _calculate_match_score(self,  result: Dict, keywords: List[str]) -> float:
+        
         """
         计算搜索结果与关键词的匹配分数
 
@@ -51,11 +58,9 @@ class MetadataScraper:
         title_keyword = keywords[0] if keywords else ""
         artist_keyword = keywords[1] if len(keywords) > 1 else ""
         album_keyword = keywords[2] if len(keywords) > 2 else ""
-
         result_title = normalize_str(result.get("title", ""))
         result_artist = normalize_str(result.get("artist", ""))
         result_album = normalize_str(result.get("album", ""))
-
         if title_keyword:
             title_kw_norm = normalize_str(title_keyword)
             if result_title == title_kw_norm:
@@ -137,6 +142,7 @@ class MetadataScraper:
         """
         刮削元数据
         """
+        self._kugou_rate_limited = False
         keywords = self._build_search_keywords(filename, current_meta)
         logger.info(f"开始刮削元数据，关键词: {keywords}")
 
@@ -149,6 +155,9 @@ class MetadataScraper:
                 if result:
                     logger.info(f"通过 {api_name} API 成功获取元数据")
                     return result
+            except RateLimitException as e:
+                logger.warning(f"{api_name} API 触发风控，停止刮削: {e}")
+                return None
             except Exception as e:
                 logger.warning(f"{api_name} API 调用失败: {e}")
                 continue
@@ -160,24 +169,27 @@ class MetadataScraper:
         """
         使用指定的 API 刮削
         """
-        for keyword in keywords:
-            try:
-                search_results = []
+        keyword = ",".join(keywords)
+        try:
+            search_results = []
+            if api_name == "cloud":
+                search_results = NeteaseApi.search_song(keyword)
+            elif api_name == "kugou":
+                search_results = KugouApi.search_hash(keyword)
+            if search_results:
+                song_info = None
                 if api_name == "cloud":
-                    search_results = NeteaseApi.search_song(keyword)
+                    song_info = NeteaseApi.get_song_info(search_results[0]["idOrMd5"])
                 elif api_name == "kugou":
-                    search_results = KugouApi.search_hash(keyword)
-                if search_results:
-                    song_info = None
-                    if api_name == "cloud":
-                        song_info = NeteaseApi.get_song_info(search_results[0]["idOrMd5"])
-                    elif api_name == "kugou":
-                        song_info = KugouApi.get_song_info(search_results[0]["idOrMd5"])
-                    if song_info:
-                        return self._song_info_to_dict(song_info, api_name)
-            except Exception as e:
-                logger.warning(f"关键词 '{keyword}' 通过 {api_name} 搜索失败: {e}")
-                continue
+                    song_info = KugouApi.get_song_info(search_results[0]["idOrMd5"])
+                    if song_info and song_info.get("errcode") == 1002:
+                        raise RateLimitException(f"关键词 '{keyword}' 通过 {api_name} 触发风控")
+                if song_info:
+                    return self._song_info_to_dict(song_info, api_name)
+        except RateLimitException:
+            raise
+        except Exception as e:
+            logger.warning(f"关键词 '{keyword}' 通过 {api_name} 搜索失败: {e}")
         return None
 
     def _song_info_to_dict(self, song_info: Dict, source: str) -> Dict:
@@ -206,6 +218,7 @@ class MetadataScraper:
         批量搜索所有 API，每个API返回最多3条结果，按匹配度排序
         kugou 和 cloud 并行执行
         """
+        self._kugou_rate_limited = False
         keywords = self._build_search_keywords(filename, current_meta)
         logger.info(f"批量刮削开始，关键词: {keywords}")
 
@@ -225,17 +238,15 @@ class MetadataScraper:
                 try:
                     api_results = future.result()
                     results[api_name] = api_results
-                    logger.info(f"{api_name} API 返回 {len(api_results)} 条结果")
                 except Exception as e:
                     logger.warning(f"{api_name} API 批量搜索失败: {e}")
                     results[api_name] = []
 
         total = sum(len(v) for v in results.values())
-        logger.info(f"批量刮削完成，共返回 {total} 条结果")
 
         return results
 
-    def _fetch_song_detail(self, api_name: str, search_result: Dict, keyword: str, keywords: List[str]) -> Optional[Dict]:
+    def _fetch_song_detail(self, api_name: str, search_result: Dict, keywords: List[str]) -> Optional[Dict]:
         """
         获取单条歌曲详情（供多线程调用）
         """
@@ -245,9 +256,11 @@ class MetadataScraper:
                 song_info = NeteaseApi.get_song_info(search_result["idOrMd5"])
             elif api_name == "kugou":
                 song_info = KugouApi.get_song_info(search_result["idOrMd5"])
+                if song_info.get("errcode") == 1002:
+                    self._kugou_rate_limited = True
+                    return None
             if song_info:
                 result_dict = self._song_info_to_dict(song_info, api_name)
-                result_dict["_search_keyword"] = keyword
                 self._calculate_match_score(result_dict, keywords)
                 return result_dict
         except Exception as e:
@@ -261,27 +274,32 @@ class MetadataScraper:
         获取歌曲详情使用多线程并行
         """
         all_results = []
+        keyword = ",".join(keywords)
 
-        for keyword in keywords:
-            try:
-                if api_name == "cloud":
-                    search_results = NeteaseApi.search_song(keyword)
-                elif api_name == "kugou":
-                    search_results = KugouApi.search_hash(keyword)
+        try:
+            if api_name == "cloud":
+                search_results = NeteaseApi.search_song(keyword)
+                logger.info(f"{api_name} API 返回 {len(search_results)} 条结果")
+            elif api_name == "kugou":
+                search_results = KugouApi.search_hash(keyword)
+                logger.info(f"{api_name} API 返回 {len(search_results)} 条结果")
 
-                with ThreadPoolExecutor(max_workers=10) as executor:
-                    futures = [
-                        executor.submit(self._fetch_song_detail, api_name, sr, keyword, keywords)
-                        for sr in search_results[:10]
-                    ]
-                    for future in as_completed(futures):
-                        result = future.result()
-                        if result:
-                            all_results.append(result)
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [
+                    executor.submit(self._fetch_song_detail, api_name, sr, keywords)
+                    for sr in search_results[:10]
+                ]
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        all_results.append(result)
 
-            except Exception as e:
-                logger.warning(f"关键词 '{keyword}' 通过 {api_name} 搜索失败: {e}")
-                continue
+        except Exception as e:
+            logger.warning(f"关键词 '{keyword}' 通过 {api_name} 搜索失败: {e}")
+
+        if api_name == "kugou" and self._kugou_rate_limited:
+            logger.warning(f"{api_name} API 触发风控，清空该API的所有结果")
+            all_results = []
 
         all_results = sorted(all_results, key=lambda x: x.get("_match_score", 0), reverse=True)
         all_results = all_results[:3]

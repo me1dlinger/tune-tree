@@ -30,6 +30,7 @@ from services.format_service import (
     batch_execute_format,
 )
 from services.metadata_scraper import MetadataScraper
+from services.netease_api import NeteaseApi
 from repository.track_repository import (
     get_track_by_id,
     get_track_by_path,
@@ -495,6 +496,44 @@ def api_artist_scrape_cover(artist: str):
         return jsonify({"error": str(exc)}), 500
     
     return jsonify({"ok": True, "path": str(cover_path), "artist": successful_artist or artist})
+
+
+# Lyrics search and fetch
+@api_bp.route("/api/lyrics/search", methods=["POST"])
+@require_auth
+def api_lyrics_search():
+    data = request.get_json(force=True) or {}
+    keyword = data.get("keyword", "")
+    if not keyword:
+        return jsonify({"error": "keyword is required"}), 400
+
+    try:
+        results = NeteaseApi.search_song(keyword)
+        formatted = []
+        for r in results:
+            formatted.append({
+                "id": r["idOrMd5"],
+                "title": r["songName"],
+                "artist": r["singer"],
+                "album": r.get("album", ""),
+                "duration": r["duration"],
+                "source": "netease"
+            })
+        return jsonify({"ok": True, "results": formatted})
+    except Exception as e:
+        logger.error(f"搜索歌词失败: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@api_bp.route("/api/lyrics/<song_id>", methods=["GET"])
+@require_auth
+def api_lyrics_fetch(song_id: str):
+    try:
+        lyrics = NeteaseApi.get_lyrics_by_song_id(song_id)
+        return jsonify({"ok": True, "lyrics": lyrics})
+    except Exception as e:
+        logger.error(f"获取歌词失败: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # Cover art

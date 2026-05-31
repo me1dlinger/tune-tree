@@ -98,13 +98,67 @@ class NeteaseApi:
         for data in res_json["result"]["songs"]:
             duration = data["duration"] // 1000
             artists_list = [info["name"] for info in data["artists"]]
+            album_name = data.get("album", {}).get("name", "") if data.get("album") else ""
             res_list.append({
                 "idOrMd5": str(data['id']),
                 "songName": data['name'],
                 "singer": ','.join(artists_list),
+                "album": album_name,
                 "duration": f'{duration // 60}:{duration % 60 // 10}{duration % 60}'
             })
         return res_list
+
+    @staticmethod
+    def _merge_lyric_with_translation(lrc_text: str, tlyric_text: str) -> str:
+        """
+        合并原歌词和翻译歌词
+        - 相同时间轴的歌词：原词在上，翻译在下
+        - 无时间轴的歌词（如制作信息）放在最前面
+        """
+        def parse_lyric_lines(text: str) -> tuple:
+            lyric_dict = {}
+            no_timestamp_lines = []
+            timestamp_pattern = re.compile(r'\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)')
+            for line in text.strip().split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                match = timestamp_pattern.match(line)
+                if match:
+                    minutes = int(match.group(1))
+                    seconds = int(match.group(2))
+                    ms = int(match.group(3).ljust(3, '0')[:3])
+                    timestamp = minutes * 60000 + seconds * 1000 + ms
+                    lyric_content = match.group(4).strip()
+                    if timestamp not in lyric_dict:
+                        lyric_dict[timestamp] = {'original': '', 'translation': ''}
+                    lyric_dict[timestamp]['original'] = lyric_content
+                else:
+                    no_timestamp_lines.append(line)
+            return lyric_dict, no_timestamp_lines
+
+        def format_timestamp(ms: int) -> str:
+            minutes = ms // 60000
+            seconds = (ms % 60000) // 1000
+            millis = ms % 1000
+            return f"[{minutes:02d}:{seconds:02d}.{millis:03d}]"
+
+        lrc_dict, lrc_no_ts = parse_lyric_lines(lrc_text)
+        tlyric_dict, _ = parse_lyric_lines(tlyric_text)
+
+        for timestamp, content in tlyric_dict.items():
+            if timestamp in lrc_dict and content['original']:
+                lrc_dict[timestamp]['translation'] = content['original']
+
+        result_lines = lrc_no_ts[:]
+        for timestamp in sorted(lrc_dict.keys()):
+            content = lrc_dict[timestamp]
+            if content['original']:
+                result_lines.append(f"{format_timestamp(timestamp)}{content['original']}")
+            if content['translation']:
+                result_lines.append(f"{format_timestamp(timestamp)}{content['translation']}")
+
+        return '\n'.join(result_lines)
 
     @classmethod
     def get_song_info(cls, song_id: str) -> Optional[Dict]:
@@ -131,14 +185,7 @@ class NeteaseApi:
             img.save(pic_buffer, format='JPEG', quality=85)
             pic_buffer.seek(0)
 
-        lyric = ""
-        try:
-            lrc_url = 'http://music.163.com/api/song/lyric?id={}&lv=-1&kv=-1&tv=-1&rv=-1'
-            lrc_json = requests.get(lrc_url.format(song_id), timeout=10).json()
-            if lrc_json.get('lrc', {}).get('lyric'):
-                lyric = lrc_json['lrc']['lyric']
-        except Exception as e:
-            logger.warning(f"获取歌词失败: {e}")
+        lyric = cls.get_lyrics_by_song_id(song_id)
 
         return {
             "singer": ','.join(artists_list),
@@ -150,6 +197,23 @@ class NeteaseApi:
             "picBuffer": pic_buffer,
             "lyric": lyric
         }
+
+    @classmethod
+    def get_lyrics_by_song_id(cls, song_id: str) -> str:
+        """
+        根据歌曲 ID 获取歌词（包含翻译）
+        """
+        try:
+            lrc_url = 'http://music.163.com/api/song/lyric?id={}&os=pc&lv=-1&kv=-1&tv=-1&rv=-1&yv=-1'
+            lrc_json = requests.get(lrc_url.format(song_id), timeout=10).json()
+            lrc_text = lrc_json.get('lrc', {}).get('lyric', '')
+            tlyric_text = lrc_json.get('tlyric', {}).get('lyric', '')
+            if lrc_text:
+                return cls._merge_lyric_with_translation(lrc_text, tlyric_text)
+            return ""
+        except Exception as e:
+            logger.warning(f"获取歌词失败: {e}")
+            return ""
 
     # ==================== 歌手头像 ====================
     

@@ -33,7 +33,7 @@
 }
 
 [data-theme="light"] {
-    --bg: #f4f4f0;
+    --bg: #eeeef0;
     --bg2: #ffffff;
     --bg3: #ececea;
     --bg4: #e2e2de;
@@ -2853,4 +2853,214 @@ body {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LYRICS MODALS
+   ═══════════════════════════════════════════════════════════ */
+
+.lyrics-search-modal {
+    width: 700px;
+    max-width: 95vw;
+    max-height: 85vh;
+}
+
+.lyrics-search-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.lyrics-search-bar input {
+    flex: 1;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color var(--transition);
+}
+
+.lyrics-search-bar input:focus {
+    border-color: var(--accent);
+}
+
+.lyrics-search-results {
+    overflow-y: auto;
+    max-height: 50vh;
+}
+
+.lyrics-result-item {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all var(--transition);
+    background: var(--bg2);
+}
+
+.lyrics-result-item:hover {
+    border-color: var(--accent);
+    background: var(--bg3);
+}
+
+.lyrics-result-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.lyrics-result-source {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--accent-dim2);
+    color: var(--accent);
+    font-family: var(--font-mono);
+}
+
+.lyrics-result-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+
+.lyrics-result-artist {
+    font-size: 12px;
+    color: var(--text2);
+    margin-bottom: 2px;
+}
+
+.lyrics-result-album {
+    font-size: 11px;
+    color: var(--text3);
+}
+
+.lyrics-editor-modal {
+    width: 700px;
+    max-width: 95vw;
+    max-height: 85vh;
+}
+
+.lyrics-editor-modal .modal-body {
+    padding: 16px;
+}
+
+#lyrics-editor-textarea {
+    width: 100%;
+    min-height: 400px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    transition: border-color var(--transition);
+}
+
+#lyrics-editor-textarea:focus {
+    border-color: var(--accent);
+}
+
+.lyrics-editor-info {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.lyrics-editor-track-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.lyrics-editor-track-title {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.lyrics-editor-track-artist {
+    color: var(--text2);
+    font-size: 13px;
+}
+
+.lyrics-editor-track-album {
+    color: var(--text3);
+    font-size: 12px;
+}
+
+.lyrics-editor-search-bar {
+    margin-bottom: 12px;
+}
+
+.lyrics-editor-search-panel {
+    margin-bottom: 12px;
+    padding: 12px;
+    background: var(--bg2);
+    border-radius: var(--radius);
+}
+
+.lyrics-search-results {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.lyrics-search-results .lyrics-result-item {
+    padding: 12px;
+    margin-bottom: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.lyrics-search-results .lyrics-result-item:hover {
+    border-color: var(--accent);
+    background: var(--bg2);
+}
+
+.lyrics-search-results .lyrics-result-item-header {
+    margin-bottom: 4px;
+}
+
+.lyrics-search-results .lyrics-result-source {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--red);
+    color: #fefefe;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.lyrics-search-results .lyrics-result-title {
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+}
+
+.lyrics-search-results .lyrics-result-artist {
+    font-size: 12px;
+    color: var(--text2);
+}
+
+.lyrics-search-results .lyrics-result-album {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 4px;
+}
+
+.lyrics-search-results .lyrics-result-album::before {
+    content: "专辑: ";
+    color: var(--text3);
 }
