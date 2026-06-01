@@ -10,7 +10,7 @@
 
 <p align="center">
   扫描、浏览、重组本地音乐收藏，提供简洁的 Web 界面。<br>
-  自动读取元数据、检测重复文件、批量整理。
+  自动读取元数据、检测重复文件、批量整理、在线播放、歌词编辑与打轴。
 </p>
 
 <p align="center">
@@ -25,15 +25,19 @@
 
 ## 功能特性
 
-- **目录扫描** -- 递归扫描音乐根目录，将所有曲目索引到 SQLite，支持并行处理提高效率
+- **目录扫描** -- 递归扫描音乐根目录，将所有曲目索引到 SQLite，支持 8 线程并行处理，增量更新（仅处理变更文件）
+- **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面
 - **待定文件** -- 列出缺少完整元数据的文件，支持在线编辑元数据
 - **元数据读取** -- 通过 mutagen 提取 ID3v2 / Vorbis Comment 标签、内嵌封面和歌词
-- **元数据刮削** -- 自动从网易云音乐、酷狗 获取缺失的标签、歌词和封面
-- **歌词编辑** -- 支持在线编辑歌词，包括时间轴同步，支持网页加载音乐边听歌边打轴，支持快捷键和自动跳转，支持编辑进度缓存
-- **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面，支持夜间模式
+- **元数据刮削** -- 自动从网易云音乐、酷狗获取缺失的标签、歌词和封面，支持多源并行搜索与智能匹配评分
+- **歌词编辑** -- 支持在线编辑歌词，包括时间轴同步，支持网页加载音乐边听歌边快速编辑时间轴，支持快捷键和自动跳转，支持编辑进度缓存
+- **在线播放** -- 支持在浏览器中直接播放音乐，支持 Range 请求断点续传
+- **文件下载** -- 支持单曲、专辑、艺术家、批量、目录等多种下载方式（单曲直传，多曲自动打包 ZIP）
 - **文件格式化** -- 预览并执行批量重命名与移动，整理为 `{艺术家}/{专辑}/` 目录结构，支持多艺术家批量操作
+- **艺术家封面** -- 支持上传、刮削、删除艺术家封面图片，自动转换为 JPEG 格式
 - **重复检测** -- 识别音乐库中的重复文件
 - **访问控制** -- 基于 Token 的简单认证
+
 
 ## 平台预览
 
@@ -49,14 +53,11 @@
 ### 搜索歌词、编辑歌词和时间轴
 ![搜索歌词、编辑歌词和时间轴](screenshots/image1.3.png)
 
-
 ### 单艺术家格式化预览
 ![单艺术家格式化预览](screenshots/image1.4.png)
 
-
 ### 多选艺术家格式化预览
 ![多选艺术家格式化预览](screenshots/image1.5.png)
-
 
 ### 目录浏览
 ![目录浏览](screenshots/image2.png)
@@ -83,11 +84,17 @@
 | 语言       | Python              | 3.13  |
 | Web 框架   | Flask               | 3.0+  |
 | 模板引擎     | Jinja2              | --    |
-| 数据库      | SQLite3             | --    |
+| 数据库      | SQLite3 (WAL mode)  | --    |
 | 音频元数据    | mutagen             | 1.47+ |
+| 图像处理     | Pillow              | 10.0+ |
+| HTTP 客户端  | requests            | 2.31+ |
+| 加密库      | cryptography        | --    |
 | WSGI 服务器 | Gunicorn / Waitress | --    |
+| 进程管理     | Supervisor          | --    |
 
 ## 快速开始
+
+### 本地运行
 
 ```bash
 # 1. 进入后端目录
@@ -98,7 +105,7 @@ pip install -r requirements.txt
 
 # 3. 设置音乐根目录（默认 /music，可通过环境变量覆盖）
 # Windows
-set MUSIC_ROOT=D:\Music
+set MUSIC_ROOT=D:\\Music
 # Linux / macOS
 export MUSIC_ROOT=/path/to/your/music
 
@@ -106,7 +113,7 @@ export MUSIC_ROOT=/path/to/your/music
 python app.py
 ```
 
-浏览器打开 <http://localhost:5000>，默认密钥 `tunetree-2024`
+浏览器打开 <http://localhost:5000>，默认密钥 `tunetree-2026`
 
 ### 生产部署
 
@@ -119,16 +126,29 @@ pip install waitress
 waitress-serve --host=0.0.0.0 --port=5000 wsgi:application
 ```
 
+### Docker 部署
+
+```bash
+# 构建镜像
+docker build -t tune-tree:1.0.0 .
+
+# 修改 docker-compose.yml 中的卷挂载路径后启动
+docker-compose up -d
+```
+
+访问 <http://localhost:15000>
+
 ## 配置
 
-在 `python/config.py` 中修改：
+在 `python/config.py` 中修改，或通过环境变量覆盖：
 
-| 变量           | 默认值                              | 说明              |
-| ------------ | -------------------------------- | --------------- |
-| `ACCESS_KEY` | `tunetree-2026`                  | 登录密钥            |
-| `SECRET_KEY` | `change-me-in-production-please` | Flask 会话密钥      |
-| `MUSIC_ROOT` | `/music`                         | 音乐根目录（优先使用环境变量） |
-| `DB_PATH`    | `instance/library.db`            | 数据库路径           |
+| 变量           | 环境变量          | 默认值                              | 说明              |
+| ------------ | --------------- | -------------------------------- | --------------- |
+| `ACCESS_KEY` | `ACCESS_KEY`    | `tunetree-2026`                  | 登录密钥            |
+| `SECRET_KEY` | --              | `change-me-in-production-please` | Flask 会话密钥      |
+| `MUSIC_ROOT` | `MUSIC_ROOT`    | `/music`                         | 音乐根目录           |
+| `DB_ROOT`    | `DB_ROOT`       | `instance/`                      | 数据库目录           |
+| `DB_PATH`    | --              | `{DB_ROOT}/library.db`           | 数据库路径           |
 
 > **安全提醒**：生产环境必须修改 `ACCESS_KEY` 和 `SECRET_KEY`
 
@@ -140,30 +160,50 @@ tune-tree/
 │   ├── api/                   # API 路由层
 │   │   └── routes.py          # API 端点定义
 │   ├── services/              # 业务逻辑层
-│   │   ├── scan_service.py       # 目录扫描服务
+│   │   ├── scan_service.py       # 目录扫描服务（多线程并行）
 │   │   ├── format_service.py     # 文件格式化服务
-│   │   └── metadata_scraper.py   # 元数据刮削服务
+│   │   ├── metadata_scraper.py   # 元数据刮削服务（多源并行+智能评分）
+│   │   ├── netease_api.py        # 网易云音乐 API 客户端
+│   │   └── kugou_api.py          # 酷狗音乐 API 客户端
 │   ├── repository/            # 数据访问层
 │   │   └── track_repository.py   # 曲目数据操作
 │   ├── models/                # 数据模型层
-│   │   └── db.py              # 数据库连接与初始化
+│   │   └── db.py              # 数据库连接与初始化（WAL 模式）
 │   ├── utils/                 # 工具层
-│   │   ├── metadata.py        # 元数据读取工具
-│   │   └── formatting.py      # 格式化工具函数
+│   │   ├── metadata.py        # 元数据读写工具（含 Unicode 规范化）
+│   │   └── formatting.py      # 跨平台文件名安全处理
 │   ├── static/                # 静态资源
 │   │   ├── css/main.css
-│   │   └── js/                # 前端 JavaScript
+│   │   ├── js/app.js          # 前端入口
+│   │   └── js/modules/        # 前端模块
+│   │       ├── api.js            # API 请求封装
+│   │       ├── auth.js           # 认证模块
+│   │       ├── artist.js         # 艺术家视图
+│   │       ├── detail.js         # 曲目详情
+│   │       ├── files.js          # 目录浏览
+│   │       ├── format.js         # 格式化操作
+│   │       ├── image-viewer.js   # 图片查看器
+│   │       ├── logs.js           # 操作日志
+│   │       ├── lrc-parser.js     # LRC 歌词解析
+│   │       ├── lyrics-editor.js  # 歌词编辑器（含打轴）
+│   │       ├── metadata-edit.js  # 元数据编辑
+│   │       ├── pending.js        # 待定文件
+│   │       ├── state.js          # 全局状态管理
+│   │       ├── stats.js          # 统计概览
+│   │       ├── ui.js             # UI 组件
+│   │       └── utils.js          # 工具函数
 │   ├── templates/
 │   │   └── index.html         # 单页前端
 │   ├── instance/              # 应用数据
 │   │   ├── library.db         # SQLite 数据库
-│   │   └── tunetree.log       # 操作日志
+│   │   └── tunetree.log       # 操作日志（按日轮转，保留30天）
 │   ├── app.py                 # Flask 应用入口
 │   ├── config.py              # 配置文件
 │   ├── requirements.txt
 │   └── wsgi.py                # Gunicorn / Waitress 入口
-├── screenshots/               # 平台预览截图
 ├── conf/                      # 配置文件
+│   └── supervisord.conf       # Supervisor 进程管理配置
+├── screenshots/               # 平台预览截图
 ├── Dockerfile                 # Docker 构建文件
 ├── docker-compose.yml         # Docker Compose 配置
 └── LICENSE                    # GPLv3
@@ -171,26 +211,109 @@ tune-tree/
 
 ## API 一览
 
-所有接口需要 `X-Token` 请求头（值为 ACCESS\_KEY）。
+所有接口需要 `X-Token` 请求头（值为 ACCESS_KEY），部分接口也支持 `?token=` 查询参数。
 
-| 方法     | 路径                                            | 说明                   |
-| ------ | --------------------------------------------- | -------------------- |
-| POST   | `/api/auth/verify`                            | 验证 token             |
-| POST   | `/api/logout`                                 | 登出                   |
-| POST   | `/api/scan`                                   | 扫描音乐目录               |
-| GET    | `/api/artists`                                | 获取艺术家列表（支持 `?q=` 搜索） |
-| GET    | `/api/artists/{artist}/albums`                | 获取专辑列表               |
-| GET    | `/api/artists/{artist}/albums/{album}/tracks` | 获取曲目列表               |
-| GET    | `/api/tracks/{id}`                            | 获取单曲详情（含歌词）          |
-| GET    | `/api/cover/{id}`                             | 获取专辑封面（图片）           |
-| GET    | `/api/files?path=`                            | 目录浏览                 |
-| GET    | `/api/stats`                                  | 统计数据                 |
-| GET    | `/api/pending`                                | 待定文件列表               |
-| GET    | `/api/duplicates`                             | 重复文件列表               |
-| POST   | `/api/format/preview`                         | 格式化预览                |
-| POST   | `/api/format/execute`                         | 执行格式化（移动+重命名）        |
-| GET    | `/api/logs`                                   | 操作日志                 |
-| DELETE | `/api/logs`                                   | 清空日志                 |
+### 认证
+
+| 方法   | 路径                 | 说明        |
+| ---- | ------------------ | --------- |
+| POST | `/api/auth/verify` | 验证 token  |
+
+### 扫描
+
+| 方法   | 路径                | 说明     |
+| ---- | ----------------- | ------ |
+| POST | `/api/scan`       | 扫描音乐目录 |
+| GET  | `/api/scan/status` | 查询扫描状态 |
+
+### 艺术家与专辑
+
+| 方法   | 路径                                            | 说明                   |
+| ---- | --------------------------------------------- | -------------------- |
+| GET  | `/api/artists`                                | 获取艺术家列表（支持 `?q=` 搜索） |
+| GET  | `/api/artists/{artist}/albums`                | 获取专辑列表               |
+| GET  | `/api/artists/{artist}/albums/{album}/tracks` | 获取曲目列表               |
+| GET  | `/api/artists/{artist}/full`                  | 获取艺术家完整信息（含所有专辑及曲目）  |
+
+### 艺术家封面
+
+| 方法     | 路径                                    | 说明         |
+| ------ | ------------------------------------- | ---------- |
+| GET    | `/api/artists/{artist}/cover`         | 获取艺术家封面    |
+| POST   | `/api/artists/{artist}/cover`         | 上传艺术家封面    |
+| DELETE | `/api/artists/{artist}/cover`         | 删除艺术家封面    |
+| GET    | `/api/artists/{artist}/cover/exists`  | 检查艺术家封面是否存在 |
+| POST   | `/api/artists/{artist}/scrape-cover`  | 从网易云刮削艺术家头像 |
+
+### 曲目
+
+| 方法     | 路径                                | 说明              |
+| ------ | --------------------------------- | --------------- |
+| GET    | `/api/tracks/{id}`                | 获取单曲详情（含歌词）     |
+| DELETE | `/api/tracks/{id}`                | 删除单曲（同时删除本地文件）  |
+| PUT    | `/api/tracks/{id}/metadata`       | 更新曲目元数据标签       |
+| PUT    | `/api/tracks/{id}/cover`          | 上传曲目封面          |
+| PUT    | `/api/tracks/{id}/lyrics`         | 更新曲目歌词          |
+| POST   | `/api/tracks/{id}/export-lrc`     | 导出歌词为 .lrc 文件   |
+| GET    | `/api/tracks/{id}/audio`          | 在线播放（支持 Range）  |
+| GET    | `/api/tracks/{id}/download`       | 下载单曲            |
+| GET    | `/api/tracks/by-path?path=`       | 按路径查找曲目         |
+| POST   | `/api/tracks/batch-delete`        | 批量删除曲目          |
+| POST   | `/api/tracks/download-batch`      | 批量下载曲目          |
+
+### 元数据刮削
+
+| 方法   | 路径                                    | 说明              |
+| ---- | ------------------------------------- | --------------- |
+| POST | `/api/tracks/{id}/scrape`             | 刮削元数据（支持指定 API） |
+| POST | `/api/tracks/{id}/apply-scrape`       | 应用刮削结果          |
+| POST | `/api/tracks/{id}/scrape-all`         | 批量搜索所有 API      |
+
+### 歌词搜索
+
+| 方法   | 路径                       | 说明        |
+| ---- | ------------------------ | --------- |
+| POST | `/api/lyrics/search`     | 搜索歌词      |
+| GET  | `/api/lyrics/{song_id}`  | 获取歌词（含翻译） |
+
+### 封面
+
+| 方法  | 路径                    | 说明     |
+| --- | --------------------- | ------ |
+| GET | `/api/cover/{id}`     | 获取专辑封面 |
+
+### 下载
+
+| 方法  | 路径                                                  | 说明          |
+| --- | --------------------------------------------------- | ----------- |
+| GET | `/api/artists/{artist}/download`                    | 下载艺术家所有曲目（ZIP） |
+| GET | `/api/artists/{artist}/albums/{album}/download`     | 下载专辑所有曲目（ZIP） |
+| GET | `/api/files/download?path=`                         | 下载文件或目录（ZIP） |
+
+### 文件浏览
+
+| 方法  | 路径                  | 说明                                       |
+| --- | ------------------- | ---------------------------------------- |
+| GET | `/api/files?path=`  | 目录浏览（支持 `limit`、`offset`、`sort`、`search`、`folders_first` 参数） |
+
+### 格式化
+
+| 方法   | 路径                          | 说明        |
+| ---- | --------------------------- | --------- |
+| POST | `/api/format/preview`       | 格式化预览     |
+| POST | `/api/format/execute`       | 执行格式化     |
+| POST | `/api/format/batch-preview` | 批量格式化预览   |
+| POST | `/api/format/batch-execute` | 批量执行格式化   |
+
+### 统计与日志
+
+| 方法     | 路径           | 说明   |
+| ------ | ------------ | ---- |
+| GET    | `/api/stats` | 统计数据 |
+| GET    | `/api/pending` | 待定文件 |
+| GET    | `/api/duplicates` | 重复文件 |
+| GET    | `/api/logs`  | 操作日志 |
+| DELETE | `/api/logs`  | 清空日志 |
 
 ## 命名规则
 
@@ -240,13 +363,15 @@ tune-tree/
 ### 其他处理规则
 
 1. **控制字符**：ASCII `\x00-\x1f` 和 `\x7f` 会被移除
-2. **首字符处理**：
+2. **不可见 Unicode 字符**：零宽空格、BOM、全角空格等不可见字符会被移除
+3. **Unicode 规范化**：使用 NFKC 规范化处理日文假名等字符的不同表示形式
+4. **首字符处理**：
    - 以 `-` 开头会被替换为 `_`（避免被误认为命令行选项）
-3. **尾字符处理**：
+5. **尾字符处理**：
    - 以 `.` 结尾会被替换为 `_`（Windows 不允许目录名以点号结尾）
-4. **保留名称**：
+6. **保留名称**：
    - Windows 保留名称（`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`）会自动添加下划线后缀
-5. **空名称处理**：
+7. **空名称处理**：
    - 如果处理后名称为空或只有特殊字符，会使用 `Unknown` 作为默认名称
 
 ### 示例
@@ -297,3 +422,6 @@ def safe_dirname(name: str) -> str:
     return result or "Unknown"
 ```
 
+## 许可证
+
+[GPLv3](LICENSE)
