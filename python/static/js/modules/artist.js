@@ -18,13 +18,8 @@ function downloadFile(url, filename) {
 }
 
 async function downloadTrack(trackId, filename, ext) {
-  console.log(trackId, filename, ext);
   try {
-    const { blob, response } = await GET_BLOB(`/tracks/${trackId}/download`);
-    let finalFilename = filename;
-    const blobUrl = URL.createObjectURL(blob);
-    downloadFile(blobUrl, finalFilename);
-    URL.revokeObjectURL(blobUrl);
+    streamDownloadGet(`/tracks/${trackId}/download`);
   } catch (e) {
     showToast(`下载失败: ${e.message}`, 'error');
   }
@@ -34,11 +29,7 @@ async function downloadAlbum(artist, album) {
   const encodedArtist = encodeURIComponent(artist);
   const encodedAlbum = encodeURIComponent(album);
   try {
-    const { blob } = await GET_BLOB(`/artists/${encodedArtist}/albums/${encodedAlbum}/download`);
-    const filename = album ? `${artist} - ${album}.zip` : `${artist}.zip`;
-    const blobUrl = URL.createObjectURL(blob);
-    downloadFile(blobUrl, filename);
-    URL.revokeObjectURL(blobUrl);
+    streamDownloadGet(`/artists/${encodedArtist}/albums/${encodedAlbum}/download`);
   } catch (e) {
     showToast(`下载失败: ${e.message}`, 'error');
   }
@@ -47,11 +38,7 @@ async function downloadAlbum(artist, album) {
 async function downloadArtist(artist) {
   const encodedArtist = encodeURIComponent(artist);
   try {
-    const { blob } = await GET_BLOB(`/artists/${encodedArtist}/download`);
-    const filename = `${artist}.zip`;
-    const blobUrl = URL.createObjectURL(blob);
-    downloadFile(blobUrl, filename);
-    URL.revokeObjectURL(blobUrl);
+    streamDownloadGet(`/artists/${encodedArtist}/download`);
   } catch (e) {
     showToast(`下载失败: ${e.message}`, 'error');
   }
@@ -63,26 +50,7 @@ async function downloadSelectedTracks() {
     return;
   }
   try {
-    const { blob, response } = await apiFetchBlob('POST', '/tracks/download-batch', {
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ track_ids: [...selectedTracks] })
-    });
-    const contentDisposition = response.headers.get('Content-Disposition');
-    let filename = 'download.zip';
-    if (contentDisposition) {
-      const utf8Match = contentDisposition.match(/filename\*=UTF-8''(.+)/i);
-      if (utf8Match) {
-        filename = decodeURIComponent(utf8Match[1]);
-      } else {
-        const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (match) filename = match[1].replace(/['"]/g, '');
-      }
-    }
-    const blobUrl = URL.createObjectURL(blob);
-    downloadFile(blobUrl, filename);
-    URL.revokeObjectURL(blobUrl);
+    await streamDownloadPost('/tracks/download-batch', { track_ids: [...selectedTracks] });
   } catch (e) {
     showToast(`下载失败: ${e.message}`, 'error');
   }

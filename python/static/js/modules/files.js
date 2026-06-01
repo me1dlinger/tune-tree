@@ -171,15 +171,8 @@ function downloadFile(url, filename) {
 }
 
 async function downloadFileOrDir(filePath, fileName, isDir) {
-  const params = new URLSearchParams({ path: filePath });
-  const url = `/api/files/download?${params.toString()}&token=${TOKEN}`;
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(res.statusText);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    downloadFile(blobUrl, isDir ? fileName + '.zip' : fileName);
-    URL.revokeObjectURL(blobUrl);
+    streamDownloadGet(`/files/download?path=${encodeURIComponent(filePath)}`);
   } catch (e) {
     showToast(`下载失败: ${e.message}`, 'error');
   }
