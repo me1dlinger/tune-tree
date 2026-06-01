@@ -18,18 +18,10 @@ function downloadFile(url, filename) {
 }
 
 async function downloadTrack(trackId, filename, ext) {
+  console.log(trackId, filename, ext);
   try {
     const { blob, response } = await GET_BLOB(`/tracks/${trackId}/download`);
-    const contentDisposition = response.headers.get('Content-Disposition');
     let finalFilename = filename;
-    if (contentDisposition) {
-      const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-      if (match) {
-        const serverName = match[1].replace(/['"]/g, '');
-        const serverExt = serverName.includes('.') ? serverName.slice(serverName.lastIndexOf('.')) : '';
-        finalFilename = filename + (ext || serverExt);
-      }
-    }
     const blobUrl = URL.createObjectURL(blob);
     downloadFile(blobUrl, finalFilename);
     URL.revokeObjectURL(blobUrl);
@@ -164,13 +156,13 @@ function getArtistFromCache(artist) {
   const cache = getArtistCache();
   const cachedData = cache.cache[artist];
   if (!cachedData) return null;
-  
+
   // 检查缓存是否过期
   if (isCacheExpired(cachedData._cachedAt)) {
     console.debug(`Artist "${artist}" cache expired (${CACHE_EXPIRE_HOURS} hours)`);
     return null;
   }
-  
+
   // 返回数据，但移除内部使用的时间戳字段
   const { _cachedAt, ...data } = cachedData;
   return data;
@@ -1126,7 +1118,7 @@ function renderTrackSection(album) {
               <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
-              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || t.filename))}', '${escJs(t.ext || '')}')">
+              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || 'unknown'))}', '${escJs(t.ext || '')}')">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                   <polyline points="7 10 12 15 17 10"/>
@@ -1200,7 +1192,7 @@ async function loadTrackSection(artist, album) {
               <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
-              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || t.filename))}', '${escJs(t.ext || '')}')">
+              <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || 'unknown'))}', '${escJs(t.ext || '')}')">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                   <polyline points="7 10 12 15 17 10"/>

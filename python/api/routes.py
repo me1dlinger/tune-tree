@@ -183,10 +183,14 @@ def api_track_download(track_id: int):
     row = get_track_by_id(track_id)
     if not row:
         abort(404)
+    artist = row["artist"]
+    title = row["title"]
+    ext = row["ext"]
+    download_name = f"{safe_filename(artist)} - {safe_filename(title)}.{ext}"
     track_path = Path(row["path"])
     if not track_path.exists():
         abort(404)
-    return send_file(track_path, as_attachment=True, download_name=track_path.name)
+    return send_file(track_path, as_attachment=True, download_name=download_name)
 
 
 @api_bp.route("/api/artists/<path:artist>/albums/<path:album>/download")
