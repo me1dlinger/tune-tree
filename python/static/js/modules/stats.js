@@ -85,9 +85,7 @@ async function loadStats() {
         </div>
       </div>
       <div class="refresh-time">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
+        <i class="bi bi-clock" style="font-size: 13px;"></i>
         上次刷新：${esc(s.last_scan)}
       </div>
     `;
@@ -286,9 +284,7 @@ async function openDuplicateModal() {
         <div style="background:var(--bg3);border-radius:var(--radius2);overflow:hidden;margin-bottom:16px;">
           <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
             <div style="width:40px;height:40px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);flex-shrink:0;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-                <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-              </svg>
+              <i class="bi bi-music-note" style="font-size: 20px;"></i>
             </div>
             <div style="flex:1;min-width:0;">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
@@ -311,9 +307,7 @@ async function openDuplicateModal() {
                      onmouseover="this.style.background='var(--bg4)'" onmouseout="this.style.background=''"
                      onclick="showDuplicateTrackDetail(${t.id})">
                   <div style="width:32px;height:32px;border-radius:var(--radius);background:var(--bg2);display:flex;align-items:center;justify-content:center;color:var(--text3);">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-                    </svg>
+                    <i class="bi bi-music-note" style="font-size: 16px;"></i>
                   </div>
                   <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.filename)}</div>

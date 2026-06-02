@@ -167,9 +167,7 @@ function buildPreviewContent(formatData, artistName, hideSingleArtistStats = fal
       treeHtml += `
         <div class="preview-tree-artist">
           <div class="preview-tree-artist-name">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-            </svg>
+            <i class="bi bi-person"></i>
             ${esc(artName)}
           </div>
       `;
@@ -177,9 +175,7 @@ function buildPreviewContent(formatData, artistName, hideSingleArtistStats = fal
         treeHtml += `
           <div class="preview-tree-album">
             <div class="preview-tree-album-name">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-              </svg>
+              <i class="bi bi-disc"></i>
               ${esc(albumName)}
             </div>
             <div class="preview-tree-tracks">

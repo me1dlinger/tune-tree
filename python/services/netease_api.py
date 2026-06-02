@@ -85,13 +85,13 @@ class NeteaseApi:
     # ==================== 歌曲搜索和信息 ====================
     
     @classmethod
-    def search_song(cls, keyword: str, page: int = 0, limit: int = 20) -> List[Dict]:
+    def search_song(cls, keyword: str, page: int = 0, limit: int = 30) -> List[Dict]:
         """
         搜索歌曲，返回歌曲列表
         """
-        search_url = 'https://music.163.com/api/search/get/web?&s={}&type=1&offset={}&total=true&limit=20'
+        search_url = 'https://music.163.com/api/search/get/web?&s={}&type=1&offset={}&total=true&limit={}'
         keyword = re.sub(r"|[!@#$%^&*/]+", "", keyword)
-        res_json = requests.post(search_url.format(keyword, page * 20), timeout=10).json()
+        res_json = requests.post(search_url.format(keyword, page * limit, limit), timeout=10).json()
         res_list = []
         if res_json["result"] == {} or res_json['code'] == 400 or res_json["result"]["songCount"] == 0:
             return res_list

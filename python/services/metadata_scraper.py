@@ -185,7 +185,9 @@ class MetadataScraper:
                     if song_info and song_info.get("errcode") == 1002:
                         raise RateLimitException(f"关键词 '{keyword}' 通过 {api_name} 触发风控")
                 if song_info:
-                    return self._song_info_to_dict(song_info, api_name)
+                    result_dict = self._song_info_to_dict(song_info, api_name)
+                    result_dict["_id"] = search_results[0]["idOrMd5"]
+                    return result_dict
         except RateLimitException:
             raise
         except Exception as e:
@@ -213,10 +215,11 @@ class MetadataScraper:
 
         return result
 
-    def search_all_apis(self, filename: str, current_meta: Dict) -> Dict[str, List[Dict]]:
+    def search_all_apis(self, filename: str, current_meta: Dict, exclude_ids: List[str] = None) -> Dict[str, List[Dict]]:
         """
         批量搜索所有 API，每个API返回最多3条结果，按匹配度排序
         kugou 和 cloud 并行执行
+        如果指定了 exclude_ids，则会排除这些歌曲ID后返回最多5条结果
         """
         self._kugou_rate_limited = False
         keywords = self._build_search_keywords(filename, current_meta)
@@ -229,7 +232,7 @@ class MetadataScraper:
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_to_api = {
-                executor.submit(self._search_api_with_multiple_results, api_name, keywords, current_meta): api_name
+                executor.submit(self._search_api_with_multiple_results, api_name, keywords, current_meta, exclude_ids): api_name
                 for api_name in self.api_order
             }
 
@@ -261,20 +264,25 @@ class MetadataScraper:
                     return None
             if song_info:
                 result_dict = self._song_info_to_dict(song_info, api_name)
+                result_dict["_id"] = search_result["idOrMd5"]
                 self._calculate_match_score(result_dict, keywords)
                 return result_dict
         except Exception as e:
             logger.warning(f"获取 {api_name} 歌曲详情失败: {e}")
         return None
 
-    def _search_api_with_multiple_results(self, api_name: str, keywords: List[str], current_meta: Dict = None) -> List[Dict]:
+    def _search_api_with_multiple_results(self, api_name: str, keywords: List[str], current_meta: Dict = None, exclude_ids: List[str] = None) -> List[Dict]:
         """
-        搜索并返回最多3条结果，按匹配度排序
-        先收集所有关键词的搜索结果，然后统一评分排序取前3
+        搜索并返回最多5条结果，按匹配度排序
+        先收集所有关键词的搜索结果，然后统一评分排序取前5
         获取歌曲详情使用多线程并行
+        如果指定了 exclude_ids，则会排除这些歌曲ID后返回最多5条结果
         """
         all_results = []
         keyword = ",".join(keywords)
+        exclude_set = set(exclude_ids or [])
+        # 如果有排除列表，需要获取更多结果以便排除后仍有足够的选择
+        fetch_limit = 20 if exclude_ids else 10
 
         try:
             if api_name == "cloud":
@@ -287,7 +295,7 @@ class MetadataScraper:
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [
                     executor.submit(self._fetch_song_detail, api_name, sr, keywords)
-                    for sr in search_results[:10]
+                    for sr in search_results[:fetch_limit]
                 ]
                 for future in as_completed(futures):
                     result = future.result()
@@ -301,8 +309,18 @@ class MetadataScraper:
             logger.warning(f"{api_name} API 触发风控，清空该API的所有结果")
             all_results = []
 
+        # 按匹配度排序
         all_results = sorted(all_results, key=lambda x: x.get("_match_score", 0), reverse=True)
-        all_results = all_results[:3]
+        
+        # 如果有排除列表，先排除已显示的结果（使用 idOrMd5）
+        if exclude_set:
+            original_count = len(all_results)
+            all_results = [r for r in all_results if r.get("_id") not in exclude_set]
+            logger.info(f"{api_name} API 排除 {original_count - len(all_results)} 条结果后剩余 {len(all_results)} 条")
+        
+        # 返回最多5条
+        return_limit = 5
+        all_results = all_results[:return_limit]
         for i, r in enumerate(all_results):
             r["_sort_index"] = i
         logger.debug(f"{api_name} API 搜索结果（按匹配度排序）: {[(r.get('title'), r.get('artist'), r.get('_match_score')) for r in all_results]}")

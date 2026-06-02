@@ -22,37 +22,20 @@ function createImageViewerHTML() {
     <div class="image-viewer-overlay" id="image-viewer">
       <div class="image-viewer-toolbar">
         <button class="image-viewer-btn" id="img-zoom-out" title="缩小">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="8" y1="11" x2="14" y2="11"/>
-          </svg>
+          <i class="bi bi-zoom-out"></i>
         </button>
         <span class="image-viewer-scale" id="img-scale-display">100%</span>
         <button class="image-viewer-btn" id="img-zoom-in" title="放大">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="11" y1="8" x2="11" y2="14"/>
-            <line x1="8" y1="11" x2="14" y2="11"/>
-          </svg>
+          <i class="bi bi-zoom-in"></i>
         </button>
         <button class="image-viewer-btn" id="img-reset" title="重置">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/>
-          </svg>
+          <i class="bi bi-arrow-counterclockwise"></i>
         </button>
         <button class="image-viewer-btn" id="img-download" title="下载">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
+          <i class="bi bi-download"></i>
         </button>
         <button class="image-viewer-btn" id="img-close" title="关闭 (Esc)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
+          <i class="bi bi-x-lg"></i>
         </button>
       </div>
       <div class="image-viewer-content" id="image-viewer-content">

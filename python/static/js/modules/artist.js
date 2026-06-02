@@ -235,6 +235,27 @@ async function loadArtistTree(q) {
 }
 
 /**
+ * 刷新艺术家列表，保持当前排序方式
+ */
+async function refreshArtistList() {
+  const searchInput = document.getElementById('artist-search');
+  const refreshBtn = document.getElementById('refresh-artist-btn');
+  
+  // 添加加载状态
+  refreshBtn.classList.add('spin');
+  
+  try {
+    await loadArtistTree(searchInput.value);
+    showToast('艺术家列表已刷新', 'success');
+  } catch (e) {
+    showToast('刷新失败: ' + e.message, 'error');
+  } finally {
+    // 移除加载状态
+    refreshBtn.classList.remove('spin');
+  }
+}
+
+/**
  * 根据搜索框输入过滤艺术家（纯前端过滤）
  * @param {string} q
  */
@@ -792,11 +813,7 @@ async function loadArtistCover(artist) {
 
   coverEl.className = 'artist-cover';
   coverEl.onclick = null;
-  coverEl.innerHTML = `
-    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-      <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-    </svg>
-  `;
+  coverEl.innerHTML = `<i class="bi bi-person" style="font-size: 36px;"></i>`;
 
   try {
     const exists = await GET(`/artists/${encodeURIComponent(artist)}/cover/exists`);
@@ -812,11 +829,7 @@ async function loadArtistCover(artist) {
         openCoverImageViewer(img.src, safeArtist);
       };
       img.onerror = () => {
-        coverEl.innerHTML = `
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-          </svg>
-        `;
+        coverEl.innerHTML = `<i class="bi bi-person" style="font-size: 36px;"></i>`;
         coverEl.onclick = () => uploadArtistCover(artist);
       };
 
@@ -824,24 +837,13 @@ async function loadArtistCover(artist) {
       actionsDiv.className = 'artist-cover-actions';
       actionsDiv.innerHTML = `
         <button class="artist-cover-btn" title="从本地上传">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
+          <i class="bi bi-upload"></i>
         </button>
         <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M2 12h20"/>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-          </svg>
+          <i class="bi bi-cloud-download"></i>
         </button>
         <button class="artist-cover-btn" id="delete-cover-btn" title="删除头像">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-          </svg>
+          <i class="bi bi-trash"></i>
         </button>
       `;
       actionsDiv.querySelectorAll('button')[0].onclick = (e) => {
@@ -865,18 +867,10 @@ async function loadArtistCover(artist) {
       actionsDiv.className = 'artist-cover-actions';
       actionsDiv.innerHTML = `
         <button class="artist-cover-btn" id="upload-cover-btn" title="从本地上传">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
+          <i class="bi bi-upload"></i>
         </button>
         <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M2 12h20"/>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-          </svg>
+          <i class="bi bi-cloud-download"></i>
         </button>
       `;
       actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
@@ -894,11 +888,7 @@ async function loadArtistCover(artist) {
     actionsDiv.className = 'artist-cover-actions';
     actionsDiv.innerHTML = `
       <button class="artist-cover-btn" id="upload-cover-btn" title="从本地上传">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
+        <i class="bi bi-upload"></i>
       </button>
     `;
     actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
@@ -968,9 +958,7 @@ function renderArtistView() {
   view.innerHTML = `
     <div class="artist-header">
       <div class="artist-cover" id="artist-cover-img">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-        </svg>
+        <i class="bi bi-person" style="font-size: 36px;"></i>
       </div>
       <div class="artist-info-block">
           <div class="artist-title">${esc(a.artist)}</div>
@@ -995,10 +983,7 @@ function renderArtistView() {
       : ''
     }
             <div class="album-cover-placeholder" ${al.has_cover_some && al.sample_id ? 'style="display:none"' : ''}>
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8">
-                <rect x="3" y="3" width="18" height="18" rx="1"/><circle cx="12" cy="12" r="4"/>
-                <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-              </svg>
+              <i class="bi bi-disc" style="font-size: 40px;"></i>
             </div>
             <div class="album-select-overlay">
               <div class="album-checkbox" onclick="toggleAlbum(event,'${escJs(al.album)}')">
@@ -1006,11 +991,7 @@ function renderArtistView() {
               </div>
             </div>
             <div class="album-download-overlay" onclick="event.stopPropagation();downloadAlbum('${escJs(a.artist)}', '${escJs(al.album)}')">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
+              <i class="bi bi-download"></i>
             </div>
           </div>
           <div class="album-info" onclick="expandAlbum('${escJs(al.album)}')">
@@ -1075,9 +1056,7 @@ function renderTrackSection(album) {
                 </div>
               </div>
               <div class="tc tc-play">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
+                <i class="bi bi-play-fill"></i>
               </div>
               <div class="tc tc-num">${t.track_num || '—'}</div>
               <div class="tc tc-title">${esc(t.title || t.filename)}</div>
@@ -1087,11 +1066,7 @@ function renderTrackSection(album) {
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
               <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || 'unknown'))}', '${escJs(t.ext || '')}')">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
+                <i class="bi bi-download"></i>
               </div>
             </div>
           `;
@@ -1149,9 +1124,7 @@ async function loadTrackSection(artist, album) {
                 </div>
               </div>
               <div class="tc tc-play">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
+                <i class="bi bi-play-fill"></i>
               </div>
               <div class="tc tc-num">${t.track_num || '—'}</div>
               <div class="tc tc-title">${esc(t.title || t.filename)}</div>
@@ -1161,11 +1134,7 @@ async function loadTrackSection(artist, album) {
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
               <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || 'unknown'))}', '${escJs(t.ext || '')}')">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
+                <i class="bi bi-download"></i>
               </div>
             </div>
           `;

@@ -203,7 +203,7 @@ function _renderLines(container) {
             onclick="event.stopPropagation()">`;
         if (hasSecondary) {
             html += `<button class="lyrics-line-action-btn lyrics-delete-inline-btn" onclick="removeLineFromGroup(${idx}, 'primary')" title="删除主行">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <i class="bi bi-x"></i>
             </button>`;
         }
         html += `</div>`;
@@ -215,7 +215,7 @@ function _renderLines(container) {
                 onchange="updateGroupSecondaryText(${idx}, this.value)"
                 onclick="event.stopPropagation()">`;
             html += `<button class="lyrics-line-action-btn lyrics-delete-inline-btn" onclick="removeLineFromGroup(${idx}, 'secondary')" title="删除附行">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <i class="bi bi-x"></i>
             </button>`;
             html += `</div>`;
         }
@@ -225,14 +225,14 @@ function _renderLines(container) {
         html += `<div class="lyrics-group-actions">`;
         if (!hasSecondary) {
             html += `<button class="lyrics-line-action-btn lyrics-add-sub-btn" onclick="addSubLineToGroup(${idx})" title="添加附行（同时间戳）">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <i class="bi bi-plus"></i>
             </button>`;
         }
         html += `<button class="lyrics-line-action-btn lyrics-add-after-btn" onclick="addGroupAfter(${idx})" title="在下方添加行">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            <i class="bi bi-arrow-down"></i>
         </button>`;
         html += `<button class="lyrics-line-action-btn lyrics-delete-group-btn" onclick="removeGroup(${idx})" title="删除整行">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <i class="bi bi-x-lg"></i>
         </button>`;
         html += `</div>`;
 
@@ -708,9 +708,9 @@ function _updatePlayButton() {
     const btn = document.getElementById('lyrics-play-btn');
     if (!btn) return;
     if (lyricsState.isPlaying) {
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
+        btn.innerHTML = `<i class="bi bi-pause-fill"></i>`;
     } else {
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5,3 19,12 5,21"/></svg>`;
+        btn.innerHTML = `<i class="bi bi-play-fill"></i>`;
     }
 }
 

@@ -71,26 +71,18 @@ function renderEditModal(track) {
 
   const coverImg = coverPreview
     ? `<img src="${coverPreview}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" onclick="openCoverImageViewer('${coverPreview}', '${coverFilename}')">`
-    : `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-             <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-           </svg>`;
+    : `<i class="bi bi-disc" style="font-size: 32px;"></i>`;
 
   return `
     <div class="edit-cover-area">
       <div class="edit-cover-preview">${coverImg}</div>
       <div class="edit-cover-actions">
         ${coverUrl ? `<button class="toolbar-btn" onclick="downloadCoverImage('${coverUrl}', '${coverFilename}')" title="下载封面">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
+          <i class="bi bi-download"></i>
           下载封面
         </button>` : ''}
         <label class="toolbar-btn" title="上传替换封面">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
+          <i class="bi bi-upload"></i>
           上传替换
           <input type="file" accept="image/jpeg,image/png" style="display:none;" onchange="handleCoverUpload(this)">
         </label>
@@ -99,16 +91,11 @@ function renderEditModal(track) {
     <div class="edit-form">
       <div class="scrape-section">
         <button class="toolbar-btn scrape-btn" onclick="scrapeMetadata()" id="scrape-btn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
+          <i class="bi bi-search"></i>
           音乐标签
         </button>
         <button class="toolbar-btn" onclick="editLyrics()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-          </svg>
+          <i class="bi bi-file-text"></i>
           编辑歌词
         </button>
         ${scrapedData ? `<div class="scrape-success">已从 ${scrapedData._source} 获取元数据</div>` : ''}
@@ -285,11 +272,7 @@ async function scrapeMetadata() {
     } else {
       document.getElementById('scrape-results-body').innerHTML = `
             <div class="scrape-empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="15" y1="9" x2="9" y2="15"/>
-                <line x1="9" y1="9" x2="15" y2="15"/>
-              </svg>
+              <i class="bi bi-exclamation-circle" style="font-size: 24px;"></i>
               <div>搜索失败: ${result.error || '未知错误'}</div>
             </div>
           `;
@@ -297,11 +280,7 @@ async function scrapeMetadata() {
   } catch (e) {
     document.getElementById('scrape-results-body').innerHTML = `
         <div class="scrape-empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="15" y1="9" x2="9" y2="15"/>
-            <line x1="9" y1="9" x2="15" y2="15"/>
-          </svg>
+          <i class="bi bi-exclamation-circle" style="font-size: 24px;"></i>
           <div>请求出错: ${e.message}</div>
         </div>
       `;
@@ -318,9 +297,7 @@ function renderScrapeResults(results) {
   if (!hasAnyResults) {
     body.innerHTML = `
         <div class="scrape-empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
+          <i class="bi bi-emoji-frown" style="font-size: 24px;"></i>
           <div>未找到任何匹配的元数据</div>
         </div>
       `;
@@ -338,9 +315,14 @@ function renderScrapeResults(results) {
     if (items.length === 0) continue;
 
     html += `
-        <div class="scrape-api-section">
-          <div class="scrape-api-title ${api}">${apiNames[api]} (${items.length})</div>
-          <div class="scrape-results-grid">
+        <div class="scrape-api-section" data-api="${api}">
+          <div class="scrape-api-title ${api}">
+            <span class="api-name">${apiNames[api]} (${items.length})</span>
+            <button class="refresh-api-btn" onclick="refreshApiResults('${api}')" title="换一批">
+              <i class="bi bi-arrow-clockwise"></i>
+            </button>
+          </div>
+          <div class="scrape-results-grid" id="scrape-grid-${api}">
       `;
 
     for (let i = 0; i < items.length; i++) {
@@ -349,9 +331,7 @@ function renderScrapeResults(results) {
       const coverHtml = coverSrc
         ? `<img class="scrape-cover" src="${coverSrc}" alt="cover">`
         : `<div class="scrape-cover" style="display:flex;align-items:center;justify-content:center;color:var(--text3);">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                  <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-                </svg>
+                <i class="bi bi-disc" style="font-size: 32px;"></i>
                </div>`;
 
       html += `
@@ -383,6 +363,86 @@ function renderScrapeResults(results) {
   body.innerHTML = html;
 
   window._scrapeResultsCache = results;
+  // 存储每个 API 的当前结果 ID，用于"换一批"时排除（使用 idOrMd5）
+  window._scrapeResultsByApi = {};
+  for (const [api, items] of Object.entries(results)) {
+    window._scrapeResultsByApi[api] = items.map(item => item._id);
+  }
+}
+
+/**
+ * 刷新单个 API 的搜索结果（换一批）
+ * @param {string} api - API 名称 (cloud 或 kugou)
+ */
+async function refreshApiResults(api) {
+  const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
+  const grid = document.getElementById(`scrape-grid-${api}`);
+  const refreshBtn = document.querySelector(`.scrape-api-section[data-api="${api}"] .refresh-api-btn`);
+  
+  if (!grid) return;
+  
+  // 添加加载状态
+  refreshBtn.classList.add('spin');
+  
+  // 获取当前显示的所有 ID（用于排除，使用 idOrMd5）
+  const currentIds = window._scrapeResultsByApi[api] || [];
+  
+  try {
+    const result = await POST(`/tracks/${trackId}/scrape-all`, { exclude_ids: currentIds });
+    
+    if (result.ok) {
+      const newItems = result.results[api] || [];
+      
+      if (newItems.length === 0) {
+        showToast(`没有更多 ${api === 'cloud' ? '网易云音乐' : '酷狗音乐'} 的结果了`, 'info');
+        refreshBtn.classList.remove('spin');
+        return;
+      }
+      
+      // 更新缓存中的 ID 列表（使用 idOrMd5）
+      window._scrapeResultsByApi[api] = newItems.map(item => item._id);
+      
+      // 重新渲染该 API 的结果
+      grid.innerHTML = newItems.map((item, i) => {
+        const coverSrc = item._cover_data ? `data:image/jpeg;base64,${item._cover_data}` : '';
+        const coverHtml = coverSrc
+          ? `<img class="scrape-cover" src="${coverSrc}" alt="cover">`
+          : `<div class="scrape-cover" style="display:flex;align-items:center;justify-content:center;color:var(--text3);">
+              <i class="bi bi-disc" style="font-size: 32px;"></i>
+             </div>`;
+
+        return `
+          <div class="scrape-result-card" data-api="${api}" data-index="${i}" onclick="selectScrapeResult('${api}', ${i})" ondblclick="confirmScrapeResult('${api}', ${i})">
+            ${coverHtml}
+            <div class="scrape-title" title="${esc(item.title || '')}">${item.title || '未知歌名'}</div>
+            <div class="scrape-artist" title="${esc(item.artist || '')}">${item.artist || '未知艺术家'}</div>
+            <div class="scrape-album" title="${esc(item.album || '')}">${item.album || '未知专辑'}</div>
+            <div class="scrape-meta">
+              ${item.track_num ? `<span>音轨: ${item.track_num}</span>` : ''}
+              ${item.year ? `<span>年份: ${item.year}</span>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      // 更新标题中的数量
+      const titleEl = document.querySelector(`.scrape-api-section[data-api="${api}"] .api-name`);
+      const apiNames = { cloud: '网易云音乐', kugou: '酷狗音乐' };
+      if (titleEl) {
+        titleEl.textContent = `${apiNames[api]} (${newItems.length})`;
+      }
+      
+      // 清除当前选择
+      document.getElementById('scrape-confirm-btn').disabled = true;
+      selectedScrapeResult = null;
+      
+      showToast(`已加载新的 ${apiNames[api]} 结果`, 'success');
+    }
+  } catch (e) {
+    showToast(`刷新失败: ${e.message}`, 'error');
+  } finally {
+    refreshBtn.classList.remove('spin');
+  }
 }
 
 function selectScrapeResult(api, index) {

@@ -57,11 +57,7 @@ function coverUrl(trackId) {
 }
 
 function renderCover(track, coverEl) {
-  const placeholder = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-    <path d="M9 18V5l12-2v13"/>
-    <circle cx="6" cy="18" r="3"/>
-    <circle cx="18" cy="16" r="3"/>
-  </svg>`;
+  const placeholder = `<i class="bi bi-disc" style="font-size: 48px;"></i>`;
 
   if (track.has_cover) {
     const url = coverUrl(track.id);
@@ -122,10 +118,7 @@ function buildDetailBody(t, lyricsPrefix = '') {
     <div class="detail-title-row">
       <div class="detail-title">${esc(t.title || t.filename)}</div>
       <button class="detail-edit-btn" onclick="openMetadataEdit(window._currentTrack)" title="编辑元数据">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-        </svg>
+        <i class="bi bi-pencil"></i>
       </button>
     </div>
     <div class="detail-artist">${esc(t.artist || '未知艺术家')}${t.album ? ' — ' + esc(t.album) : ''}</div>
@@ -156,10 +149,7 @@ function buildDetailBody(t, lyricsPrefix = '') {
       <div class="detail-lyrics-wrap">
         <div class="detail-lyrics" id="${lyricsId}">${esc(t.lyrics)}</div>
         <button class="lyrics-copy-btn" onclick="copyLyricsById('${lyricsPrefix}', ${t.id})" title="复制歌词">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-          </svg>
+          <i class="bi bi-clipboard"></i>
         </button>
       </div>
     </div>` : ''}

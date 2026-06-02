@@ -1229,8 +1229,12 @@ def api_scrape_all(track_id: int):
         "artist": row["artist"],
         "album": row["album"],
     }
+    
+    # 获取需要排除的结果（使用 idOrMd5）
+    exclude_ids = request.json.get("exclude_ids", []) if request.is_json else []
+    
     try:
-        results = scraper.search_all_apis(row["path"], current_meta)
+        results = scraper.search_all_apis(row["path"], current_meta, exclude_ids)
         add_op_log(now, "scrape_all_success", f"批量刮削完成: {row['filename']}")
         commit()
         return jsonify({"ok": True, "original": current_meta, "results": results})
