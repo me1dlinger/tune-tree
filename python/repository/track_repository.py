@@ -260,6 +260,27 @@ def update_track_metadata(track_id: int, fields: dict):
     db.execute(f"UPDATE tracks SET {set_clause} WHERE id=?", values)
 
 
+def recalc_pending(track_id: int):
+    """根据当前 track 数据重新计算 pending 和 missing_tags"""
+    row = get_track_by_id(track_id)
+    if not row:
+        return
+    missing = []
+    if not row["title"]:
+        missing.append("title")
+    if not row["artist"]:
+        missing.append("artist")
+    if not row["album"]:
+        missing.append("album")
+    pending = 1 if missing else 0
+    missing_str = ",".join(missing)
+    db = get_db()
+    db.execute(
+        "UPDATE tracks SET pending=?, missing_tags=? WHERE id=?",
+        (pending, missing_str, track_id),
+    )
+
+
 def delete_track_by_path(path: str):
     """根据路径删除 track"""
     db = get_db()
@@ -407,10 +428,11 @@ def get_artist_directory_path(artist: str) -> str | None:
         WHERE artist=? AND organized=1
         LIMIT 1
         """,
-        (artist,)
+        (artist,),
     ).fetchone()
     if row:
         from pathlib import Path
+
         track_path = Path(row["path"])
         parts = track_path.parts
         artist_safe = safe_dirname(artist)
@@ -420,7 +442,7 @@ def get_artist_directory_path(artist: str) -> str | None:
             folder_safe = safe_dirname(folder_name)
             folder_norm = normalize_str(folder_safe.lower())
             if folder_norm == artist_norm:
-                return str(Path(*parts[:i+1]))
+                return str(Path(*parts[: i + 1]))
         return str(track_path.parent.parent)
 
     artist_dir = os.path.join(MUSIC_ROOT, safe_dirname(artist))

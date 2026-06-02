@@ -22,14 +22,17 @@ import threading
 import zipfile
 import io
 import os
+import time
 
 from config import ACCESS_KEY, MUSIC_ROOT
 from utils.metadata import (
     get_cover_b64,
     get_lyrics,
+    read_metadata,
     write_metadata,
     write_cover,
     write_lyrics,
+    normalize_str,
 )
 from services.scan_service import scan_library
 from services.format_service import (
@@ -69,6 +72,8 @@ from repository.track_repository import (
     add_op_log,
     delete_track_by_id,
     update_track_metadata,
+    insert_track,
+    recalc_pending,
     commit,
 )
 
@@ -689,6 +694,7 @@ def api_track_update_metadata(track_id: int):
         update_track_metadata(track_id, updated)
         if any(k in updated for k in ("artist", "album", "title")):
             update_track_metadata(track_id, {"organized": 0})
+        recalc_pending(track_id)
         commit()
     return jsonify({"ok": True, "updated": updated})
 
@@ -716,6 +722,7 @@ def api_track_update_cover(track_id: int):
         logger.error("cover write error track %d: %s", track_id, exc)
         return jsonify({"error": str(exc)}), 500
     update_track_metadata(track_id, {"has_cover": 1})
+    recalc_pending(track_id)
     commit()
     return jsonify({"ok": True})
 
@@ -735,6 +742,7 @@ def api_track_update_lyrics(track_id: int):
         return jsonify({"error": str(exc)}), 500
     has_lyrics = 0 if lyrics == "" else 1
     update_track_metadata(track_id, {"has_lyrics": has_lyrics})
+    recalc_pending(track_id)
     commit()
     return jsonify({"ok": True})
 
@@ -825,6 +833,51 @@ def api_track_by_path():
         # Last resort: search by filename only
         if not row:
             row = get_track_by_filename(filename)
+
+    if not row:
+        # File not in library — try to read metadata and insert on the fly
+        candidate = (
+            full_path
+            if Path(full_path).exists()
+            else (full_path_normalized if Path(full_path_normalized).exists() else None)
+        )
+        if candidate and Path(candidate).suffix.lower() in (".mp3", ".flac"):
+            try:
+                meta = read_metadata(candidate)
+                stat = Path(candidate).stat()
+                missing = [f for f in ("title", "artist", "album") if not meta.get(f)]
+                pending = 1 if missing else 0
+                missing_str = ",".join(missing) if missing else ""
+                insert_track(
+                    path=candidate,
+                    filename=Path(candidate).name,
+                    ext=Path(candidate).suffix.lower().lstrip("."),
+                    size=stat.st_size,
+                    mtime=stat.st_mtime,
+                    ctime=stat.st_ctime,
+                    title=meta["title"],
+                    artist=normalize_str(meta["artist"])
+                    if meta.get("artist")
+                    else None,
+                    album=meta["album"],
+                    album_artist=meta["album_artist"],
+                    year=meta["year"],
+                    track_num=meta["track_num"],
+                    disc_num=meta["disc_num"],
+                    duration=meta["duration"],
+                    sample_rate=meta["sample_rate"],
+                    bitrate=meta["bitrate"],
+                    has_cover=meta["has_cover"],
+                    has_lyrics=meta["has_lyrics"],
+                    pending=pending,
+                    missing_tags=missing_str,
+                    scanned_at=time.time(),
+                )
+                commit()
+                row = get_track_by_path(candidate)
+                logger.info(f"Auto-imported track from file browser: {candidate}")
+            except Exception as exc:
+                logger.warning(f"Auto-import failed for {candidate}: {exc}")
 
     if not row:
         abort(404)
@@ -1144,6 +1197,7 @@ def api_apply_scraped_metadata(track_id: int):
             update_track_metadata(track_id, {"has_lyrics": has_lyrics})
             lyrics_updated = True
         add_op_log(now, "apply_scrape_success", f"成功应用元数据: {row['filename']}")
+        recalc_pending(track_id)
         commit()
         return jsonify(
             {

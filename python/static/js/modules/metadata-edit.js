@@ -188,7 +188,7 @@ function useScrapedValue(field) {
   }
 
   const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
-  GET(`/api/tracks/${trackId}`).then(track => {
+  GET(`/tracks/${trackId}`).then(track => {
     document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
   });
 }
@@ -419,12 +419,13 @@ function confirmScrapeSelection() {
     }
   }
 
+  const source = scrapedData._source;
   closeScrapeResultsModal();
 
   const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
-  GET(`/api/tracks/${trackId}`).then(track => {
+  GET(`/tracks/${trackId}`).then(track => {
     document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
-    showToast(`已选择 ${selectedScrapeResult._source} 的元数据`, 'success');
+    showToast(`已选择 ${source} 的元数据`, 'success');
   });
 }
 
