@@ -23,6 +23,7 @@ import zipfile
 import io
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import ACCESS_KEY, MUSIC_ROOT
 from utils.metadata import (
@@ -47,6 +48,7 @@ from repository.track_repository import (
     get_track_by_id,
     get_track_by_path,
     get_track_by_filename_and_artist,
+    get_tracks_by_ids,
     get_track_by_filename_and_album,
     get_track_by_filename,
     get_tracks_by_artist_and_album,
@@ -1390,13 +1392,28 @@ def api_batch_scrape():
         return jsonify({"ok": False, "error": "缺少 track_ids"}), 400
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    results = []
+    
+    rows = get_tracks_by_ids(track_ids)
+    row_map = {row["id"]: row for row in rows}
+    
+    def get_relative_path(full_path):
+        if not full_path:
+            return ""
+        if full_path.lower().startswith(MUSIC_ROOT.lower()):
+            rel_path = full_path[len(MUSIC_ROOT):]
+            return rel_path.lstrip("/\\")
+        return full_path
 
-    for track_id in track_ids:
-        row = get_track_by_id(track_id)
+    def scrape_single_track(track_id):
+        row = row_map.get(track_id)
         if not row:
-            results.append({"track_id": track_id, "ok": False, "error": "曲目不存在"})
-            continue
+            return {
+                "track_id": track_id,
+                "ok": False,
+                "error": "曲目不存在",
+                "_log_type": "error",
+                "_log_msg": f"批量搜索出错: track_id={track_id} - 曲目不存在"
+            }
 
         current_meta = {
             "title": row["title"],
@@ -1407,8 +1424,19 @@ def api_batch_scrape():
             "year": row["year"] if row["year"] else "",
         }
 
+        user_input = {}
+        user_inputs = data.get("user_inputs", {})
+        if isinstance(user_inputs, dict) and str(track_id) in user_inputs:
+            track_input = user_inputs[str(track_id)]
+            if track_input.get("title") and track_input["title"].strip():
+                user_input["title"] = track_input["title"].strip()
+            if track_input.get("artist") and track_input["artist"].strip():
+                user_input["artist"] = track_input["artist"].strip()
+            if track_input.get("album") and track_input["album"].strip():
+                user_input["album"] = track_input["album"].strip()
+
         try:
-            scrape_results = scraper.search_all_apis(row["path"], current_meta)
+            scrape_results = scraper.search_all_apis(row["path"], current_meta, user_input=user_input)
             all_items = []
             for api_name, items in scrape_results.items():
                 for item in items:
@@ -1416,37 +1444,46 @@ def api_batch_scrape():
                     all_items.append(item)
 
             all_items.sort(key=lambda x: x.get("_match_score", 0), reverse=True)
-
             best = all_items[0] if all_items else None
 
-            results.append(
-                {
-                    "track_id": track_id,
-                    "ok": True,
-                    "original": current_meta,
-                    "best": best,
-                    "all_results": scrape_results,
-                    "has_cover": bool(row["has_cover"]),
-                    "track_title": row["title"] if row["title"] else "",
-                    "track_artist": row["artist"] if row["artist"] else "",
-                    "track_album": row["album"] if row["album"] else "",
-                    "filename": row["filename"] if row["filename"] else "",
-                }
-            )
-            add_op_log(now, "batch_scrape_success", f"批量搜索完成: {row['filename']}")
+            return {
+                "track_id": track_id,
+                "ok": True,
+                "original": current_meta,
+                "best": best,
+                "all_results": scrape_results,
+                "has_cover": bool(row["has_cover"]),
+                "track_title": row["title"] if row["title"] else "",
+                "track_artist": row["artist"] if row["artist"] else "",
+                "track_album": row["album"] if row["album"] else "",
+                "filename": row["filename"] if row["filename"] else "",
+                "relative_path": get_relative_path(row["path"]),
+                "_log_type": "success",
+                "_log_msg": f"批量搜索完成: {row['filename']}"
+            }
         except Exception as e:
-            results.append(
-                {
-                    "track_id": track_id,
-                    "ok": False,
-                    "error": str(e),
-                    "track_title": row["title"] if row["title"] else "",
-                    "filename": row["filename"] if row["filename"] else "",
-                }
-            )
-            add_op_log(
-                now, "batch_scrape_error", f"批量搜索出错: {row['filename']} - {str(e)}"
-            )
-
+            return {
+                "track_id": track_id,
+                "ok": False,
+                "error": str(e),
+                "track_title": row["title"] if row["title"] else "",
+                "filename": row["filename"] if row["filename"] else "",
+                "_log_type": "error",
+                "_log_msg": f"批量搜索出错: {row['filename']} - {str(e)}"
+            }
+    
+    results = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(scrape_single_track, track_id): track_id for track_id in track_ids}
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
+            log_type = result.get("_log_type")
+            log_msg = result.get("_log_msg")
+            if log_type and log_msg:
+                add_op_log(now, f"batch_scrape_{log_type}", log_msg)
+            result.pop("_log_type", None)
+            result.pop("_log_msg", None)
+    
     commit()
     return jsonify({"ok": True, "results": results})

@@ -3783,6 +3783,102 @@ body {
     justify-content: center;
 }
 
+.batch-card-path {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text3);
+    word-break: break-all;
+    line-height: 1.5;
+}
+
+.batch-card-path i {
+    flex-shrink: 0;
+    color: var(--text3);
+}
+
+.batch-card-path-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.batch-card-path:hover .batch-card-path-text {
+    white-space: normal;
+}
+
+.batch-card-editing {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.batch-field-editing {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.batch-field-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    background: var(--bg1);
+    color: var(--text1);
+    font-family: inherit;
+    margin-top: 4px;
+}
+
+.batch-field-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.batch-field.has-user-input .batch-field-value {
+    font-style: italic;
+}
+
+.batch-field-user-indicator {
+    font-size: 10px;
+    color: var(--accent);
+    margin-left: 4px;
+}
+
+.batch-btn-edit {
+    color: var(--text2);
+}
+
+.batch-btn-edit:hover {
+    background: var(--bg2);
+}
+
+.batch-btn-save-edit {
+    color: var(--success) !important;
+    border-color: var(--success) !important;
+    margin-right: auto;
+}
+
+.batch-btn-save-edit:hover {
+    background: var(--success-dim) !important;
+}
+
+.batch-btn-cancel-edit {
+    color: var(--text2);
+}
+
+.batch-btn-cancel-edit:hover {
+    background: var(--bg2);
+}
+
 .batch-cards-counter {
     font-family: var(--font-mono);
     font-size: 11px;

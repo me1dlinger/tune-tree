@@ -10,6 +10,7 @@ let batchCards = [];
 let batchCurrentIndex = 0;
 let batchSwipeState = null;
 let batchApplying = false;
+let batchEditingIndex = -1;
 
 /* ═══════════════════════════════════════════════════════════
    OPEN BATCH SCRAPE MODAL
@@ -62,6 +63,8 @@ async function openBatchScrapeModal(selectedPaths) {
               trackArtist: r.track_artist,
               trackAlbum: r.track_album,
               filename: r.filename,
+              relativePath: r.relative_path || '',
+              userInput: {},
               excludeIds: [r.best._id],
               applied: false,
               removed: false,
@@ -77,6 +80,8 @@ async function openBatchScrapeModal(selectedPaths) {
               trackArtist: r.track_artist,
               trackAlbum: r.track_album,
               filename: r.filename,
+              relativePath: r.relative_path || '',
+              userInput: {},
               excludeIds: [],
               applied: false,
               removed: false,
@@ -222,7 +227,7 @@ function renderBatchCards() {
     </div>
   `;
 
-  if (currentCard && !currentCard.noResult) {
+  if (currentCard && !currentCard.noResult && batchEditingIndex === -1) {
     initBatchSwipe();
   }
 
@@ -232,6 +237,8 @@ function renderBatchCards() {
 function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stackOpacity) {
   const best = card.best;
   const original = card.original;
+  const relativePath = card.relativePath;
+  const isEditing = batchEditingIndex === cardIndex;
 
   if (card.noResult) {
     return `
@@ -247,6 +254,12 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
             <i class="bi bi-emoji-frown"></i>
             未找到匹配的元数据
           </div>
+          ${relativePath ? `
+          <div class="batch-card-path">
+            <i class="bi bi-folder-open"></i>
+            <span class="batch-card-path-text">${esc(relativePath)}</span>
+          </div>
+          ` : ''}
         </div>
         <div class="batch-card-actions">
           <button class="toolbar-btn" onclick="removeBatchCard(${cardIndex})">
@@ -270,18 +283,50 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
     const scraped = scrapedVal || '';
     const hasChange = scraped && scraped !== orig;
     const isDifferent = hasChange && orig;
+    const userInputVal = card.userInput[fieldKey] || '';
+    const displayVal = userInputVal || scraped || orig || '';
+
+    if (isEditing) {
+      return `
+        <div class="batch-field batch-field-editing ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''}">
+          <span class="batch-field-label">${label}</span>
+          ${isDifferent ? `<span class="batch-field-original">${esc(orig)}</span>` : ''}
+          <input type="text" 
+                 class="batch-field-input" 
+                 data-field="${fieldKey}" 
+                 value="${esc(displayVal)}"
+                 placeholder="${esc(label)}..."
+                 oninput="updateBatchCardUserInput(${cardIndex}, '${fieldKey}', this.value)">
+        </div>
+      `;
+    }
 
     return `
-      <div class="batch-field ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''}">
+      <div class="batch-field ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''} ${userInputVal ? 'has-user-input' : ''}">
         <span class="batch-field-label">${label}</span>
         ${isDifferent ? `<span class="batch-field-original">${esc(orig)}</span>` : ''}
-        <span class="batch-field-value ${hasChange ? 'changed' : ''}">${esc(scraped || orig || '—')}</span>
+        <span class="batch-field-value ${hasChange ? 'changed' : ''} ${userInputVal ? 'user-input' : ''}">${esc(displayVal || '—')}</span>
+        ${userInputVal ? '<span class="batch-field-user-indicator">✎</span>' : ''}
       </div>
     `;
   }
 
+  const editBtn = isEditing
+    ? `<button class="toolbar-btn batch-btn-save-edit" onclick="saveBatchCardEdit(${cardIndex})">
+         <i class="bi bi-check-lg"></i> 保存
+       </button>`
+    : `<button class="toolbar-btn batch-btn-edit" onclick="startBatchCardEdit(${cardIndex})">
+         <i class="bi bi-pencil"></i> 编辑
+       </button>`;
+
+  const cancelBtn = isEditing
+    ? `<button class="toolbar-btn batch-btn-cancel-edit" onclick="cancelBatchCardEdit(${cardIndex})">
+         <i class="bi bi-x"></i> 取消
+       </button>`
+    : '';
+
   return `
-    <div class="batch-card ${isTop ? 'batch-card-top' : 'batch-card-stacked'}"
+    <div class="batch-card ${isTop ? 'batch-card-top' : 'batch-card-stacked'} ${isEditing ? 'batch-card-editing' : ''}"
          data-card-index="${cardIndex}"
          style="transform: translateY(${stackOffset}px) scale(${stackScale}); opacity: ${stackOpacity};">
       <div class="batch-card-cover">
@@ -297,8 +342,16 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
         ${fieldRow('专辑艺术家', original.album_artist, best.album_artist, 'album_artist')}
         ${fieldRow('音轨号', original.track_num, best.track_num, 'track_num')}
         ${fieldRow('年份', original.year, best.year, 'year')}
+        ${relativePath ? `
+        <div class="batch-card-path">
+          <i class="bi bi-folder-open"></i>
+          <span class="batch-card-path-text">${esc(relativePath)}</span>
+        </div>
+        ` : ''}
       </div>
       <div class="batch-card-actions">
+        ${editBtn}
+        ${cancelBtn}
         <button class="toolbar-btn batch-btn-apply" onclick="applyBatchCard(${cardIndex})" ${card.applied ? 'disabled' : ''}>
           <i class="bi bi-check-lg"></i> 应用
         </button>
@@ -430,6 +483,85 @@ function navigateBatchCard(direction) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   EDIT MODE FUNCTIONS
+   ═══════════════════════════════════════════════════════════ */
+
+function startBatchCardEdit(cardIndex) {
+  cleanupSwipe();
+  batchEditingIndex = cardIndex;
+  renderBatchCards();
+
+  setTimeout(() => {
+    const firstInput = document.querySelector('.batch-field-input');
+    if (firstInput) {
+      firstInput.focus();
+    }
+  }, 100);
+}
+
+function cancelBatchCardEdit(cardIndex) {
+  batchEditingIndex = -1;
+  renderBatchCards();
+}
+
+function updateBatchCardUserInput(cardIndex, fieldKey, value) {
+  const card = batchCards[cardIndex];
+  if (card) {
+    card.userInput[fieldKey] = value.trim();
+  }
+}
+
+async function saveBatchCardEdit(cardIndex) {
+  if (batchApplying) return;
+  const card = batchCards[cardIndex];
+  if (!card || card.noResult) return;
+
+  batchApplying = true;
+  batchEditingIndex = -1;
+
+  try {
+    const excludeIds = card.excludeIds.slice(-10);
+    const result = await POST(`/tracks/${card.trackId}/scrape-all`, {
+      exclude_ids: excludeIds,
+      title: card.userInput.title || '',
+      artist: card.userInput.artist || '',
+      album: card.userInput.album || ''
+    });
+
+    if (result.ok) {
+      const allItems = [];
+      for (const [api, items] of Object.entries(result.results)) {
+        for (const item of items) {
+          item._api = api;
+          allItems.push(item);
+        }
+      }
+      allItems.sort((a, b) => (b._match_score || 0) - (a._match_score || 0));
+
+      if (allItems.length > 0) {
+        const newBest = allItems[0];
+        card.best = newBest;
+        card.excludeIds.push(newBest._id);
+        if (card.excludeIds.length > 10) {
+          card.excludeIds = card.excludeIds.slice(-10);
+        }
+        renderBatchCards();
+        showToast('已保存并重新搜索', 'success');
+      } else {
+        renderBatchCards();
+        showToast('未找到匹配结果', 'info');
+      }
+    }
+  } catch (e) {
+    batchEditingIndex = cardIndex;
+    renderBatchCards();
+    showToast(`保存失败: ${e.message}`, 'error');
+  } finally {
+    batchApplying = false;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
    CARD ACTIONS
    ═══════════════════════════════════════════════════════════ */
 
@@ -441,6 +573,26 @@ async function applyBatchCard(cardIndex) {
   batchApplying = true;
   try {
     const applyData = { ...card.best };
+
+    if (card.userInput.title) {
+      applyData.title = card.userInput.title;
+    }
+    if (card.userInput.artist) {
+      applyData.artist = card.userInput.artist;
+    }
+    if (card.userInput.album) {
+      applyData.album = card.userInput.album;
+    }
+    if (card.userInput.album_artist) {
+      applyData.album_artist = card.userInput.album_artist;
+    }
+    if (card.userInput.track_num) {
+      applyData.track_num = card.userInput.track_num;
+    }
+    if (card.userInput.year) {
+      applyData.year = card.userInput.year;
+    }
+
     await POST(`/tracks/${card.trackId}/apply-scrape`, applyData);
     card.applied = true;
     showToast(`已应用: ${card.trackTitle || card.filename}`, 'success');
@@ -467,7 +619,11 @@ async function tryAnotherBatchCard(cardIndex) {
 
   try {
     const excludeIds = card.excludeIds.slice(-10);
-    const result = await POST(`/tracks/${card.trackId}/scrape-all`, { exclude_ids: excludeIds });
+    const requestData = { exclude_ids: excludeIds };
+    if (card.userInput.title) requestData.title = card.userInput.title;
+    if (card.userInput.artist) requestData.artist = card.userInput.artist;
+    if (card.userInput.album) requestData.album = card.userInput.album;
+    const result = await POST(`/tracks/${card.trackId}/scrape-all`, requestData);
 
     if (result.ok) {
       const allItems = [];
@@ -516,7 +672,11 @@ async function retrySearchBatchCard(cardIndex) {
   }
 
   try {
-    const result = await POST(`/tracks/${card.trackId}/scrape-all`, { exclude_ids: [] });
+    const requestData = { exclude_ids: [] };
+    if (card.userInput.title) requestData.title = card.userInput.title;
+    if (card.userInput.artist) requestData.artist = card.userInput.artist;
+    if (card.userInput.album) requestData.album = card.userInput.album;
+    const result = await POST(`/tracks/${card.trackId}/scrape-all`, requestData);
 
     if (result.ok) {
       const allItems = [];

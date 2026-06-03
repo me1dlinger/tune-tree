@@ -37,7 +37,7 @@ class MetadataScraper:
     ALBUM_WEIGHT = 6
 
     def __init__(self):
-        self.api_order = ["cloud"]
+        self.api_order = ["cloud", "kugou"]
         self._kugou_rate_limited = False
 
     def _calculate_match_score(self,  result: Dict, keywords: List[str]) -> float:
@@ -270,8 +270,8 @@ class MetadataScraper:
 
     def search_all_apis(self, filename: str, current_meta: Dict, exclude_ids: List[str] = None, user_input: Dict = None) -> Dict[str, List[Dict]]:
         """
-        批量搜索所有 API，每个API返回最多3条结果，按匹配度排序
-        kugou 和 cloud 并行执行
+        批量搜索 API，优先使用 cloud，如果返回 0 条结果则使用 kugou
+        每个API返回最多5条结果，按匹配度排序
         如果指定了 exclude_ids，则会排除这些歌曲ID后返回最多5条结果
         
         :param user_input: 用户输入的关键词（来自前端输入框），优先级最高
@@ -285,22 +285,30 @@ class MetadataScraper:
             "kugou": []
         }
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_to_api = {
-                executor.submit(self._search_api_with_multiple_results, api_name, keywords, current_meta, exclude_ids): api_name
-                for api_name in self.api_order
-            }
+        # 优先使用 cloud API
+        try:
+            cloud_results = self._search_api_with_multiple_results("cloud", keywords, current_meta, exclude_ids)
+            results["cloud"] = cloud_results
+            logger.info(f"cloud API 返回 {len(cloud_results)} 条结果")
+        except Exception as e:
+            logger.warning(f"cloud API 批量搜索失败: {e}")
+            results["cloud"] = []
 
-            for future in as_completed(future_to_api):
-                api_name = future_to_api[future]
-                try:
-                    api_results = future.result()
-                    results[api_name] = api_results
-                except Exception as e:
-                    logger.warning(f"{api_name} API 批量搜索失败: {e}")
-                    results[api_name] = []
+        # 如果 cloud 返回 0 条结果，则使用 kugou API
+        if len(results["cloud"]) == 0:
+            logger.info("cloud API 返回 0 条结果，尝试使用 kugou API")
+            try:
+                kugou_results = self._search_api_with_multiple_results("kugou", keywords, current_meta, exclude_ids)
+                results["kugou"] = kugou_results
+                logger.info(f"kugou API 返回 {len(kugou_results)} 条结果")
+            except Exception as e:
+                logger.warning(f"kugou API 批量搜索失败: {e}")
+                results["kugou"] = []
+        else:
+            logger.info("cloud API 有结果，不使用 kugou API")
 
         total = sum(len(v) for v in results.values())
+        logger.info(f"批量搜索完成，总共返回 {total} 条结果")
 
         return results
 
