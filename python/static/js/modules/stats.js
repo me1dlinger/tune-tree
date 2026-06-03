@@ -25,11 +25,11 @@ async function loadStats() {
     const s = await GET('/stats');
     const artistOrg = s.total_artists > 0 ? Math.round(s.org_artists / s.total_artists * 100) : 0;
     const albumOrg = s.total_albums > 0 ? Math.round(s.org_albums / s.total_albums * 100) : 0;
-    
+
     const scanInfo = s.scan_info || {};
     let scanStatusText = '';
     let scanStatusClass = '';
-    
+
     if (scanInfo.scanning) {
       const elapsed = formatElapsedTime(scanInfo.scan_elapsed_seconds || 0);
       if (scanInfo.scan_timed_out) {
@@ -122,16 +122,28 @@ function calculateDeleteList(groups) {
   for (const [key, tracks] of Object.entries(groups)) {
     if (tracks.length < 2) continue;
 
-    const sortedBySize = [...tracks].sort((a, b) => (b.size || 0) - (a.size || 0));
-    const maxSize = sortedBySize[0].size || 0;
-    const sizeRejects = sortedBySize.filter(t => (t.size || 0) < maxSize);
+    const sorted = [...tracks].sort((a, b) => {
+      const aOrg = a.organized || 0;
+      const bOrg = b.organized || 0;
+
+      if (aOrg !== bOrg) {
+        return aOrg - bOrg;
+      }
+
+      const aSize = a.size || 0;
+      const bSize = b.size || 0;
+      return bSize - aSize;
+    });
+
+    const maxSize = sorted[0].size || 0;
+    const sizeRejects = sorted.filter(t => (t.size || 0) < maxSize);
 
     if (sizeRejects.length > 0) {
       for (const t of sizeRejects) {
         toDelete.push(t);
       }
     } else {
-      const sortedByMtime = [...tracks].sort((a, b) => (a.mtime || 0) - (b.mtime || 0));
+      const sortedByMtime = [...sorted].sort((a, b) => (a.mtime || 0) - (b.mtime || 0));
       for (let i = 0; i < sortedByMtime.length - 1; i++) {
         toDelete.push(sortedByMtime[i]);
       }
@@ -144,8 +156,8 @@ function showDeletePreview() {
   const groups = {};
   for (const track of currentDuplicates) {
     const key = (track.artist || 'Unknown') + '|' +
-                (track.album || 'Unknown') + '|' +
-                (track.title || 'Unknown');
+      (track.album || 'Unknown') + '|' +
+      (track.title || 'Unknown');
     if (!groups[key]) groups[key] = [];
     groups[key].push(track);
   }
@@ -174,17 +186,17 @@ function renderDeletePreview() {
 
   body.innerHTML = `
     <div style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
-      <div style="font-size:13px;color:var(--text2);">
-        删除策略：<span style="color:var(--accent)">优先按文件大小保留最大</span>，相同大小则<span style="color:var(--accent)">按时间保留最新</span>
+        <div style="font-size:13px;color:var(--text2);">
+          删除策略：<span style="color:var(--accent)">优先删除未格式化文件</span>，再<span style="color:var(--accent)">按文件大小保留最大</span>，相同大小则<span style="color:var(--accent)">按时间保留最新</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">点击移除按钮可将该文件从删除列表中移除</div>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px;">点击移除按钮可将该文件从删除列表中移除</div>
-    </div>
     <div style="max-height:400px;overflow-y:auto;">
       ${deletePreviewTracks.map(t => {
-        const fmt = (t.ext || '').replace('.', '').toUpperCase();
-        const size = t.size ? fmtSize(t.size) : '—';
-        const mtime = t.mtime ? new Date(t.mtime * 1000).toLocaleString() : '—';
-        return `
+    const fmt = (t.ext || '').replace('.', '').toUpperCase();
+    const size = t.size ? fmtSize(t.size) : '—';
+    const mtime = t.mtime ? new Date(t.mtime * 1000).toLocaleString() : '—';
+    return `
           <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius);border-bottom:1px solid var(--border);transition:background var(--transition);"
                onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
             <button class="toolbar-btn" style="padding:4px 8px;font-size:11px;background:var(--red-dim);color:var(--red);border-color:var(--red);"
@@ -194,17 +206,16 @@ function renderDeletePreview() {
               <div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.path)}</div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
-              <span style="padding:3px 8px;border-radius:var(--radius);font-size:11px;font-weight:500;${
-                fmt === 'FLAC' ? 'background:var(--blue-dim);color:var(--blue);' :
-                fmt === 'MP3'  ? 'background:var(--amber-dim);color:var(--amber);' :
-                                 'background:var(--bg4);color:var(--text2);'
-              }">${fmt}</span>
+              <span style="padding:3px 8px;border-radius:var(--radius);font-size:11px;font-weight:500;${fmt === 'FLAC' ? 'background:var(--blue-dim);color:var(--blue);' :
+        fmt === 'MP3' ? 'background:var(--amber-dim);color:var(--amber);' :
+          'background:var(--bg4);color:var(--text2);'
+      }">${fmt}</span>
             </div>
             <div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);min-width:70px;text-align:right;">${size}</div>
             <div style="font-size:11px;color:var(--text3);min-width:140px;">${mtime}</div>
           </div>
         `;
-      }).join('')}
+  }).join('')}
     </div>
   `;
 }
@@ -260,8 +271,8 @@ async function openDuplicateModal() {
     const groups = {};
     for (const track of duplicates) {
       const key = (track.artist || 'Unknown') + '|' +
-                  (track.album || 'Unknown') + '|' +
-                  (track.title || 'Unknown');
+        (track.album || 'Unknown') + '|' +
+        (track.title || 'Unknown');
       if (!groups[key]) groups[key] = [];
       groups[key].push(track);
     }
@@ -297,12 +308,12 @@ async function openDuplicateModal() {
           </div>
           <div style="padding:4px;">
             ${tracks.map(t => {
-              const fmt = (t.ext || '').replace('.', '').toUpperCase();
-              const size = t.size ? fmtSize(t.size) : '—';
-              const sr = t.sample_rate
-                ? (t.sample_rate >= 1000 ? Math.round(t.sample_rate / 1000) + 'kHz' : t.sample_rate + 'Hz')
-                : '—';
-              return `
+        const fmt = (t.ext || '').replace('.', '').toUpperCase();
+        const size = t.size ? fmtSize(t.size) : '—';
+        const sr = t.sample_rate
+          ? (t.sample_rate >= 1000 ? Math.round(t.sample_rate / 1000) + 'kHz' : t.sample_rate + 'Hz')
+          : '—';
+        return `
                 <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius);cursor:pointer;transition:background var(--transition);"
                      onmouseover="this.style.background='var(--bg4)'" onmouseout="this.style.background=''"
                      onclick="showDuplicateTrackDetail(${t.id})">
@@ -314,17 +325,16 @@ async function openDuplicateModal() {
                     <div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.path)}</div>
                   </div>
                   <div style="display:flex;align-items:center;gap:8px;">
-                    <span style="padding:3px 8px;border-radius:var(--radius);font-size:11px;font-weight:500;${
-                      fmt === 'FLAC' ? 'background:var(--blue-dim);color:var(--blue);' :
-                      fmt === 'MP3'  ? 'background:var(--amber-dim);color:var(--amber);' :
-                                       'background:var(--bg4);color:var(--text2);'
-                    }">${fmt}</span>
+                    <span style="padding:3px 8px;border-radius:var(--radius);font-size:11px;font-weight:500;${fmt === 'FLAC' ? 'background:var(--blue-dim);color:var(--blue);' :
+            fmt === 'MP3' ? 'background:var(--amber-dim);color:var(--amber);' :
+              'background:var(--bg4);color:var(--text2);'
+          }">${fmt}</span>
                     <span style="font-size:11px;color:var(--text3);">${sr}</span>
                   </div>
                   <div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);min-width:60px;text-align:right;">${size}</div>
                 </div>
               `;
-            }).join('')}
+      }).join('')}
           </div>
         </div>
       `;

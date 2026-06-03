@@ -80,6 +80,19 @@ def preview_format(
                 all_rows.extend(rows)
         rows = all_rows
 
+    # 预先获取所有目标路径，检查是否已存在于数据库中
+    db = get_db()
+    all_paths = [row["path"] for row in rows]
+    existing_paths = {}
+    if all_paths:
+        placeholders = ",".join("?" * len(all_paths))
+        existing_rows = db.execute(
+            f"SELECT id, path FROM tracks WHERE path IN ({placeholders})",
+            all_paths
+        ).fetchall()
+        for existing_row in existing_rows:
+            existing_paths[existing_row["path"]] = existing_row["id"]
+
     for row in rows:
         if row["pending"]:
             continue
@@ -120,6 +133,10 @@ def preview_format(
         elif file_key in seen_files:
             status = "skip"
             skip_count += 1
+        elif target_path in existing_paths and existing_paths[target_path] != row["id"]:
+            # 目标路径已被其他track占用，标记为冲突
+            status = "conflict"
+            conflict_count += 1
         else:
             status = "normal"
             seen_files[file_key] = new_name
@@ -203,6 +220,11 @@ def execute_format(
                 db.execute(
                     "UPDATE tracks SET organized=1, pending=0 WHERE id=?", (item["track_id"],)
                 )
+            continue
+        
+        # Skip conflict files
+        if item["status"] == "conflict":
+            skipped += 1
             continue
 
         src = Path(item["old_path"])
