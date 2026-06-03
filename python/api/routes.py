@@ -904,7 +904,66 @@ def api_files():
     sort = request.args.get("sort", default="name")
     folders_first = request.args.get("folders_first", default="true").lower() == "true"
     search = request.args.get("search", default="").strip().lower()
+    recursive = request.args.get("recursive", default="false").lower() == "true"
 
+    # 递归模式：只返回音频文件，不返回目录
+    if recursive:
+        if not cur.is_dir():
+            abort(404)
+        try:
+            entries_data = []
+            for entry in cur.rglob("*"):
+                try:
+                    if not entry.is_file():
+                        continue
+                    ext = entry.suffix.lower().lstrip(".")
+                    if ext not in ("mp3", "flac"):
+                        continue
+                    stat = entry.stat()
+                    entries_data.append(
+                        {
+                            "name": entry.name,
+                            "path": str(entry.relative_to(base)),
+                            "is_dir": False,
+                            "ext": ext,
+                            "is_audio": True,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                        }
+                    )
+                except OSError:
+                    continue
+        except OSError as e:
+            logger.warning(f"Failed to recursively read directory {cur}: {e}")
+            entries_data = []
+
+        if search:
+            entries_data = [e for e in entries_data if search in e["name"].lower()]
+
+        if sort == "date":
+            entries_data.sort(key=lambda e: -e["mtime"])
+        else:
+            entries_data.sort(key=lambda e: e["name"].lower())
+
+        total = len(entries_data)
+        page_items = entries_data[offset : offset + limit]
+
+        for item in page_items:
+            item["mtime"] = datetime.fromtimestamp(item["mtime"]).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+        return jsonify(
+            {
+                "path": rel,
+                "items": page_items,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+
+    # 非递归模式（默认）：保持原有行为，用于目录浏览
     try:
         entries = list(cur.iterdir())
     except OSError as e:
@@ -1229,20 +1288,165 @@ def api_scrape_all(track_id: int):
         "artist": row["artist"],
         "album": row["album"],
     }
-    
+
     # 获取需要排除的结果（使用 idOrMd5）
     exclude_ids = request.json.get("exclude_ids", []) if request.is_json else []
     
+    # 获取用户输入的关键词（来自前端输入框）
+    user_input = {}
+    if request.is_json:
+        user_json = request.json
+        if user_json.get("title") and user_json["title"].strip():
+            user_input["title"] = user_json["title"].strip()
+        if user_json.get("artist") and user_json["artist"].strip():
+            user_input["artist"] = user_json["artist"].strip()
+        if user_json.get("album") and user_json["album"].strip():
+            user_input["album"] = user_json["album"].strip()
+
     try:
-        results = scraper.search_all_apis(row["path"], current_meta, exclude_ids)
-        add_op_log(now, "scrape_all_success", f"批量刮削完成: {row['filename']}")
+        results = scraper.search_all_apis(row["path"], current_meta, exclude_ids, user_input)
+        add_op_log(now, "scrape_all_success", f"批量搜索完成: {row['filename']}")
         commit()
         return jsonify({"ok": True, "original": current_meta, "results": results})
 
     except Exception as e:
-        logger.error(f"批量刮削失败: {e}")
+        logger.error(f"批量搜索失败: {e}")
         add_op_log(
-            now, "scrape_all_error", f"批量刮削出错: {row['filename']} - {str(e)}"
+            now, "scrape_all_error", f"批量搜索出错: {row['filename']} - {str(e)}"
         )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@api_bp.route("/api/files/audio-count")
+@require_auth
+def api_files_audio_count():
+    paths = request.args.get("paths", "").strip()
+    print(f"[DEBUG] api_files_audio_count - 输入 paths: '{paths}'")
+    
+    if not paths:
+        print("[DEBUG] api_files_audio_count - paths 为空，返回空结果")
+        return jsonify({"counts": {}})
+
+    path_list = [p.strip().lstrip("/") for p in paths.split("|") if p.strip()]
+    print(f"[DEBUG] api_files_audio_count - path_list: {path_list}")
+    
+    base = Path(MUSIC_ROOT)
+    print(f"[DEBUG] api_files_audio_count - MUSIC_ROOT: {MUSIC_ROOT}")
+    print(f"[DEBUG] api_files_audio_count - base path: {base}")
+    print(f"[DEBUG] api_files_audio_count - base resolved: {base.resolve()}")
+    
+    counts = {}
+
+    for rel in path_list:
+        print(f"\n[DEBUG] 处理路径: '{rel}'")
+        rel_normalized = rel.replace("/", "\\") if "\\" in MUSIC_ROOT else rel
+        print(f"[DEBUG] 规范化后路径: '{rel_normalized}'")
+        
+        cur = (base / rel_normalized).resolve()
+        print(f"[DEBUG] 完整路径: {cur}")
+        
+        base_resolved = str(base.resolve())
+        cur_str = str(cur)
+        print(f"[DEBUG] 安全检查 - cur.startswith(base): {cur_str.startswith(base_resolved)}")
+        
+        if not cur_str.startswith(base_resolved):
+            print(f"[DEBUG] 路径越界，跳过，count=0")
+            counts[rel] = 0
+            continue
+        
+        print(f"[DEBUG] is_dir: {cur.is_dir()}")
+        if not cur.is_dir():
+            print(f"[DEBUG] 不是目录，跳过，count=0")
+            counts[rel] = 0
+            continue
+            
+        try:
+            print(f"[DEBUG] 开始扫描目录...")
+            files = list(cur.rglob("*"))
+            print(f"[DEBUG] 找到 {len(files)} 个文件/目录")
+            
+            audio_files = [f for f in files if f.is_file() and f.suffix.lower().lstrip(".") in ("mp3", "flac")]
+            print(f"[DEBUG] 音频文件列表: {audio_files}")
+            
+            count = len(audio_files)
+            counts[rel] = count
+            print(f"[DEBUG] 音频文件数量: {count}")
+            
+        except OSError as e:
+            print(f"[DEBUG] OSError: {e}，count=0")
+            counts[rel] = 0
+
+    print(f"\n[DEBUG] 最终结果: {counts}")
+    return jsonify({"counts": counts})
+
+
+@api_bp.route("/api/tracks/batch-scrape", methods=["POST"])
+@require_auth
+def api_batch_scrape():
+    data = request.get_json(force=True)
+    track_ids = data.get("track_ids", [])
+    if not track_ids:
+        return jsonify({"ok": False, "error": "缺少 track_ids"}), 400
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    results = []
+
+    for track_id in track_ids:
+        row = get_track_by_id(track_id)
+        if not row:
+            results.append({"track_id": track_id, "ok": False, "error": "曲目不存在"})
+            continue
+
+        current_meta = {
+            "title": row["title"],
+            "artist": row["artist"],
+            "album": row["album"],
+            "album_artist": row["album_artist"] if row["album_artist"] else "",
+            "track_num": row["track_num"] if row["track_num"] else "",
+            "year": row["year"] if row["year"] else "",
+        }
+
+        try:
+            scrape_results = scraper.search_all_apis(row["path"], current_meta)
+            all_items = []
+            for api_name, items in scrape_results.items():
+                for item in items:
+                    item["_api"] = api_name
+                    all_items.append(item)
+
+            all_items.sort(key=lambda x: x.get("_match_score", 0), reverse=True)
+
+            best = all_items[0] if all_items else None
+
+            results.append(
+                {
+                    "track_id": track_id,
+                    "ok": True,
+                    "original": current_meta,
+                    "best": best,
+                    "all_results": scrape_results,
+                    "has_cover": bool(row["has_cover"]),
+                    "track_title": row["title"] if row["title"] else "",
+                    "track_artist": row["artist"] if row["artist"] else "",
+                    "track_album": row["album"] if row["album"] else "",
+                    "filename": row["filename"] if row["filename"] else "",
+                }
+            )
+            add_op_log(now, "batch_scrape_success", f"批量搜索完成: {row['filename']}")
+        except Exception as e:
+            results.append(
+                {
+                    "track_id": track_id,
+                    "ok": False,
+                    "error": str(e),
+                    "track_title": row["title"] if row["title"] else "",
+                    "filename": row["filename"] if row["filename"] else "",
+                }
+            )
+            add_op_log(
+                now, "batch_scrape_error", f"批量搜索出错: {row['filename']} - {str(e)}"
+            )
+
+    commit()
+    return jsonify({"ok": True, "results": results})

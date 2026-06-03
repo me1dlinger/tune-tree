@@ -67,6 +67,7 @@ function showConfirm(title, msg, onOk) {
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => {
     if (e.target !== el) return;
+    if (el.id === 'batch-scrape-modal') return;
     if (el.id === 'lyrics-editor-modal') {
       if (typeof closeLyricsEditorModal === 'function') closeLyricsEditorModal();
     } else {

@@ -3494,3 +3494,336 @@ body {
     color: var(--text3);
     font-size: 12px;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   FILE MULTI-SELECT
+   ═══════════════════════════════════════════════════════════ */
+
+.file-row.selected {
+    background: var(--accent-dim2);
+    border-left: 3px solid var(--accent);
+}
+
+.file-row.select-disabled {
+    opacity: 0.5;
+}
+
+.fr-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--text3);
+}
+
+.fr-check .bi-check-circle-fill {
+    color: var(--accent);
+}
+
+.file-select-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.file-select-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--accent-dim2);
+    padding: 2px 8px;
+    border-radius: var(--radius);
+    border: 1px solid var(--accent-dim);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BATCH SCRAPE MODAL
+   ═══════════════════════════════════════════════════════════ */
+
+.batch-scrape-modal {
+    width: 520px;
+    max-width: 95vw;
+    max-height: 90vh;
+    height: 85vh;
+}
+
+.batch-scrape-modal .modal-body {
+    padding: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    min-height: 0;
+}
+
+.batch-loading {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--text2);
+}
+
+.batch-loading .loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+}
+
+.batch-loading-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STACKED CARDS
+   ═══════════════════════════════════════════════════════════ */
+
+.batch-cards-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.batch-cards-stack {
+    width: 100%;
+    position: relative;
+    height: 620px;
+    max-height: calc(80vh - 160px);
+    perspective: 1000px;
+}
+
+.batch-card {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    user-select: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+        opacity 0.3s ease;
+    will-change: transform, opacity;
+    overflow: hidden;
+}
+
+.batch-card-top {
+    z-index: 10;
+}
+
+.batch-card-stacked {
+    z-index: 5;
+    pointer-events: none;
+}
+
+.batch-card-cover {
+    width: 55%;
+    aspect-ratio: 1/1;
+    background: var(--bg3);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text3);
+    position: relative;
+}
+
+.batch-card-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.batch-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.batch-card-source {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: var(--radius);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: fit-content;
+    background: var(--accent-dim2);
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+}
+
+.batch-card-source.cloud {
+    color: #e60000;
+    background: rgba(230, 0, 0, 0.08);
+    border-color: rgba(230, 0, 0, 0.15);
+}
+
+.batch-card-source.kugou {
+    color: #00aae7;
+    background: rgba(0, 170, 231, 0.08);
+    border-color: rgba(0, 170, 231, 0.15);
+}
+
+.batch-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+}
+
+.batch-field-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    width: 64px;
+    flex-shrink: 0;
+}
+
+.batch-field-value {
+    font-size: 13px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.batch-field-value.changed {
+    color: var(--accent);
+    font-weight: 500;
+}
+
+.batch-field-original {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    text-decoration: line-through;
+    background: var(--bg3);
+    padding: 1px 6px;
+    border-radius: 2px;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.batch-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.batch-field-row .batch-field {
+    gap: 4px;
+}
+
+.batch-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.batch-btn-apply {
+    color: var(--accent) !important;
+    border-color: var(--accent) !important;
+    margin-right: auto;
+}
+
+.batch-btn-apply:hover {
+    background: var(--accent-dim) !important;
+}
+
+.batch-card-no-result {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.batch-card-no-result .batch-card-cover {
+    max-height: 180px;
+}
+
+.batch-card-filename {
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 8px;
+    word-break: break-all;
+}
+
+.batch-card-no-result-msg {
+    color: var(--text3);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+}
+
+.batch-cards-counter {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 12px;
+    padding: 4px 12px;
+    background: var(--bg3);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BATCH SCRAPE FOOTER
+   ═══════════════════════════════════════════════════════════ */
+
+.batch-scrape-modal .modal-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#batch-apply-all-btn {
+    margin-left: auto;
+}
+
+#batch-apply-all-btn.loading {
+    position: relative;
+    color: transparent !important;
+}
+
+#batch-apply-all-btn.loading::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    margin-left: -7px;
+    margin-top: -7px;
+    border: 2px solid var(--text3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}

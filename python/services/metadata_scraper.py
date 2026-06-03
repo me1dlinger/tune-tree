@@ -37,7 +37,7 @@ class MetadataScraper:
     ALBUM_WEIGHT = 6
 
     def __init__(self):
-        self.api_order = ["kugou", "cloud"]
+        self.api_order = ["cloud"]
         self._kugou_rate_limited = False
 
     def _calculate_match_score(self,  result: Dict, keywords: List[str]) -> float:
@@ -85,24 +85,36 @@ class MetadataScraper:
         result["_match_score"] = score
         return score
 
-    def _build_search_keywords(self, filename: str, current_meta: Dict) -> List[str]:
+    def _build_search_keywords(self, filename: str, current_meta: Dict, user_input: Dict = None) -> List[str]:
         """
         构建搜索关键词列表
+        
+        优先级：
+        1. 用户输入（user_input）- 最高优先级
+        2. 元数据标签（current_meta）
+        3. 文件名解析
+        4. 目录路径解析
         """
         keywords = []
+        user_input = user_input or {}
 
         import os
         filename_no_ext = os.path.splitext(os.path.basename(filename))[0]
 
-        # 先检查是否有元数据中的歌名
+        # 检查用户输入
+        has_user_title = user_input.get("title") and user_input["title"].strip()
+        has_user_artist = user_input.get("artist") and user_input["artist"].strip()
+        has_user_album = user_input.get("album") and user_input["album"].strip()
+
+        # 检查元数据
         has_meta_title = current_meta.get("title") and current_meta["title"].strip()
         has_meta_artist = current_meta.get("artist") and current_meta["artist"].strip()
         has_meta_album = current_meta.get("album") and current_meta["album"].strip()
 
-        # 尝试从文件名解析 artist - title 格式
+        # 尝试从文件名解析 artist - title 格式（仅当没有用户输入和元数据时）
         parsed_artist = None
         parsed_title = None
-        if not has_meta_title and not has_meta_artist:
+        if not has_user_title and not has_user_artist and not has_meta_title and not has_meta_artist:
             # 匹配 "artist - title" 格式（中间有空格-空格）
             match = re.match(r'^\s*([^-]+?)\s*-\s*(.+?)\s*$', filename_no_ext)
             if match:
@@ -112,29 +124,70 @@ class MetadataScraper:
                 if parsed_artist and parsed_title:
                     logger.info(f"从文件名解析: artist='{parsed_artist}', title='{parsed_title}'")
 
-        # 确定歌名：优先元数据，其次解析结果，最后文件名
+        # 确定歌名：优先用户输入，其次元数据，然后解析结果，最后文件名
         title = None
-        if has_meta_title:
+        if has_user_title:
+            title = user_input["title"]
+        elif has_meta_title:
             title = current_meta["title"]
         elif parsed_title:
             title = parsed_title
         else:
-            title = filename_no_ext
+            # 去除音轨号前缀（如 "06. " 或 "06 - "）
+            cleaned_title = re.sub(r'^\d+\s*[.-]\s*', '', filename_no_ext)
+            title = cleaned_title if cleaned_title else filename_no_ext
         keywords.append(title)
 
-        # 确定艺术家：优先元数据，其次解析结果
-        if has_meta_artist:
-            if current_meta["artist"] != title:
-                keywords.append(current_meta["artist"])
-        elif parsed_artist:
-            if parsed_artist != title:
-                keywords.append(parsed_artist)
+        # 确定艺术家：优先用户输入，其次元数据，然后解析结果，最后从目录路径提取
+        artist_from_path = None
+        album_from_path = None
+        
+        if not has_user_artist and not has_user_album and not has_meta_artist and not has_meta_album and not parsed_artist:
+            # 从目录路径提取艺术家和专辑（仅当没有用户输入和元数据时）
+            try:
+                relative_path = os.path.dirname(filename)
+                # 获取路径组件
+                path_parts = relative_path.replace('\\', '/').strip('/').split('/')
+                # 过滤空组件
+                path_parts = [p for p in path_parts if p and p.strip()]
+                
+                # 如果有至少2个目录层级，认为第一个是艺术家，第二个是专辑
+                if len(path_parts) >= 2:
+                    artist_from_path = path_parts[-2]
+                    album_from_path = path_parts[-1]
+                    logger.info(f"从目录路径解析: artist='{artist_from_path}', album='{album_from_path}'")
+                elif len(path_parts) == 1:
+                    # 只有一个目录层级，作为艺术家
+                    artist_from_path = path_parts[0]
+                    logger.info(f"从目录路径解析: artist='{artist_from_path}'")
+            except Exception as e:
+                logger.debug(f"从路径解析艺术家失败: {e}")
 
-        # 专辑：只有元数据中有才使用
-        if has_meta_album:
-            album = current_meta["album"]
-            if album != title and album != (current_meta.get("artist") or parsed_artist):
-                keywords.append(album)
+        # 添加艺术家关键词
+        selected_artist = None
+        if has_user_artist:
+            selected_artist = user_input["artist"]
+        elif has_meta_artist:
+            selected_artist = current_meta["artist"]
+        elif parsed_artist:
+            selected_artist = parsed_artist
+        elif artist_from_path:
+            selected_artist = artist_from_path
+            
+        if selected_artist and selected_artist != title:
+            keywords.append(selected_artist)
+
+        # 添加专辑关键词：优先用户输入，其次元数据，然后路径提取
+        selected_album = None
+        if has_user_album:
+            selected_album = user_input["album"]
+        elif has_meta_album:
+            selected_album = current_meta["album"]
+        elif album_from_path:
+            selected_album = album_from_path
+            
+        if selected_album and selected_album != title and selected_album != selected_artist:
+            keywords.append(selected_album)
 
         return keywords
 
@@ -215,15 +268,17 @@ class MetadataScraper:
 
         return result
 
-    def search_all_apis(self, filename: str, current_meta: Dict, exclude_ids: List[str] = None) -> Dict[str, List[Dict]]:
+    def search_all_apis(self, filename: str, current_meta: Dict, exclude_ids: List[str] = None, user_input: Dict = None) -> Dict[str, List[Dict]]:
         """
         批量搜索所有 API，每个API返回最多3条结果，按匹配度排序
         kugou 和 cloud 并行执行
         如果指定了 exclude_ids，则会排除这些歌曲ID后返回最多5条结果
+        
+        :param user_input: 用户输入的关键词（来自前端输入框），优先级最高
         """
         self._kugou_rate_limited = False
-        keywords = self._build_search_keywords(filename, current_meta)
-        logger.info(f"批量刮削开始，关键词: {keywords}")
+        keywords = self._build_search_keywords(filename, current_meta, user_input)
+        logger.info(f"批量搜索开始，关键词: {keywords}")
 
         results = {
             "cloud": [],

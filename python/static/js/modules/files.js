@@ -1,6 +1,6 @@
 /**
  * files.js — 目录浏览模块
- * 包含：目录加载、渲染、上级目录导航、排序切换、分页。
+ * 包含：目录加载、渲染、上级目录导航、排序切换、分页、多选、批量刮削。
  * 依赖：api.js、state.js（fileSort / filePath / TOKEN）、utils.js、detail.js（showFileMeta）
  */
 
@@ -9,9 +9,13 @@ let currentOffset = 0;
 let totalItems = 0;
 let currentSearch = '';
 
+let fileSelectMode = false;
+let fileSelectedPaths = new Set();
+const FILE_SELECT_LIMIT = 20;
+
 /* ═══════════════════════════════════════════════════════════
    LOAD & RENDER
-═══════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════ */
 
 async function loadFiles(path, forceRefresh = false) {
   filePath = path || '';
@@ -56,17 +60,31 @@ function renderFiles(items) {
     return;
   }
 
-  const html = items.map(f => `
-    <div class="file-row"
-         onclick="${f.is_dir ? `loadFiles('${escJs(f.path)}')` : (f.is_audio ? `showFileMeta('${escJs(f.path)}')` : '')}"
-         style="${f.is_dir || f.is_audio ? 'cursor:pointer' : ''}">
-      <div class="fr fr-icon">
-        ${f.is_dir
-      ? '<i class="bi bi-folder"></i>'
-      : f.is_audio
-      ? '<i class="bi bi-music-note"></i>'
-      : '<i class="bi bi-file-earmark"></i>'
-    }
+  const html = items.map(f => {
+    const isSelected = fileSelectedPaths.has(f.path);
+    const canSelect = f.is_dir || f.is_audio;
+    const selectDisabled = canSelect && !isSelected && fileSelectedPaths.size >= FILE_SELECT_LIMIT;
+
+    return `
+    <div class="file-row ${isSelected ? 'selected' : ''} ${selectDisabled && fileSelectMode ? 'select-disabled' : ''}"
+         data-path="${escJs(f.path)}"
+         data-is-dir="${f.is_dir}"
+         data-is-audio="${f.is_audio}"
+         onclick="${fileSelectMode
+        ? (canSelect ? `toggleFileSelect('${escJs(f.path)}', ${f.is_dir}, ${f.is_audio})` : '')
+        : (f.is_dir ? `loadFiles('${escJs(f.path)}')` : (f.is_audio ? `showFileMeta('${escJs(f.path)}')` : ''))
+      }"
+         style="${(f.is_dir || f.is_audio) && !fileSelectMode ? 'cursor:pointer' : ''}">
+      <div class="fr fr-check">
+        ${fileSelectMode && canSelect
+        ? `<i class="bi ${isSelected ? 'bi-check-circle-fill' : 'bi-circle'} ${isSelected ? 'selected' : ''}" 
+               style="font-size:16px;${selectDisabled ? 'opacity:0.3;' : ''}"></i>`
+        : (f.is_dir
+          ? '<i class="bi bi-folder"></i>'
+          : f.is_audio
+            ? '<i class="bi bi-music-note"></i>'
+            : '<i class="bi bi-file-earmark"></i>')
+      }
       </div>
       <div class="fr fr-name">${esc(f.name)}</div>
       <div class="fr fr-dir">${esc('/' + f.path)}</div>
@@ -83,14 +101,144 @@ function renderFiles(items) {
         `}
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   document.getElementById('file-list').innerHTML = html;
+  updateFileSelectUI();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MULTI-SELECT
+   ═══════════════════════════════════════════════════════════ */
+
+function toggleFileSelectMode() {
+  fileSelectMode = !fileSelectMode;
+  if (!fileSelectMode) {
+    fileSelectedPaths.clear();
+  }
+  renderFiles(currentFiles);
+  updateFileSelectUI();
+}
+
+let _folderAudioCounts = {};
+
+async function toggleFileSelect(path, isDir, isAudio) {
+  if (fileSelectedPaths.has(path)) {
+    fileSelectedPaths.delete(path);
+  } else {
+    if (isDir) {
+      if (!_folderAudioCounts[path]) {
+        try {
+          const data = await GET(`/files/audio-count?paths=${encodeURIComponent(path)}`);
+          _folderAudioCounts[path] = data.counts[path] || 0;
+        } catch (_) {
+          _folderAudioCounts[path] = 1;
+        }
+      }
+      const count = _folderAudioCounts[path];
+      const currentAudioCount = _countSelectedAudio();
+      if (currentAudioCount + count > FILE_SELECT_LIMIT) {
+        showToast(`文件夹内 ${count} 个音频文件，加上已选将超出 ${FILE_SELECT_LIMIT} 条限制`, 'warn');
+        return;
+      }
+      showToast(`文件夹内含 ${count} 个音频文件`, 'info');
+    }
+    if (fileSelectedPaths.size >= FILE_SELECT_LIMIT) {
+      showToast(`最多选择 ${FILE_SELECT_LIMIT} 条`, 'warn');
+      return;
+    }
+    fileSelectedPaths.add(path);
+  }
+  renderFiles(currentFiles);
+}
+
+function _countSelectedAudio() {
+  let count = 0;
+  for (const path of fileSelectedPaths) {
+    const item = currentFiles.find(f => f.path === path);
+    if (item && item.is_audio) count++;
+    if (item && item.is_dir) count += _folderAudioCounts[path] || 1;
+  }
+  return count;
+}
+
+function clearFileSelection() {
+  fileSelectedPaths.clear();
+  _folderAudioCounts = {};
+  renderFiles(currentFiles);
+}
+
+function updateFileSelectUI() {
+  const toggleBtn = document.getElementById('file-select-toggle');
+  const selectText = document.getElementById('file-select-text');
+  const batchBtn = document.getElementById('batch-scrape-btn');
+  const selectCount = document.getElementById('file-select-count');
+
+  if (toggleBtn) {
+    toggleBtn.classList.toggle('active', fileSelectMode);
+  }
+  if (selectText) {
+    selectText.textContent = fileSelectMode ? '退出多选' : '多选';
+  }
+  if (batchBtn) {
+    batchBtn.style.display = fileSelectMode && fileSelectedPaths.size > 0 ? '' : 'none';
+  }
+  if (selectCount) {
+    if (fileSelectMode && fileSelectedPaths.size > 0) {
+      selectCount.style.display = '';
+      const audioCount = _countSelectedAudio();
+      selectCount.textContent = audioCount !== fileSelectedPaths.size
+        ? `已选 ${fileSelectedPaths.size} 项 / ${audioCount} 首音频`
+        : `已选 ${fileSelectedPaths.size}/${FILE_SELECT_LIMIT}`;
+    } else {
+      selectCount.style.display = 'none';
+    }
+  }
+}
+
+async function startBatchScrape() {
+  if (fileSelectedPaths.size === 0) {
+    showToast('请先选择文件或文件夹', 'warn');
+    return;
+  }
+
+  const selectedPaths = Array.from(fileSelectedPaths);
+  let totalCount = 0;
+
+  for (const path of selectedPaths) {
+    const item = currentFiles.find(f => f.path === path);
+    if (!item) continue;
+
+    if (item.is_dir) {
+      try {
+        const data = await GET(`/files/audio-count?paths=${encodeURIComponent(path)}`);
+        const count = data.counts[path] || 0;
+        if (totalCount + count > FILE_SELECT_LIMIT) {
+          const remaining = FILE_SELECT_LIMIT - totalCount;
+          if (remaining <= 0) break;
+          showToast(`文件夹 ${item.name} 内有 ${count} 个音频文件，已截取前 ${remaining} 首`, 'info');
+        }
+        totalCount += Math.min(count, FILE_SELECT_LIMIT - totalCount);
+      } catch (e) {
+        showToast(`获取文件夹 ${item.name} 文件数失败`, 'error');
+      }
+    } else if (item.is_audio) {
+      totalCount++;
+    }
+  }
+
+  if (totalCount === 0) {
+    showToast('所选内容中没有音频文件', 'warn');
+    return;
+  }
+
+  openBatchScrapeModal(selectedPaths);
 }
 
 /* ═══════════════════════════════════════════════════════════
    PAGINATION
-═══════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════ */
 
 function updatePagination() {
   const start = totalItems === 0 ? 0 : currentOffset + 1;
@@ -110,7 +258,7 @@ function goToPage(offset) {
 
 /* ═══════════════════════════════════════════════════════════
    SEARCH
-═══════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════ */
 
 function filterFiles(query) {
   currentSearch = query?.trim() || '';
@@ -120,7 +268,7 @@ function filterFiles(query) {
 
 /* ═══════════════════════════════════════════════════════════
    NAVIGATION
-═══════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════ */
 
 function filesGoUp() {
   const parts = filePath.split('/').filter(Boolean);
@@ -130,7 +278,7 @@ function filesGoUp() {
 
 /* ═══════════════════════════════════════════════════════════
    SORT
-═══════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════ */
 
 function setFileSort(mode) {
   fileSort = mode;
@@ -156,7 +304,7 @@ function toggleFoldersFirst() {
 
 /* ═══════════════════════════════════════════════════════════
    DOWNLOAD
-═══════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════ */
 
 function downloadFile(url, filename) {
   const a = document.createElement('a');

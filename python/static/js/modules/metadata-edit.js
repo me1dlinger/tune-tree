@@ -265,7 +265,12 @@ async function scrapeMetadata() {
   selectedScrapeResult = null;
 
   try {
-    const result = await POST(`/tracks/${trackId}/scrape-all`, {});
+    const userInput = {
+      title: editState.title || '',
+      artist: editState.artist || '',
+      album: editState.album || ''
+    };
+    const result = await POST(`/tracks/${trackId}/scrape-all`, userInput);
 
     if (result.ok) {
       renderScrapeResults(result.results);

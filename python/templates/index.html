@@ -135,6 +135,17 @@
             <div style="display:flex;gap:4px;margin-left:8px;">
               <button class="sort-chip active" id="folders-first" onclick="toggleFoldersFirst()">文件夹优先</button>
             </div>
+            <div class="file-select-toolbar">
+              <span class="file-select-count" id="file-select-count" style="display:none;"></span>
+              <button class="toolbar-btn" id="batch-scrape-btn" onclick="startBatchScrape()" style="display:none;">
+                <i class="bi bi-search"></i>
+                批量搜索标签
+              </button>
+              <button class="toolbar-btn" id="file-select-toggle" onclick="toggleFileSelectMode()">
+                <i class="bi bi-check-lg"></i>
+                <span id="file-select-text">多选</span>
+              </button>
+            </div>
           </div>
           <div class="files-view" id="files-view">
             <div class="file-header-row">
@@ -296,6 +307,22 @@
     </div>
   </div>
 
+  <!-- BATCH SCRAPE MODAL -->
+  <div class="modal-overlay" id="batch-scrape-modal">
+    <div class="modal batch-scrape-modal">
+      <div class="modal-header">
+        <div class="modal-title">批量搜索</div>
+        <button class="modal-close" onclick="closeBatchScrapeModal()">✕</button>
+      </div>
+      <div class="modal-body" id="batch-scrape-body"></div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" onclick="closeBatchScrapeModal()">取消</button>
+        <button class="toolbar-btn primary" id="batch-apply-all-btn" onclick="applyAllBatchCards()"
+          disabled>全部应用</button>
+      </div>
+    </div>
+  </div>
+
   <!-- LYRICS EDITOR MODAL -->
   <div class="modal-overlay" id="lyrics-editor-modal">
     <div class="modal lyrics-editor-modal">
@@ -396,6 +423,7 @@
   <script defer src="{{ url_for('static', filename='js/modules/lrc-parser.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/lyrics-editor.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/metadata-edit.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/modules/batch-scrape.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 
