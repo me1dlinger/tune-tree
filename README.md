@@ -10,7 +10,7 @@
 
 <p align="center">
   扫描、浏览、重组本地音乐收藏，提供简洁的 Web 界面。<br>
-  自动读取元数据、检测重复文件、批量整理、在线播放、歌词编辑与打轴。
+  自动读取元数据、检测重复文件、批量整理、批量刮削、歌词编辑与打轴。
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@
 - **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面
 - **待定文件** -- 列出缺少完整元数据的文件，支持在线编辑元数据
 - **元数据读取** -- 通过 mutagen 提取 ID3v2 / Vorbis Comment 标签、内嵌封面和歌词
-- **元数据刮削** -- 自动从网易云音乐、酷狗获取缺失的标签、歌词和封面，支持多源并行搜索与智能匹配评分
+- **元数据刮削** -- 自动从网易云音乐、酷狗获取缺失的标签、歌词和封面，支持多源并行搜索与智能匹配评分，支持在文件浏览视图批量勾选刮削
 - **歌词编辑** -- 支持在线编辑歌词，包括时间轴同步，支持网页加载音乐边听歌边快速编辑时间轴，支持快捷键和自动跳转，支持编辑进度缓存
 - **在线播放** -- 支持在浏览器中直接播放音乐，支持 Range 请求断点续传
 - **文件下载** -- 支持单曲、专辑、艺术家、批量、目录等多种下载方式（单曲直传，多曲自动打包 ZIP）
@@ -56,17 +56,20 @@
 ### 单艺术家格式化预览
 ![单艺术家格式化预览](screenshots/image1.4.png)
 
-### 多选艺术家格式化预览
-![多选艺术家格式化预览](screenshots/image1.5.png)
+### 艺术家多选格式化预览
+![艺术家多选格式化预览](screenshots/image1.5.png)
 
 ### 目录浏览
 ![目录浏览](screenshots/image2.png)
 
+### 批量获取标签
+![批量获取标签](screenshots/gif1.gif)
+
 ### 艺术家多选格式化
 ![艺术家多选格式化](screenshots/image3.png)
 
-### 专辑多选可视化
-![专辑多选可视化](screenshots/image4.png)
+### 专辑多选格式化
+![专辑多选格式化](screenshots/image4.png)
 
 ### 统计概览
 ![统计概览](screenshots/image5.png)
@@ -179,6 +182,7 @@ tune-tree/
 │   │       ├── api.js            # API 请求封装
 │   │       ├── auth.js           # 认证模块
 │   │       ├── artist.js         # 艺术家视图
+│   │       ├── batch-scrape.js         # 批量刮削
 │   │       ├── detail.js         # 曲目详情
 │   │       ├── files.js          # 目录浏览
 │   │       ├── format.js         # 格式化操作
@@ -258,8 +262,9 @@ tune-tree/
 | GET    | `/api/tracks/{id}/audio`          | 在线播放（支持 Range）  |
 | GET    | `/api/tracks/{id}/download`       | 下载单曲            |
 | GET    | `/api/tracks/by-path?path=`       | 按路径查找曲目         |
-| POST   | `/api/tracks/batch-delete`        | 批量删除曲目          |
-| POST   | `/api/tracks/download-batch`      | 批量下载曲目          |
+| POST   | `/api/tracks/batch-delete`        | 批量删除曲目（`{ track_ids: [] }`） |
+| POST   | `/api/tracks/download-batch`      | 批量下载曲目（`{ track_ids: [] }`） |
+| POST   | `/api/tracks/batch-scrape`        | 批量刮削元数据（`{ track_ids: [], user_inputs: { id: { title, artist, album } } }`） |
 
 ### 元数据刮削
 
@@ -267,7 +272,7 @@ tune-tree/
 | ---- | ------------------------------------- | --------------- |
 | POST | `/api/tracks/{id}/scrape`             | 刮削元数据（支持指定 API） |
 | POST | `/api/tracks/{id}/apply-scrape`       | 应用刮削结果          |
-| POST | `/api/tracks/{id}/scrape-all`         | 批量搜索所有 API      |
+| POST | `/api/tracks/{id}/scrape-all`         | 批量搜索所有 API（支持 `exclude_ids`、`title`、`artist`、`album` 参数） |
 
 ### 歌词搜索
 
@@ -295,6 +300,7 @@ tune-tree/
 | 方法  | 路径                  | 说明                                       |
 | --- | ------------------- | ---------------------------------------- |
 | GET | `/api/files?path=`  | 目录浏览（支持 `limit`、`offset`、`sort`、`search`、`folders_first` 参数） |
+| GET | `/api/files/audio-count` | 获取音频文件统计 |
 
 ### 格式化
 
