@@ -42,43 +42,43 @@
 ## 平台预览
 
 ### 艺术家列表及详情
-![艺术家列表及详情](screenshots/image1.png)
+![艺术家列表及详情](https://files.seeusercontent.com/2026/06/03/ak1H/image1.png)
 
 ### 编辑元数据
-![编辑元数据](screenshots/image1.1.png)
+![编辑元数据](https://files.seeusercontent.com/2026/06/03/6nKa/image11.png)
 
 ### 搜索元数据标签
-![搜索元数据标签](screenshots/image1.2.png)
+![搜索元数据标签](https://files.seeusercontent.com/2026/06/03/Tfp2/image12.png)
 
 ### 搜索歌词、编辑歌词和时间轴
-![搜索歌词、编辑歌词和时间轴](screenshots/image1.3.png)
+![搜索歌词、编辑歌词和时间轴](https://files.seeusercontent.com/2026/06/03/E4un/image13.png)
 
 ### 单艺术家格式化预览
-![单艺术家格式化预览](screenshots/image1.4.png)
+![单艺术家格式化预览](https://files.seeusercontent.com/2026/06/03/5Ira/image14.png)
 
 ### 艺术家多选格式化预览
-![艺术家多选格式化预览](screenshots/image1.5.png)
+![艺术家多选格式化预览](https://files.seeusercontent.com/2026/06/03/Jeq9/image15.png)
 
 ### 目录浏览
-![目录浏览](screenshots/image2.png)
+![目录浏览](https://files.seeusercontent.com/2026/06/03/yK5w/image2.png)
 
 ### 批量获取标签
-![批量获取标签](screenshots/gif1.gif)
+![批量获取标签](https://files.seeusercontent.com/2026/06/03/Ycf6/image21.png)
 
 ### 艺术家多选格式化
-![艺术家多选格式化](screenshots/image3.png)
+![艺术家多选格式化](https://files.seeusercontent.com/2026/06/03/Bnl8/image3.png)
 
 ### 专辑多选格式化
-![专辑多选格式化](screenshots/image4.png)
+![专辑多选格式化](https://files.seeusercontent.com/2026/06/03/6xNn/image4.png)
 
 ### 统计概览
-![统计概览](screenshots/image5.png)
+![统计概览](https://files.seeusercontent.com/2026/06/03/oi2B/image5.png)
 
 ### 重复文件详情
-![重复文件详情](screenshots/image6.png)
+![重复文件详情](https://files.seeusercontent.com/2026/06/03/Ud9d/image6.png)
 
 ### 夜间模式
-![夜间模式](screenshots/image7.png)
+![夜间模式](https://files.seeusercontent.com/2026/06/03/J9me/image7.png)
 
 ## 技术栈
 
