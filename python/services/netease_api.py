@@ -85,7 +85,7 @@ class NeteaseApi:
     # ==================== 歌曲搜索和信息 ====================
     
     @classmethod
-    def search_song(cls, keyword: str, page: int = 0, limit: int = 30) -> List[Dict]:
+    def search_song(cls, keyword: str, page: int = 0, limit: int = 10) -> List[Dict]:
         """
         搜索歌曲，返回歌曲列表
         """

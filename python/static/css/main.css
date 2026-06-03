@@ -299,7 +299,8 @@ body {
 .icon-btn {
     width: 30px;
     height: 30px;
-    margin-top: 4px;;
+    margin-top: 4px;
+    ;
     border: 1px solid transparent;
     background: transparent;
     cursor: pointer;
@@ -311,11 +312,13 @@ body {
     font-size: 15px;
     transition: all var(--transition);
 }
+
 .theme-indicator:hover {
     color: var(--text);
     border-color: var(--border2);
     background: var(--bg3);
 }
+
 .icon-btn:hover {
     color: var(--text);
     border-color: var(--border2);
@@ -415,11 +418,11 @@ body {
     color: var(--accent);
 }
 
-.filter-toggle-btn.active svg {
+.filter-toggle-btn.active i {
     stroke: var(--accent);
 }
 
-.filter-toggle-btn svg {
+.filter-toggle-btn i {
     flex-shrink: 0;
 }
 
@@ -460,11 +463,11 @@ body {
     color: var(--accent);
 }
 
-.sidebar-selection-btn.active svg {
+.sidebar-selection-btn.active i {
     stroke: var(--accent);
 }
 
-.sidebar-selection-btn svg {
+.sidebar-selection-btn i {
     flex-shrink: 0;
 }
 
@@ -519,7 +522,11 @@ body {
 }
 
 .scan-status .spin,
-.sort-chip.spin svg {
+.sort-chip.spin i {
+    animation: spin 1s linear infinite;
+}
+
+.refresh-artist-btn.spin i {
     animation: spin 1s linear infinite;
 }
 
@@ -1208,6 +1215,7 @@ body {
     color: var(--text3);
     font-size: 13px;
 }
+
 .tc-title {
     font-size: 13px;
     color: var(--text);
@@ -2513,9 +2521,17 @@ body {
     flex: 1;
 }
 
-.scrape-api-title.cloud { color: #e60000; }
-.scrape-api-title.kugou { color: #00aae7; }
-.scrape-api-title.spotify { color: #1db954; }
+.scrape-api-title.cloud {
+    color: #e60000;
+}
+
+.scrape-api-title.kugou {
+    color: #00aae7;
+}
+
+.scrape-api-title.spotify {
+    color: #1db954;
+}
 
 .refresh-api-btn {
     background: none;
@@ -2537,8 +2553,12 @@ body {
     background: var(--hover-bg);
 }
 
-.refresh-api-btn svg {
+.refresh-api-btn i {
     transition: transform 0.3s;
+}
+
+.refresh-api-btn.spin i {
+    animation: spin 0.8s linear infinite;
 }
 
 .scrape-results-grid {
@@ -2639,7 +2659,7 @@ body {
     color: var(--text3);
 }
 
-.scrape-empty-state svg {
+.scrape-empty-state i {
     width: 48px;
     height: 48px;
     margin-bottom: 12px;
@@ -2887,7 +2907,9 @@ body {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════

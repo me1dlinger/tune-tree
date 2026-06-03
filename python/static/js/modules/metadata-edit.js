@@ -378,30 +378,30 @@ async function refreshApiResults(api) {
   const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
   const grid = document.getElementById(`scrape-grid-${api}`);
   const refreshBtn = document.querySelector(`.scrape-api-section[data-api="${api}"] .refresh-api-btn`);
-  
+
   if (!grid) return;
-  
+
   // 添加加载状态
   refreshBtn.classList.add('spin');
-  
+
   // 获取当前显示的所有 ID（用于排除，使用 idOrMd5）
   const currentIds = window._scrapeResultsByApi[api] || [];
-  
+
   try {
     const result = await POST(`/tracks/${trackId}/scrape-all`, { exclude_ids: currentIds });
-    
+
     if (result.ok) {
       const newItems = result.results[api] || [];
-      
+
       if (newItems.length === 0) {
         showToast(`没有更多 ${api === 'cloud' ? '网易云音乐' : '酷狗音乐'} 的结果了`, 'info');
         refreshBtn.classList.remove('spin');
         return;
       }
-      
+
       // 更新缓存中的 ID 列表（使用 idOrMd5）
       window._scrapeResultsByApi[api] = newItems.map(item => item._id);
-      
+
       // 重新渲染该 API 的结果
       grid.innerHTML = newItems.map((item, i) => {
         const coverSrc = item._cover_data ? `data:image/jpeg;base64,${item._cover_data}` : '';
@@ -424,18 +424,18 @@ async function refreshApiResults(api) {
           </div>
         `;
       }).join('');
-      
+
       // 更新标题中的数量
       const titleEl = document.querySelector(`.scrape-api-section[data-api="${api}"] .api-name`);
       const apiNames = { cloud: '网易云音乐', kugou: '酷狗音乐' };
       if (titleEl) {
         titleEl.textContent = `${apiNames[api]} (${newItems.length})`;
       }
-      
+
       // 清除当前选择
       document.getElementById('scrape-confirm-btn').disabled = true;
       selectedScrapeResult = null;
-      
+
       showToast(`已加载新的 ${apiNames[api]} 结果`, 'success');
     }
   } catch (e) {

@@ -30,7 +30,7 @@ class KugouApi:
         搜索歌曲，返回歌曲哈希列表
         """
         keyword = keyword.replace("|", "").replace("!", "").replace("@", "").replace("#", "").replace("$", "").replace("%", "").replace("^", "").replace("&", "").replace("*", "").replace("/", "").replace("+", "")
-        search_url = 'http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={}&page={}&pagesize=20&showtype=1'
+        search_url = 'http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={}&page={}&pagesize=10&showtype=1'
         res_json = requests.get(search_url.format(keyword, page), headers={'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:7.0a1) Gecko/20110623 Firefox/7.0a1 Fennec/7.0a1'}, timeout=10).json()
         song_info_list = []
         if 'data' not in res_json or 'info' not in res_json['data']:
@@ -51,7 +51,7 @@ class KugouApi:
         根据歌曲哈希获取详细信息
         """
         song_info_url = 'http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={}'
-        album_info_url = 'http://mobilecdn.kugou.com/api/v3/album/info?albumid={}&plat=0&pagesize=100&area_code=1'
+        album_info_url = 'http://mobilecdn.kugou.com/api/v3/album/info?albumid={}&plat=0&pagesize=10&area_code=1'
         header = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:7.0a1) Gecko/20110623 Firefox/7.0a1 Fennec/7.0a1'}
         song_json = requests.get(song_info_url.format(hash), headers=header, timeout=10).json()
         if(song_json.get("errcode") == 1002):

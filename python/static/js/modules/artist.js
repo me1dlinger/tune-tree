@@ -240,10 +240,10 @@ async function loadArtistTree(q) {
 async function refreshArtistList() {
   const searchInput = document.getElementById('artist-search');
   const refreshBtn = document.getElementById('refresh-artist-btn');
-  
+
   // 添加加载状态
   refreshBtn.classList.add('spin');
-  
+
   try {
     await loadArtistTree(searchInput.value);
     showToast('艺术家列表已刷新', 'success');
