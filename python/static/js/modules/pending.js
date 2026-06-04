@@ -61,21 +61,21 @@ async function loadPending() {
       ${normalPendingFiles.length === 0
         ? (scrapeFailedFiles.length === 0 ? '<div class="loading-row">暂无待定文件</div>' : '')
         : `
-          <div style="display:grid;grid-template-columns:1fr 160px 80px 120px;align-items:center;height:28px;border-bottom:1px solid var(--border);background:var(--bg);">
+          <div style="display:grid;grid-template-columns:1fr 1fr 80px 170px;align-items:center;height:28px;border-bottom:1px solid var(--border);background:var(--bg);">
             <div class="th">文件名</div>
             <div class="th">路径</div>
             <div class="th">大小</div>
             <div class="th">缺失字段</div>
           </div>
           ${normalPendingFiles.map(f => `
-            <div style="display:grid;grid-template-columns:1fr 160px 80px 120px;align-items:center;height:40px;border-bottom:1px solid var(--border);cursor:pointer;transition:background var(--transition);"
+            <div style="display:grid;grid-template-columns:1fr 1fr 80px 170px;align-items:center;height:40px;border-bottom:1px solid var(--border);cursor:pointer;transition:background var(--transition);"
                  onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''"
                  onclick="editPendingTrack(${f.id})">
               <div style="padding:0 10px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                 ${esc(f.filename)}
               </div>
               <div style="padding:0 10px;font-family:var(--font-mono);font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                ${esc(f.path)}
+                ${esc(f.relative_path)}
               </div>
               <div style="padding:0 10px;font-family:var(--font-mono);font-size:10px;color:var(--text3);">
                 ${fmtSize(f.size)}

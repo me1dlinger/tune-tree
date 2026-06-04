@@ -5,6 +5,10 @@
  */
 
 const PAGE_SIZE = 200;
+
+function normalizePath(path) {
+  return path.replace(/\\/g, '/');
+}
 let currentOffset = 0;
 let totalItems = 0;
 let currentSearch = '';
@@ -18,7 +22,7 @@ const FILE_SELECT_LIMIT = 20;
    ═══════════════════════════════════════════════════════════ */
 
 async function loadFiles(path, forceRefresh = false) {
-  filePath = path || '';
+  filePath = normalizePath(path || '');
   currentOffset = 0;
   currentSearch = document.getElementById('file-search')?.value?.trim() || '';
   document.getElementById('file-path-text').textContent = '/' + filePath;
@@ -87,7 +91,7 @@ function renderFiles(items) {
       }
       </div>
       <div class="fr fr-name">${esc(f.name)}</div>
-      <div class="fr fr-dir">${esc('/' + f.path)}</div>
+      <div class="fr fr-dir">${esc('/' + normalizePath(f.path))}</div>
       <div class="fr fr-type ${f.ext === 'flac' ? 'fmt-flac' : f.ext === 'mp3' ? 'fmt-mp3' : ''}">
         ${f.is_dir ? 'DIR' : f.ext.toUpperCase()}
       </div>

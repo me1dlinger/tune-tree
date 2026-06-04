@@ -1085,7 +1085,12 @@ def api_stats():
 @require_auth
 def api_pending():
     rows = get_pending_tracks()
-    return jsonify([dict(r) for r in rows])
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["relative_path"] = get_relative_path(row["path"], MUSIC_ROOT)
+        result.append(d)
+    return jsonify(result)
 
 
 # Duplicates
