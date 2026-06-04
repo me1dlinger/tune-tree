@@ -6,6 +6,25 @@
 import re
 
 
+def get_relative_path(full_path: str, music_root: str) -> str:
+    """
+    获取相对于 MUSIC_ROOT 的路径
+    
+    Args:
+        full_path: 完整路径
+        music_root: 音乐根目录
+    
+    Returns:
+        相对路径，如果路径不在 MUSIC_ROOT 下则返回原路径
+    """
+    if not full_path:
+        return ""
+    if full_path.lower().startswith(music_root.lower()):
+        rel_path = full_path[len(music_root):]
+        return rel_path.lstrip("/\\")
+    return full_path
+
+
 def safe_dirname(name: str) -> str:
     if not name:
         return "Unknown"

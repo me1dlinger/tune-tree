@@ -45,6 +45,9 @@
         <button class="icon-btn" id="scan-btn" onclick="doScan()" title="重新扫描">
           <i class="bi bi-arrow-clockwise"></i>
         </button>
+        <button class="icon-btn" id="settings-btn" onclick="openSettingsModal()" title="设置">
+          <i class="bi bi-gear"></i>
+        </button>
         <button class="icon-btn" onclick="doLogout()" title="退出">
           <i class="bi bi-box-arrow-right"></i>
         </button>
@@ -404,6 +407,103 @@
     </div>
   </div>
 
+  <!-- SETTINGS MODAL -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title">定时任务设置</div>
+        <button class="modal-close" onclick="closeModal('settings-modal')">✕</button>
+      </div>
+      <div class="modal-body settings-modal-body">
+        <div class="settings-section">
+          <h3>任务开关</h3>
+          <div class="settings-row">
+            <label class="settings-label">
+              <input type="checkbox" id="settings-scrape-enabled" onchange="updateTaskConfig()">
+              <span class="checkbox-custom"></span>
+              <span>定时刮削元数据任务</span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label">
+              <input type="checkbox" id="settings-organize-enabled" onchange="updateTaskConfig()">
+              <span class="checkbox-custom"></span>
+              <span>定时整理任务</span>
+            </label>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>定时配置</h3>
+          <div class="settings-row">
+            <label class="settings-label">时间间隔（分钟）</label>
+            <input type="number" id="settings-interval" min="5" value="60" onchange="updateTaskConfig()"
+              style="width:100px;">
+          </div>
+          <div class="settings-hint">最小间隔为5分钟，小于5分钟将自动设置为5分钟</div>
+        </div>
+        <div class="settings-section">
+          <h3>任务状态</h3>
+          <div class="task-status-grid">
+            <div class="task-status-card">
+              <div class="task-status-header">
+                <span class="task-status-name">定时任务</span>
+                <span class="task-status-badge" id="status-scheduled"></span>
+              </div>
+              <div class="task-status-info">
+                <div>上次执行: <span id="status-scheduled-last"></span></div>
+                <div>下次执行: <span id="status-scheduled-next"></span></div>
+                <div>运行次数: <span id="status-scheduled-count"></span></div>
+              </div>
+            </div>
+            <div class="task-status-card">
+              <div class="task-status-header">
+                <span class="task-status-name">刮削任务</span>
+                <span class="task-status-badge" id="status-scrape"></span>
+              </div>
+              <div class="task-status-info">
+                <div>上次成功: <span id="status-scrape-success"></span></div>
+                <div>上次失败: <span id="status-scrape-failure"></span></div>
+                <div>成功/失败: <span id="status-scrape-counts"></span></div>
+              </div>
+            </div>
+            <div class="task-status-card">
+              <div class="task-status-header">
+                <span class="task-status-name">整理任务</span>
+                <span class="task-status-badge" id="status-organize"></span>
+              </div>
+              <div class="task-status-info">
+                <div>上次成功: <span id="status-organize-success"></span></div>
+                <div>上次失败: <span id="status-organize-failure"></span></div>
+                <div>成功/失败: <span id="status-organize-counts"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>手动执行</h3>
+          <div class="settings-hint" id="manual-exec-hint"></div>
+          <div class="manual-exec-options">
+            <button class="toolbar-btn" id="exec-scrape-btn" onclick="executeManualTask('scrape')" disabled>
+              <i class="bi bi-search"></i>
+              执行刮削
+            </button>
+            <button class="toolbar-btn" id="exec-organize-btn" onclick="executeManualTask('organize')" disabled>
+              <i class="bi bi-folder"></i>
+              执行整理
+            </button>
+            <button class="toolbar-btn" id="exec-both-btn" onclick="executeManualTask('both')" disabled>
+              <i class="bi bi-play"></i>
+              都执行
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" onclick="closeModal('settings-modal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toast-container"></div>
 
   <!-- JavaScript Modules (load order matters) -->
@@ -424,6 +524,7 @@
   <script defer src="{{ url_for('static', filename='js/modules/lyrics-editor.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/metadata-edit.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/modules/batch-scrape.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/modules/settings.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 

@@ -77,6 +77,9 @@
 ### 重复文件详情
 ![重复文件详情](https://files.seeusercontent.com/2026/06/03/Ud9d/image6.png)
 
+### 定时任务
+![定时任务](https://files.seeusercontent.com/2026/06/04/Mgi9/image_50.png)
+
 ### 夜间模式
 ![夜间模式](https://files.seeusercontent.com/2026/06/03/J9me/image7.png)
 

@@ -35,6 +35,7 @@ from utils.metadata import (
     write_lyrics,
     normalize_str,
 )
+from utils.formatting import get_relative_path
 from services.scan_service import scan_library
 from services.format_service import (
     preview_format,
@@ -661,6 +662,7 @@ def api_track(track_id: int):
         abort(404)
     d = dict(row)
     d["lyrics"] = get_lyrics(row["path"]) if row["has_lyrics"] else None
+    d["relative_path"] = get_relative_path(row["path"], MUSIC_ROOT)
     return jsonify(d)
 
 
@@ -1395,14 +1397,6 @@ def api_batch_scrape():
     
     rows = get_tracks_by_ids(track_ids)
     row_map = {row["id"]: row for row in rows}
-    
-    def get_relative_path(full_path):
-        if not full_path:
-            return ""
-        if full_path.lower().startswith(MUSIC_ROOT.lower()):
-            rel_path = full_path[len(MUSIC_ROOT):]
-            return rel_path.lstrip("/\\")
-        return full_path
 
     def scrape_single_track(track_id):
         row = row_map.get(track_id)
@@ -1457,7 +1451,7 @@ def api_batch_scrape():
                 "track_artist": row["artist"] if row["artist"] else "",
                 "track_album": row["album"] if row["album"] else "",
                 "filename": row["filename"] if row["filename"] else "",
-                "relative_path": get_relative_path(row["path"]),
+                "relative_path": get_relative_path(row["path"], MUSIC_ROOT),
                 "_log_type": "success",
                 "_log_msg": f"批量搜索完成: {row['filename']}"
             }
@@ -1487,3 +1481,112 @@ def api_batch_scrape():
     
     commit()
     return jsonify({"ok": True, "results": results})
+
+
+# === 定时任务相关 API ===
+
+@api_bp.route("/api/task/config", methods=["GET"])
+@require_auth
+def api_get_task_config():
+    """获取任务配置"""
+    from repository.task_repository import get_task_config
+    config = get_task_config()
+    return jsonify({
+        "scrape_enabled": bool(config["scrape_enabled"]),
+        "organize_enabled": bool(config["organize_enabled"]),
+        "interval_minutes": config["interval_minutes"]
+    })
+
+
+@api_bp.route("/api/task/config", methods=["POST"])
+@require_auth
+def api_set_task_config():
+    """设置任务配置"""
+    from repository.task_repository import set_task_config, commit
+    
+    data = request.get_json(force=True)
+    scrape_enabled = int(data.get("scrape_enabled", False))
+    organize_enabled = int(data.get("organize_enabled", False))
+    interval_minutes = int(data.get("interval_minutes", 60))
+    
+    # 时间间隔最小为5分钟
+    if interval_minutes < 5:
+        interval_minutes = 5
+    
+    set_task_config(scrape_enabled, organize_enabled, interval_minutes)
+    commit()
+    
+    # 更新定时任务调度器
+    from app import update_scheduler
+    update_scheduler()
+    
+    return jsonify({
+        "ok": True,
+        "scrape_enabled": bool(scrape_enabled),
+        "organize_enabled": bool(organize_enabled),
+        "interval_minutes": interval_minutes
+    })
+
+
+@api_bp.route("/api/task/status", methods=["GET"])
+@require_auth
+def api_get_task_status():
+    """获取任务状态"""
+    from repository.task_repository import get_task_status
+    
+    scrape_status = get_task_status("scrape")
+    organize_status = get_task_status("organize")
+    scheduled_status = get_task_status("scheduled")
+    
+    def format_status(status):
+        return {
+            "status": status["status"],
+            "last_run_at": status["last_run_at"],
+            "last_success_at": status["last_success_at"],
+            "last_failure_at": status["last_failure_at"],
+            "next_run_at": status["next_run_at"],
+            "error_message": status["error_message"],
+            "run_count": status["run_count"],
+            "success_count": status["success_count"],
+            "failure_count": status["failure_count"],
+            "is_manual": bool(status["is_manual"])
+        }
+    
+    return jsonify({
+        "scrape": format_status(scrape_status),
+        "organize": format_status(organize_status),
+        "scheduled": format_status(scheduled_status)
+    })
+
+
+@api_bp.route("/api/task/execute", methods=["POST"])
+@require_auth
+def api_execute_task():
+    """手动执行任务"""
+    from services.task_service import run_manual_task
+    
+    data = request.get_json(force=True)
+    task_type = data.get("task_type", "both")
+    
+    if task_type not in ["scrape", "organize", "both"]:
+        return jsonify({"ok": False, "error": "无效的任务类型"}), 400
+    
+    result = run_manual_task(task_type)
+    
+    if "error" in result:
+        return jsonify({"ok": False, "error": result["error"]}), 500
+    
+    return jsonify({"ok": True, "result": result})
+
+
+@api_bp.route("/api/task/running", methods=["GET"])
+@require_auth
+def api_get_running_task():
+    """检查是否有任务正在运行"""
+    from repository.task_repository import is_task_running
+    
+    return jsonify({
+        "scrape_running": is_task_running("scrape"),
+        "organize_running": is_task_running("organize"),
+        "scheduled_running": is_task_running("scheduled")
+    })

@@ -217,10 +217,12 @@ def scan_library(root: str) -> dict:
     add_op_log(now, "scan", f"扫描完成：新增 {added} 更新 {updated} 跳过 {skipped} 移除 {removed} · 耗时 {duration_str}")
     logger.info(f"扫描完成：新增 {added} 更新 {updated} 跳过 {skipped} 移除 {removed} · 耗时 {duration_str}")
     commit()
+    
     return {
         "added": added,
         "updated": updated,
         "skipped": skipped,
         "removed": removed,
+        "duration": duration_str,
         "changed_artists": list(changed_artists)
     }

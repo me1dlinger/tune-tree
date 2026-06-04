@@ -46,7 +46,8 @@ def init_db():
             organized   INTEGER DEFAULT 0,
             pending     INTEGER DEFAULT 0,
             missing_tags TEXT,
-            scanned_at  REAL
+            scanned_at  REAL,
+            scrape_failed INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_artist ON tracks(artist);
         CREATE INDEX IF NOT EXISTS idx_album  ON tracks(album);
@@ -60,10 +61,45 @@ def init_db():
             op_type   TEXT NOT NULL,
             message   TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS track_cooldown (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id    INTEGER NOT NULL,
+            cooldown_until REAL NOT NULL,
+            reason      TEXT NOT NULL,
+            created_at  REAL NOT NULL,
+            FOREIGN KEY (track_id) REFERENCES tracks(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cooldown_track ON track_cooldown(track_id);
+        CREATE INDEX IF NOT EXISTS idx_cooldown_until ON track_cooldown(cooldown_until);
+        CREATE TABLE IF NOT EXISTS task_config (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            scrape_enabled  INTEGER DEFAULT 0,
+            organize_enabled INTEGER DEFAULT 0,
+            interval_minutes INTEGER DEFAULT 60,
+            created_at      REAL NOT NULL,
+            updated_at      REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS task_status (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_type       TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            last_run_at     REAL,
+            last_success_at REAL,
+            last_failure_at REAL,
+            next_run_at     REAL,
+            error_message   TEXT,
+            run_count       INTEGER DEFAULT 0,
+            success_count   INTEGER DEFAULT 0,
+            failure_count   INTEGER DEFAULT 0,
+            is_manual       INTEGER DEFAULT 0,
+            updated_at      REAL NOT NULL
+        );
     """)
     try:
-        db.execute("ALTER TABLE tracks ADD COLUMN ctime REAL;")
+        db.execute("ALTER TABLE tracks ADD COLUMN scrape_failed INTEGER DEFAULT 0;")
     except sqlite3.OperationalError:
         pass
+
+    
     db.commit()
     db.close()

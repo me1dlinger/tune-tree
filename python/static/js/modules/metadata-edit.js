@@ -73,6 +73,15 @@ function renderEditModal(track) {
     ? `<img src="${coverPreview}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" onclick="openCoverImageViewer('${coverPreview}', '${coverFilename}')">`
     : `<i class="bi bi-disc" style="font-size: 32px;"></i>`;
 
+  // 显示相对路径
+  const relativePath = track.relative_path || track.path || '';
+  const pathHtml = relativePath ? `
+    <div class="edit-path-info">
+      <i class="bi bi-folder-open"></i>
+      <span class="edit-path-text">${esc(relativePath)}</span>
+    </div>
+  ` : '';
+
   return `
     <div class="edit-cover-area">
       <div class="edit-cover-preview">${coverImg}</div>
@@ -88,6 +97,7 @@ function renderEditModal(track) {
         </label>
       </div>
     </div>
+    ${pathHtml}
     <div class="edit-form">
       <div class="scrape-section">
         <button class="toolbar-btn scrape-btn" onclick="scrapeMetadata()" id="scrape-btn">

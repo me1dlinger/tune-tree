@@ -10,6 +10,7 @@ from flask import Flask
 from config import SECRET_KEY
 from models.db import init_db, close_db
 from api.routes import api_bp
+from services.task_service import set_app, update_scheduler
 
 def make_log_filename_wrapper(when, interval):
     def log_filename_wrapper(base_filename):
@@ -58,4 +59,12 @@ app.teardown_appcontext(close_db)
 
 if __name__ == "__main__":
     init_db()
+    
+    # 设置Flask应用实例供定时任务使用
+    set_app(app)
+    
+    # 初始化定时任务调度器（需要应用上下文）
+    with app.app_context():
+        update_scheduler()
+    
     app.run(debug=True, host="0.0.0.0", port=5000)

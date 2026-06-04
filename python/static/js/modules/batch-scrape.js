@@ -345,7 +345,7 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
         ${relativePath ? `
         <div class="batch-card-path">
           <i class="bi bi-folder-open"></i>
-          <span class="batch-card-path-text">${esc(relativePath)}</span>
+          <span class="batch-card-path-text" title="${esc(relativePath)}">${esc(relativePath)}</span>
         </div>
         ` : ''}
       </div>
