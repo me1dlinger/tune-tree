@@ -6,7 +6,7 @@ from flask import (
     Blueprint,
     request,
     jsonify,
-    render_template,
+    send_from_directory,
     abort,
     Response,
     send_file,
@@ -112,7 +112,10 @@ def require_auth(f):
 
 @api_bp.route("/")
 def index():
-    return render_template("index.html")
+    return send_from_directory(
+        "static",
+        "index.html"
+    )
 
 
 # Auth
