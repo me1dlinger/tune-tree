@@ -1008,19 +1008,19 @@ body {
     height: 18px;
     border: 1px solid var(--border3);
     background: rgba(10, 10, 12, 0.7);
+    border-color: var(--bg4);
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 2px;
     cursor: pointer;
-    color: var(--accent);
     font-size: 11px;
 }
 
 .album-card.selected .album-checkbox {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #0a0a0c;
+    background: var(--bg4);
+    border-color: var(--bg4);
+    color: var(--text2);
 }
 
 .album-download-overlay {
@@ -1029,7 +1029,7 @@ body {
     right: 8px;
     width: 28px;
     height: 28px;
-    background: rgba(10, 10, 12, 0.7);
+    background: var(--bg4);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1037,16 +1037,11 @@ body {
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.2s;
-    color: var(--accent);
+    color: var(--text2);
 }
 
 .album-cover-wrap:hover .album-download-overlay {
     opacity: 1;
-}
-
-.album-download-overlay:hover {
-    background: var(--accent);
-    color: #0a0a0c;
 }
 
 .album-info {

@@ -85,10 +85,6 @@ async function loadStats() {
           <div class="stat-sub">点击进入文件管理器</div>
         </div>
       </div>
-      <div class="refresh-time">
-        <i class="bi bi-clock" style="font-size: 13px;"></i>
-        上次刷新：${esc(s.last_scan)}
-      </div>
     `;
 
     if (s.pending_count > 0) {
