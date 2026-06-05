@@ -1317,15 +1317,13 @@ def api_scrape_all(track_id: int):
 
     try:
         results = scraper.search_all_apis(row["path"], current_meta, exclude_ids, user_input)
-        add_op_log(now, "scrape_all_success", f"批量搜索完成: {row['filename']}")
+        # add_op_log(now, "scrape_all_success", f"批量搜索完成: {row['filename']}")
         commit()
         return jsonify({"ok": True, "original": current_meta, "results": results})
 
     except Exception as e:
         logger.error(f"批量搜索失败: {e}")
-        add_op_log(
-            now, "scrape_all_error", f"批量搜索出错: {row['filename']} - {str(e)}"
-        )
+        add_op_log( now, "scrape_all_error", f"批量搜索出错: {row['filename']} - {str(e)}")
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1480,10 +1478,10 @@ def api_batch_scrape():
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
-            log_type = result.get("_log_type")
-            log_msg = result.get("_log_msg")
-            if log_type and log_msg:
-                add_op_log(now, f"batch_scrape_{log_type}", log_msg)
+            # log_type = result.get("_log_type")
+            # log_msg = result.get("_log_msg")
+            # if log_type and log_msg:
+            #     add_op_log(now, f"batch_scrape_{log_type}", log_msg)
             result.pop("_log_type", None)
             result.pop("_log_msg", None)
     

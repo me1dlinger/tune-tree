@@ -132,4 +132,8 @@ function switchPage(page) {
   document.getElementById('nav-' + page).classList.add('active');
   currentPage = page;
   if (page !== 'artist') hideDetailPanel();
+  
+  if (page === 'log') {
+    loadLogs();
+  }
 }

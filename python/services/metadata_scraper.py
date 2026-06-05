@@ -40,20 +40,30 @@ class MetadataScraper:
         self.api_order = ["cloud", "kugou"]
         self._kugou_rate_limited = False
 
-    def _calculate_match_score(self,  result: Dict, keywords: List[str]) -> float:
-        
+    def _calculate_match_score(self, result: Dict, keywords: List[str], current_meta: Dict = None) -> float:
         """
         计算搜索结果与关键词的匹配分数
 
         评分规则：
-        - 歌名精确匹配：10分
-        - 歌名包含匹配：5分
-        - 艺术家精确匹配：8分
-        - 艺术家包含匹配：4分
-        - 专辑精确匹配：6分
-        - 专辑包含匹配：3分
+        - 相同加分，不同扣分，让分数差距更大
+        - 音轨号匹配单独评分（从元数据或文件名提取）
+
+        加分规则：
+        - 歌名精确匹配：+10分
+        - 歌名部分匹配：+5分
+        - 艺术家精确匹配：+8分
+        - 艺术家部分匹配：+4分
+        - 专辑精确匹配：+6分
+        - 专辑部分匹配：+3分
+        - 音轨号匹配：+5分（处理数字格式差异，如"04"和"4"视为相同）
+
+        扣分规则：
+        - 歌名不匹配：-10分
+        - 艺术家不匹配：-8分
+        - 专辑不匹配：-6分
         """
         score = 0.0
+        current_meta = current_meta or {}
 
         title_keyword = keywords[0] if keywords else ""
         artist_keyword = keywords[1] if len(keywords) > 1 else ""
@@ -61,29 +71,112 @@ class MetadataScraper:
         result_title = normalize_str(result.get("title", ""))
         result_artist = normalize_str(result.get("artist", ""))
         result_album = normalize_str(result.get("album", ""))
+
+        # 歌名评分
         if title_keyword:
             title_kw_norm = normalize_str(title_keyword)
             if result_title == title_kw_norm:
                 score += self.TITLE_WEIGHT
             elif title_kw_norm in result_title or result_title in title_kw_norm:
                 score += self.TITLE_WEIGHT * 0.5
+            elif result_title:
+                score -= self.TITLE_WEIGHT * 0.8
 
+        # 艺术家评分
         if artist_keyword:
             artist_kw_norm = normalize_str(artist_keyword)
             if result_artist == artist_kw_norm:
                 score += self.ARTIST_WEIGHT
             elif artist_kw_norm in result_artist or result_artist in artist_kw_norm:
                 score += self.ARTIST_WEIGHT * 0.5
+            elif result_artist:
+                score -= self.ARTIST_WEIGHT * 0.8
 
+        # 专辑评分
         if album_keyword:
             album_kw_norm = normalize_str(album_keyword)
             if result_album == album_kw_norm:
                 score += self.ALBUM_WEIGHT
             elif album_kw_norm in result_album or result_album in album_kw_norm:
                 score += self.ALBUM_WEIGHT * 0.5
+            elif result_album:
+                score -= self.ALBUM_WEIGHT * 0.8
+
+        # 音轨号评分（不加入搜索关键词，只在评分阶段参与）
+        score += self._calculate_track_score(result, current_meta)
 
         result["_match_score"] = score
         return score
+
+    def _calculate_track_score(self, result: Dict, current_meta: Dict) -> float:
+        """
+        计算音轨号匹配分数
+        从元数据或文件名提取音轨号进行比较
+        处理数字格式差异（如"04"和"4"视为相同）
+        """
+        TRACK_WEIGHT = 5
+
+        # 获取搜索结果中的音轨号
+        result_track = result.get("track_num")
+        result_track_num = self._parse_track_number(result_track)
+
+        # 获取当前元数据中的音轨号
+        meta_track = current_meta.get("track_num") or current_meta.get("track")
+        meta_track_num = self._parse_track_number(meta_track)
+
+        # 如果元数据中没有音轨号，尝试从文件名提取
+        if meta_track_num is None and current_meta.get("filename"):
+            meta_track_num = self._extract_track_from_filename(current_meta["filename"])
+
+        # 比较音轨号
+        if result_track_num is not None and meta_track_num is not None:
+            if result_track_num == meta_track_num:
+                return TRACK_WEIGHT
+            else:
+                return -TRACK_WEIGHT * 0.8
+
+        return 0.0
+
+    def _parse_track_number(self, track_value) -> int:
+        """
+        解析音轨号，处理各种格式
+        返回整数或None
+        """
+        if track_value is None:
+            return None
+
+        # 处理字符串形式的音轨号，如 "04", "4/12", "4"
+        if isinstance(track_value, str):
+            # 提取开头的数字部分
+            match = re.match(r'^\s*(\d+)\s*[/\-]?.*$', track_value.strip())
+            if match:
+                return int(match.group(1))
+            return None
+
+        # 处理整数或整数形式的字符串
+        try:
+            return int(track_value)
+        except (ValueError, TypeError):
+            return None
+
+    def _extract_track_from_filename(self, filename: str) -> int:
+        """
+        从文件名提取音轨号
+        支持格式："04. 21 Grams.mp3", "04 - Song.mp3", "04_Song.mp3" 等
+        """
+        if not filename:
+            return None
+
+        # 获取不带扩展名的文件名
+        import os
+        filename_no_ext = os.path.splitext(os.path.basename(filename))[0]
+
+        # 匹配开头的音轨号格式："04." 或 "04 -" 或 "04_" 或 "04 "
+        match = re.match(r'^\s*(\d{1,3})\s*[.\-_ ]+.*$', filename_no_ext)
+        if match:
+            return int(match.group(1))
+
+        return None
 
     def _build_search_keywords(self, filename: str, current_meta: Dict, user_input: Dict = None) -> List[str]:
         """
@@ -312,7 +405,7 @@ class MetadataScraper:
 
         return results
 
-    def _fetch_song_detail(self, api_name: str, search_result: Dict, keywords: List[str]) -> Optional[Dict]:
+    def _fetch_song_detail(self, api_name: str, search_result: Dict, keywords: List[str], current_meta: Dict = None) -> Optional[Dict]:
         """
         获取单条歌曲详情（供多线程调用）
         """
@@ -328,7 +421,7 @@ class MetadataScraper:
             if song_info:
                 result_dict = self._song_info_to_dict(song_info, api_name)
                 result_dict["_id"] = search_result["idOrMd5"]
-                self._calculate_match_score(result_dict, keywords)
+                self._calculate_match_score(result_dict, keywords, current_meta)
                 return result_dict
         except Exception as e:
             logger.warning(f"获取 {api_name} 歌曲详情失败: {e}")
@@ -357,7 +450,7 @@ class MetadataScraper:
 
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [
-                    executor.submit(self._fetch_song_detail, api_name, sr, keywords)
+                    executor.submit(self._fetch_song_detail, api_name, sr, keywords, current_meta)
                     for sr in search_results[:fetch_limit]
                 ]
                 for future in as_completed(futures):

@@ -21,6 +21,13 @@ async function loadLogs() {
   }
 }
 
+/** 刷新日志（带加载状态提示） */
+async function refreshLogs() {
+  const lv = document.getElementById('log-view');
+  lv.innerHTML = '<div class="loading-row">加载中...</div>';
+  await loadLogs();
+}
+
 /** 清空所有操作日志（带二次确认） */
 function clearLog() {
   showConfirm('清空日志', '确认清空所有操作日志？此操作不可撤销。', async () => {
