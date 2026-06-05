@@ -1663,6 +1663,34 @@ body {
     transition: width 0.3s;
 }
 
+/* 曲目总数卡片的格式对比进度条 */
+.format-bar {
+    height: 4px;
+    background: var(--bg4);
+    border-radius: 2px;
+    margin-top: 8px;
+    position: relative;
+}
+
+.format-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.format-fill.flac-fill {
+    background: var(--blue);
+}
+
+.format-fill.mp3-fill {
+    background: var(--amber);
+    left: auto;
+    right: 0;
+}
+
 .refresh-time {
     font-family: var(--font-mono);
     font-size: 11px;

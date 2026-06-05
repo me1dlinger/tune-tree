@@ -52,8 +52,9 @@ async function loadStats() {
           <div class="stat-label">曲目总数</div>
           <div class="stat-value accent">${s.total_tracks}</div>
           <div class="stat-sub">FLAC ${s.flac_count} · MP3 ${s.mp3_count}</div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:${s.total_tracks > 0 ? Math.round(s.flac_count / s.total_tracks * 100) : 0}%"></div>
+          <div class="format-bar">
+            <div class="format-fill flac-fill" style="width:${s.total_tracks > 0 ? Math.round(s.flac_count / s.total_tracks * 100) : 0}%"></div>
+            <div class="format-fill mp3-fill" style="width:${s.total_tracks > 0 ? Math.round(s.mp3_count / s.total_tracks * 100) : 0}%"></div>
           </div>
         </div>
         <div class="stat-card">
