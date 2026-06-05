@@ -163,10 +163,13 @@ function _renderMetadata(container) {
     const data = lyricsState.parsedData;
 
     const metaTags = (data.metadata || []).map(m => `[${m.key}:${m.value}]`).join('\n');
-    const untimestampedLines = data.groups
+
+    const hasTimestamped = data.groups.some(g => g.timestamp !== null);
+    const untimestampedLines = hasTimestamped ? data.groups
         .filter(g => g.timestamp === null)
         .map(g => g.primary.text)
-        .join('\n');
+        .join('\n') : '';
+
     const rawMeta = data.metadataRaw || (metaTags ? metaTags + (untimestampedLines ? '\n' + untimestampedLines : '') : untimestampedLines);
 
     container.style.display = 'block';
@@ -181,8 +184,10 @@ function _renderLines(container) {
     const data = lyricsState.parsedData;
     let html = '';
 
+    const hasTimestamped = data.groups.some(g => g.timestamp !== null);
+
     data.groups.forEach((group, idx) => {
-        if (group.timestamp === null) return;
+        if (group.timestamp === null && hasTimestamped) return;
         const isActive = idx === lyricsState.activeGroupIndex;
         const hasSecondary = group.secondary !== null;
 
