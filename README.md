@@ -29,7 +29,7 @@
 - **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面
 - **待定文件** -- 列出缺少完整元数据的文件，支持在线编辑元数据
 - **元数据读取** -- 通过 mutagen 提取 ID3v2 / Vorbis Comment 标签、内嵌封面和歌词
-- **元数据刮削** -- 自动从网易云音乐、酷狗获取缺失的标签、歌词和封面，支持多源并行搜索与智能匹配评分，支持在文件浏览视图批量勾选刮削
+- **元数据刮削** -- 自动从网易云音乐、酷狗、QQ音乐获取缺失的标签、歌词和封面，支持多源并行搜索与智能匹配评分，支持在文件浏览视图批量勾选刮削
 - **定时任务** -- 支持定时自动扫描和整理音乐库，可配置执行间隔（最小5分钟），支持手动触发
 - **歌词编辑** -- 支持在线编辑歌词，包括时间轴同步，支持网页加载音乐边听歌边快速编辑时间轴，支持快捷键和自动跳转，支持编辑进度缓存
 - **在线播放** -- 支持在浏览器中直接播放音乐，支持 Range 请求断点续传
@@ -171,15 +171,19 @@ tune-tree/
 │   │   ├── scan_service.py       # 目录扫描服务（多线程并行）
 │   │   ├── format_service.py     # 文件格式化服务
 │   │   ├── metadata_scraper.py   # 元数据刮削服务（多源并行+智能评分）
+│   │   ├── task_service.py       # 定时任务服务
 │   │   ├── netease_api.py        # 网易云音乐 API 客户端
-│   │   └── kugou_api.py          # 酷狗音乐 API 客户端
+│   │   ├── kugou_api.py          # 酷狗音乐 API 客户端
+│   │   └── qqmusic_api.py        # QQ音乐 API 客户端
 │   ├── repository/            # 数据访问层
-│   │   └── track_repository.py   # 曲目数据操作
+│   │   ├── track_repository.py   # 曲目数据操作
+│   │   └── task_repository.py    # 定时任务数据操作
 │   ├── models/                # 数据模型层
 │   │   └── db.py              # 数据库连接与初始化（WAL 模式）
 │   ├── utils/                 # 工具层
 │   │   ├── metadata.py        # 元数据读写工具（含 Unicode 规范化）
-│   │   └── formatting.py      # 跨平台文件名安全处理
+│   │   ├── formatting.py      # 跨平台文件名安全处理
+│   │   └── qrc_decrypt.py     # QRC 歌词解密工具（3DES + zlib）
 │   ├── static/                # 静态资源
 │   │   ├── css/main.css
 │   │   ├── js/app.js          # 前端入口
@@ -197,6 +201,7 @@ tune-tree/
 │   │       ├── lyrics-editor.js  # 歌词编辑器（含打轴）
 │   │       ├── metadata-edit.js  # 元数据编辑
 │   │       ├── pending.js        # 待定文件
+│   │       ├── settings.js       # 设置页面
 │   │       ├── state.js          # 全局状态管理
 │   │       ├── stats.js          # 统计概览
 │   │       ├── ui.js             # UI 组件

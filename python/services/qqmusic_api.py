@@ -12,7 +12,7 @@ from typing import List, Dict, Optional
 from PIL import Image
 import requests
 
-from services.qrc_decrypt import qrc_decrypt
+from utils.qrc_decrypt import qrc_decrypt
 
 logger = logging.getLogger("tunetree")
 
