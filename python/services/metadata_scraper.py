@@ -10,6 +10,7 @@ import unicodedata
 from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from services.netease_api import NeteaseApi
+from services.qqmusic_api import QQMusicApi
 from services.kugou_api import KugouApi
 
 logger = logging.getLogger("tunetree")
@@ -38,7 +39,7 @@ class MetadataScraper:
     ALBUM_WEIGHT = 6
 
     def __init__(self):
-        self.api_order = ["cloud", "kugou"]
+        self.api_order = ["cloud", "qq", "kugou"]
         self._kugou_rate_limited = False
 
     def _calculate_match_score(
@@ -414,12 +415,16 @@ class MetadataScraper:
             search_results = []
             if api_name == "cloud":
                 search_results = NeteaseApi.search_song(keyword)
+            elif api_name == "qq":
+                search_results = QQMusicApi.search_song(keyword)
             elif api_name == "kugou":
                 search_results = KugouApi.search_hash(keyword)
             if search_results:
                 song_info = None
                 if api_name == "cloud":
                     song_info = NeteaseApi.get_song_info(search_results[0]["idOrMd5"])
+                elif api_name == "qq":
+                    song_info = QQMusicApi.get_song_info(search_results[0]["idOrMd5"])
                 elif api_name == "kugou":
                     song_info = KugouApi.get_song_info(search_results[0]["idOrMd5"])
                     if song_info and song_info.get("errcode") == 1002:
@@ -480,7 +485,7 @@ class MetadataScraper:
         keywords = self._build_search_keywords(filename, current_meta, user_input)
         logger.info(f"批量搜索开始，关键词: {keywords}")
 
-        results = {"cloud": [], "kugou": []}
+        results = {"cloud": [], "qq": [], "kugou": []}
 
         # 优先使用 cloud API
         try:
@@ -493,9 +498,24 @@ class MetadataScraper:
             logger.warning(f"cloud API 批量搜索失败: {e}")
             results["cloud"] = []
 
-        # 如果 cloud 返回 0 条结果，则使用 kugou API
+        # 如果 cloud 返回 0 条结果，则使用 qq API
         if len(results["cloud"]) == 0:
-            logger.info("cloud API 返回 0 条结果，尝试使用 kugou API")
+            logger.info("cloud API 返回 0 条结果，尝试使用 qq API")
+            try:
+                qq_results = self._search_api_with_multiple_results(
+                    "qq", keywords, current_meta, exclude_ids, user_input
+                )
+                results["qq"] = qq_results
+                logger.info(f"qq API 返回 {len(qq_results)} 条结果")
+            except Exception as e:
+                logger.warning(f"qq API 批量搜索失败: {e}")
+                results["qq"] = []
+        else:
+            logger.info("cloud API 有结果，不使用 qq API")
+
+        # 如果 cloud 和 qq 均返回 0 条结果，则使用 kugou API
+        if len(results["cloud"]) == 0 and len(results["qq"]) == 0:
+            logger.info("cloud 和 qq API 均返回 0 条结果，尝试使用 kugou API")
             try:
                 kugou_results = self._search_api_with_multiple_results(
                     "kugou", keywords, current_meta, exclude_ids, user_input
@@ -506,11 +526,10 @@ class MetadataScraper:
                 logger.warning(f"kugou API 批量搜索失败: {e}")
                 results["kugou"] = []
         else:
-            logger.info("cloud API 有结果，不使用 kugou API")
+            logger.info("cloud 或 qq API 有结果，不使用 kugou API")
 
         total = sum(len(v) for v in results.values())
         logger.info(f"批量搜索完成，总共返回 {total} 条结果")
-
         return results
 
     def _fetch_song_detail(
@@ -528,6 +547,8 @@ class MetadataScraper:
             song_info = None
             if api_name == "cloud":
                 song_info = NeteaseApi.get_song_info(search_result["idOrMd5"])
+            elif api_name == "qq":
+                song_info = QQMusicApi.get_song_info(search_result["idOrMd5"])
             elif api_name == "kugou":
                 song_info = KugouApi.get_song_info(search_result["idOrMd5"])
                 if song_info.get("errcode") == 1002:
@@ -536,7 +557,9 @@ class MetadataScraper:
             if song_info:
                 result_dict = self._song_info_to_dict(song_info, api_name)
                 result_dict["_id"] = search_result["idOrMd5"]
-                self._calculate_match_score(result_dict, keywords, current_meta, user_input)
+                self._calculate_match_score(
+                    result_dict, keywords, current_meta, user_input
+                )
                 return result_dict
         except Exception as e:
             logger.warning(f"获取 {api_name} 歌曲详情失败: {e}")
@@ -566,6 +589,9 @@ class MetadataScraper:
             if api_name == "cloud":
                 search_results = NeteaseApi.search_song(keyword)
                 logger.info(f"{api_name} API 返回 {len(search_results)} 条结果")
+            elif api_name == "qq":
+                search_results = QQMusicApi.search_song(keyword)
+                logger.info(f"{api_name} API 返回 {len(search_results)} 条结果")
             elif api_name == "kugou":
                 search_results = KugouApi.search_hash(keyword)
                 logger.info(f"{api_name} API 返回 {len(search_results)} 条结果")
@@ -573,7 +599,12 @@ class MetadataScraper:
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [
                     executor.submit(
-                        self._fetch_song_detail, api_name, sr, keywords, current_meta, user_input
+                        self._fetch_song_detail,
+                        api_name,
+                        sr,
+                        keywords,
+                        current_meta,
+                        user_input,
                     )
                     for sr in search_results[:fetch_limit]
                 ]
@@ -618,6 +649,7 @@ class MetadataScraper:
     ) -> tuple[Optional[bytes], Optional[str]]:
         """
         刮削艺术家头像
+        优先级：网易云 > QQ音乐
         Returns: (image_data, successful_artist_name) or (None, None) if all failed
         """
         artist_names = [a.strip() for a in artist.split(",")]
@@ -663,5 +695,49 @@ class MetadataScraper:
                                 break
                 if image_data and len(image_data) >= 1000:
                     break
+
+        # QQ音乐兜底
+        if not image_data or len(image_data) < 1000:
+            logger.info("网易云未获取到歌手头像，尝试QQ音乐")
+            for name in artist_names:
+                if not name:
+                    continue
+                try:
+                    image_data = QQMusicApi.download_artist_avatar(name)
+                    if image_data and len(image_data) >= 1000:
+                        successful_artist = name
+                        logger.info(f"QQ音乐获取歌手头像成功: '{name}'")
+                        break
+                except Exception as exc:
+                    logger.warning(f"qq api failed for artist '{name}': {exc}")
+                    continue
+
+            if not image_data or len(image_data) < 1000:
+                separators = ["/", "&", "\\", "、", ";"]
+                for name in artist_names:
+                    if not name:
+                        continue
+                    for sep in separators:
+                        if sep in name:
+                            fallback_name = name.split(sep)[0].strip()
+                            if fallback_name and fallback_name != name:
+                                try:
+                                    image_data = QQMusicApi.download_artist_avatar(
+                                        fallback_name
+                                    )
+                                    if image_data and len(image_data) >= 1000:
+                                        successful_artist = fallback_name
+                                        logger.info(
+                                            f"QQ音乐歌手头像fallback成功: '{name}' -> '{fallback_name}'"
+                                        )
+                                        break
+                                except Exception as exc:
+                                    logger.warning(
+                                        f"qq api fallback failed for artist '{fallback_name}': {exc}"
+                                    )
+                                if image_data and len(image_data) >= 1000:
+                                    break
+                    if image_data and len(image_data) >= 1000:
+                        break
 
         return image_data, successful_artist

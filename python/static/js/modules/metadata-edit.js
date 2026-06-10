@@ -309,7 +309,7 @@ async function scrapeMetadata() {
 
 function renderScrapeResults(results) {
   const body = document.getElementById('scrape-results-body');
-  const hasAnyResults = results.cloud.length > 0 || results.kugou.length > 0;
+  const hasAnyResults = results.cloud.length > 0 || results.kugou.length > 0 || results.qq.length > 0;
 
   if (!hasAnyResults) {
     body.innerHTML = `
@@ -325,7 +325,8 @@ function renderScrapeResults(results) {
 
   const apiNames = {
     cloud: '网易云音乐',
-    kugou: '酷狗音乐'
+    kugou: '酷狗音乐',
+    qq: 'QQ音乐'
   };
 
   for (const [api, items] of Object.entries(results)) {
@@ -389,7 +390,7 @@ function renderScrapeResults(results) {
 
 /**
  * 刷新单个 API 的搜索结果（换一批）
- * @param {string} api - API 名称 (cloud 或 kugou)
+ * @param {string} api - API 名称 (cloud, kugou 或 qq)
  */
 async function refreshApiResults(api) {
   const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
@@ -451,7 +452,7 @@ async function refreshApiResults(api) {
 
       // 更新标题中的数量
       const titleEl = document.querySelector(`.scrape-api-section[data-api="${api}"] .api-name`);
-      const apiNames = { cloud: '网易云音乐', kugou: '酷狗音乐' };
+      const apiNames = { cloud: '网易云音乐', kugou: '酷狗音乐', qq: 'QQ音乐' };
       if (titleEl) {
         titleEl.textContent = `${apiNames[api]} (${newItems.length})`;
       }

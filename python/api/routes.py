@@ -220,7 +220,6 @@ def api_album_download(artist: str, album: str):
     safe_artist = safe_filename(artist)
     safe_album = safe_filename(album)
     zipname = f"{safe_artist} - {safe_album}.zip"
-    print(zipname)
     return send_file(
         zip_buffer,
         mimetype="application/zip",
@@ -1340,68 +1339,36 @@ def api_scrape_all(track_id: int):
 @require_auth
 def api_files_audio_count():
     paths = request.args.get("paths", "").strip()
-    print(f"[DEBUG] api_files_audio_count - 输入 paths: '{paths}'")
-
     if not paths:
-        print("[DEBUG] api_files_audio_count - paths 为空，返回空结果")
         return jsonify({"counts": {}})
-
     path_list = [p.strip().lstrip("/") for p in paths.split("|") if p.strip()]
-    print(f"[DEBUG] api_files_audio_count - path_list: {path_list}")
-
     base = Path(MUSIC_ROOT)
-    print(f"[DEBUG] api_files_audio_count - MUSIC_ROOT: {MUSIC_ROOT}")
-    print(f"[DEBUG] api_files_audio_count - base path: {base}")
-    print(f"[DEBUG] api_files_audio_count - base resolved: {base.resolve()}")
-
     counts = {}
 
     for rel in path_list:
-        print(f"\n[DEBUG] 处理路径: '{rel}'")
         rel_normalized = rel.replace("/", "\\") if "\\" in MUSIC_ROOT else rel
-        print(f"[DEBUG] 规范化后路径: '{rel_normalized}'")
-
         cur = (base / rel_normalized).resolve()
-        print(f"[DEBUG] 完整路径: {cur}")
-
         base_resolved = str(base.resolve())
         cur_str = str(cur)
-        print(
-            f"[DEBUG] 安全检查 - cur.startswith(base): {cur_str.startswith(base_resolved)}"
-        )
-
         if not cur_str.startswith(base_resolved):
-            print(f"[DEBUG] 路径越界，跳过，count=0")
             counts[rel] = 0
             continue
-
-        print(f"[DEBUG] is_dir: {cur.is_dir()}")
         if not cur.is_dir():
-            print(f"[DEBUG] 不是目录，跳过，count=0")
             counts[rel] = 0
             continue
 
         try:
-            print(f"[DEBUG] 开始扫描目录...")
             files = list(cur.rglob("*"))
-            print(f"[DEBUG] 找到 {len(files)} 个文件/目录")
-
             audio_files = [
                 f
                 for f in files
                 if f.is_file() and f.suffix.lower().lstrip(".") in ("mp3", "flac")
             ]
-            print(f"[DEBUG] 音频文件列表: {audio_files}")
 
             count = len(audio_files)
             counts[rel] = count
-            print(f"[DEBUG] 音频文件数量: {count}")
-
         except OSError as e:
-            print(f"[DEBUG] OSError: {e}，count=0")
             counts[rel] = 0
-
-    print(f"\n[DEBUG] 最终结果: {counts}")
     return jsonify({"counts": counts})
 
 
