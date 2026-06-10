@@ -261,7 +261,6 @@ class QQMusicApi:
             decrypted_trans = qrc_decrypt(trans_text)
             if decrypted_trans:
                 translation_lyric = cls._qrc_to_lrc(decrypted_trans)
-                print(f"[DEBUG] 转换后的翻译歌词: {translation_lyric}")
         if original_lyric and translation_lyric:
             return cls._merge_lyric_with_translation(original_lyric, translation_lyric)
         return original_lyric

@@ -335,7 +335,9 @@ function renderScrapeResults(results) {
     html += `
         <div class="scrape-api-section" data-api="${api}">
           <div class="scrape-api-title ${api}">
-            <span class="api-name">${apiNames[api]} (${items.length})</span>
+            <span class="api-dot ${api}"></span>
+            <span class="api-label">${apiNames[api]}</span>
+            <span class="api-count ${api}">${items.length}</span>
             <button class="refresh-api-btn" onclick="refreshApiResults('${api}')" title="换一批">
               <i class="bi bi-arrow-clockwise"></i>
             </button>
@@ -451,10 +453,9 @@ async function refreshApiResults(api) {
       }).join('');
 
       // 更新标题中的数量
-      const titleEl = document.querySelector(`.scrape-api-section[data-api="${api}"] .api-name`);
-      const apiNames = { cloud: '网易云音乐', kugou: '酷狗音乐', qq: 'QQ音乐' };
-      if (titleEl) {
-        titleEl.textContent = `${apiNames[api]} (${newItems.length})`;
+      const countEl = document.querySelector(`.scrape-api-section[data-api="${api}"] .api-count`);
+      if (countEl) {
+        countEl.textContent = newItems.length;
       }
 
       // 清除当前选择
