@@ -56,6 +56,7 @@ async function openBatchScrapeModal(selectedPaths) {
             batchCards.push({
               trackId: r.track_id,
               original: r.original,
+              firstBest: { ...r.best },
               best: r.best,
               allResults: r.all_results,
               hasCover: r.has_cover,
@@ -278,19 +279,26 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
   const apiLabel = best._api === 'cloud' ? '网易云' : best._api === 'kugou' ? '酷狗' : best._source || '';
   const apiClass = best._api || '';
 
-  function fieldRow(label, originalVal, scrapedVal, fieldKey) {
-    const orig = originalVal || '';
-    const scraped = scrapedVal || '';
-    const hasChange = scraped && scraped !== orig;
-    const isDifferent = hasChange && orig;
+  function fieldRow(label, fieldKey) {
+    const origRaw = original[fieldKey];
+    const hasOrig = origRaw != null && String(origRaw) !== '';
+    const baselineVal = hasOrig ? String(origRaw) : (card.firstBest && card.firstBest[fieldKey] != null ? String(card.firstBest[fieldKey]) : '');
+    const scraped = best[fieldKey] != null ? String(best[fieldKey]) : '';
     const userInputVal = card.userInput[fieldKey] || '';
-    const displayVal = userInputVal || scraped || orig || '';
+    const effectiveVal = userInputVal || scraped;
+    const isSameAsBaseline = baselineVal && effectiveVal && effectiveVal === baselineVal;
+    const displayVal = userInputVal || scraped || baselineVal || '';
+    const hasChange = effectiveVal && effectiveVal !== baselineVal;
+    const isDifferent = hasChange && baselineVal;
+    const isSame = isSameAsBaseline;
 
     if (isEditing) {
       return `
-        <div class="batch-field batch-field-editing ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''}">
-          <span class="batch-field-label">${label}</span>
-          ${isDifferent ? `<span class="batch-field-original">${esc(orig)}</span>` : ''}
+        <div class="batch-field batch-field-editing ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''} ${isSame ? 'has-same' : ''}">
+          <div class="batch-field-editing-header">
+            <span class="batch-field-label">${label}</span>
+            ${isDifferent ? `<span class="batch-field-original">${esc(baselineVal)}</span>` : ''}
+          </div>
           <input type="text" 
                  class="batch-field-input" 
                  data-field="${fieldKey}" 
@@ -302,10 +310,11 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
     }
 
     return `
-      <div class="batch-field ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''} ${userInputVal ? 'has-user-input' : ''}">
+      <div class="batch-field ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''} ${isSame ? 'has-same' : ''} ${userInputVal ? 'has-user-input' : ''}">
         <span class="batch-field-label">${label}</span>
-        ${isDifferent ? `<span class="batch-field-original">${esc(orig)}</span>` : ''}
+        ${isDifferent ? `<span class="batch-field-original">${esc(baselineVal)}</span>` : ''}
         <span class="batch-field-value ${hasChange ? 'changed' : ''} ${userInputVal ? 'user-input' : ''}">${esc(displayVal || '—')}</span>
+        ${isSame ? '<span class="batch-field-same-indicator"></span>' : ''}
         ${userInputVal ? '<span class="batch-field-user-indicator">✎</span>' : ''}
       </div>
     `;
@@ -329,20 +338,20 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
     <div class="batch-card ${isTop ? 'batch-card-top' : 'batch-card-stacked'} ${isEditing ? 'batch-card-editing' : ''}"
          data-card-index="${cardIndex}"
          style="transform: translateY(${stackOffset}px) scale(${stackScale}); opacity: ${stackOpacity};">
-      <div class="batch-card-cover">
-        ${coverHtml}
-      </div>
+       ${!isEditing ? `<div class="batch-card-cover">
+         ${coverHtml}
+       </div>` : ''}
       <div class="batch-card-info">
         <div class="batch-card-source ${apiClass}">
           <i class="bi bi-tag"></i> ${apiLabel}
         </div>
-        ${fieldRow('歌名', original.title, best.title, 'title')}
-        ${fieldRow('艺术家', original.artist, best.artist, 'artist')}
-        ${fieldRow('专辑', original.album, best.album, 'album')}
-        ${fieldRow('专辑艺术家', original.album_artist, best.album_artist, 'album_artist')}
-        ${fieldRow('音轨号', original.track_num, best.track_num, 'track_num')}
-        ${fieldRow('年份', original.year, best.year, 'year')}
-        ${relativePath ? `
+        ${fieldRow('歌名', 'title')}
+        ${fieldRow('艺术家', 'artist')}
+        ${fieldRow('专辑', 'album')}
+        ${fieldRow('专辑艺术家', 'album_artist')}
+        ${fieldRow('音轨号', 'track_num')}
+        ${fieldRow('年份', 'year')}
+        ${!isEditing && relativePath ? `
         <div class="batch-card-path">
           <i class="bi bi-folder-open"></i>
           <span class="batch-card-path-text" title="${esc(relativePath)}">${esc(relativePath)}</span>
@@ -352,6 +361,7 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
       <div class="batch-card-actions">
         ${editBtn}
         ${cancelBtn}
+        ${!isEditing ? `
         <button class="toolbar-btn batch-btn-apply" onclick="applyBatchCard(${cardIndex})" ${card.applied ? 'disabled' : ''}>
           <i class="bi bi-check-lg"></i> 应用
         </button>
@@ -364,6 +374,7 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
         <button class="toolbar-btn" onclick="removeBatchCard(${cardIndex})">
           <i class="bi bi-x"></i>
         </button>
+        ` : ''}
       </div>
     </div>
   `;
@@ -489,6 +500,10 @@ function navigateBatchCard(direction) {
 function startBatchCardEdit(cardIndex) {
   cleanupSwipe();
   batchEditingIndex = cardIndex;
+  const card = batchCards[cardIndex];
+  if (card) {
+    card._savedUserInput = { ...card.userInput };
+  }
   renderBatchCards();
 
   setTimeout(() => {
@@ -500,6 +515,11 @@ function startBatchCardEdit(cardIndex) {
 }
 
 function cancelBatchCardEdit(cardIndex) {
+  const card = batchCards[cardIndex];
+  if (card && card._savedUserInput) {
+    card.userInput = { ...card._savedUserInput };
+    delete card._savedUserInput;
+  }
   batchEditingIndex = -1;
   renderBatchCards();
 }
@@ -507,58 +527,29 @@ function cancelBatchCardEdit(cardIndex) {
 function updateBatchCardUserInput(cardIndex, fieldKey, value) {
   const card = batchCards[cardIndex];
   if (card) {
-    card.userInput[fieldKey] = value.trim();
+    const trimmed = value.trim();
+    const origRaw = card.original[fieldKey];
+    const hasOrig = origRaw != null && String(origRaw) !== '';
+    const baselineVal = hasOrig ? String(origRaw) : (card.firstBest && card.firstBest[fieldKey] != null ? String(card.firstBest[fieldKey]) : '');
+    if (trimmed && trimmed !== baselineVal) {
+      card.userInput[fieldKey] = trimmed;
+    } else {
+      delete card.userInput[fieldKey];
+    }
   }
 }
 
 async function saveBatchCardEdit(cardIndex) {
   if (batchApplying) return;
   const card = batchCards[cardIndex];
-  if (!card || card.noResult) return;
+  if (!card) return;
 
-  batchApplying = true;
-  batchEditingIndex = -1;
-
-  try {
-    const excludeIds = card.excludeIds.slice(-10);
-    const result = await POST(`/tracks/${card.trackId}/scrape-all`, {
-      exclude_ids: excludeIds,
-      title: card.userInput.title || '',
-      artist: card.userInput.artist || '',
-      album: card.userInput.album || ''
-    });
-
-    if (result.ok) {
-      const allItems = [];
-      for (const [api, items] of Object.entries(result.results)) {
-        for (const item of items) {
-          item._api = api;
-          allItems.push(item);
-        }
-      }
-      allItems.sort((a, b) => (b._match_score || 0) - (a._match_score || 0));
-
-      if (allItems.length > 0) {
-        const newBest = allItems[0];
-        card.best = newBest;
-        card.excludeIds.push(newBest._id);
-        if (card.excludeIds.length > 10) {
-          card.excludeIds = card.excludeIds.slice(-10);
-        }
-        renderBatchCards();
-        showToast('已保存并重新搜索', 'success');
-      } else {
-        renderBatchCards();
-        showToast('未找到匹配结果', 'info');
-      }
-    }
-  } catch (e) {
-    batchEditingIndex = cardIndex;
-    renderBatchCards();
-    showToast(`保存失败: ${e.message}`, 'error');
-  } finally {
-    batchApplying = false;
+  if (card._savedUserInput) {
+    delete card._savedUserInput;
   }
+  batchEditingIndex = -1;
+  renderBatchCards();
+  showToast('已保存', 'success');
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -605,6 +596,19 @@ async function applyBatchCard(cardIndex) {
   }
 }
 
+function getBatchCardEffectiveVal(card, fieldKey) {
+  if (card.userInput[fieldKey] != null && String(card.userInput[fieldKey]) !== '') {
+    return String(card.userInput[fieldKey]);
+  }
+  if (card.best && card.best[fieldKey] != null && String(card.best[fieldKey]) !== '') {
+    return String(card.best[fieldKey]);
+  }
+  if (card.original && card.original[fieldKey] != null && String(card.original[fieldKey]) !== '') {
+    return String(card.original[fieldKey]);
+  }
+  return '';
+}
+
 async function tryAnotherBatchCard(cardIndex) {
   if (batchApplying) return;
   const card = batchCards[cardIndex];
@@ -623,6 +627,8 @@ async function tryAnotherBatchCard(cardIndex) {
     if (card.userInput.title) requestData.title = card.userInput.title;
     if (card.userInput.artist) requestData.artist = card.userInput.artist;
     if (card.userInput.album) requestData.album = card.userInput.album;
+    if (card.userInput.track_num) requestData.track_num = card.userInput.track_num;
+    if (card.userInput.year) requestData.year = card.userInput.year;
     const result = await POST(`/tracks/${card.trackId}/scrape-all`, requestData);
 
     if (result.ok) {
@@ -637,6 +643,11 @@ async function tryAnotherBatchCard(cardIndex) {
 
       if (allItems.length > 0) {
         const newBest = allItems[0];
+        for (const key of Object.keys(card.userInput)) {
+          if (newBest[key] != null && String(newBest[key]) !== '') {
+            delete card.userInput[key];
+          }
+        }
         card.best = newBest;
         card.excludeIds.push(newBest._id);
         if (card.excludeIds.length > 10) {
@@ -676,6 +687,8 @@ async function retrySearchBatchCard(cardIndex) {
     if (card.userInput.title) requestData.title = card.userInput.title;
     if (card.userInput.artist) requestData.artist = card.userInput.artist;
     if (card.userInput.album) requestData.album = card.userInput.album;
+    if (card.userInput.track_num) requestData.track_num = card.userInput.track_num;
+    if (card.userInput.year) requestData.year = card.userInput.year;
     const result = await POST(`/tracks/${card.trackId}/scrape-all`, requestData);
 
     if (result.ok) {
@@ -690,6 +703,11 @@ async function retrySearchBatchCard(cardIndex) {
 
       if (allItems.length > 0) {
         const newBest = allItems[0];
+        for (const key of Object.keys(card.userInput)) {
+          if (newBest[key] != null && String(newBest[key]) !== '') {
+            delete card.userInput[key];
+          }
+        }
         card.best = newBest;
         card.excludeIds = [newBest._id];
         renderBatchCards();
@@ -800,6 +818,7 @@ function closeBatchScrapeModal() {
   batchCards = [];
   batchCurrentIndex = 0;
   batchApplying = false;
+  batchEditingIndex = -1;
   closeModal('batch-scrape-modal');
 
   if (typeof fileSelectMode !== 'undefined' && fileSelectMode) {

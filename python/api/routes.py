@@ -112,10 +112,7 @@ def require_auth(f):
 
 @api_bp.route("/")
 def index():
-    return send_from_directory(
-        "static",
-        "index.html"
-    )
+    return send_from_directory("static", "index.html")
 
 
 # Auth
@@ -1299,11 +1296,14 @@ def api_scrape_all(track_id: int):
         "title": row["title"],
         "artist": row["artist"],
         "album": row["album"],
+        "track_num": row["track_num"] if row["track_num"] else "",
+        "year": row["year"] if row["year"] else "",
+        "filename": row["filename"] if row["filename"] else "",
     }
 
     # 获取需要排除的结果（使用 idOrMd5）
     exclude_ids = request.json.get("exclude_ids", []) if request.is_json else []
-    
+
     # 获取用户输入的关键词（来自前端输入框）
     user_input = {}
     if request.is_json:
@@ -1314,16 +1314,24 @@ def api_scrape_all(track_id: int):
             user_input["artist"] = user_json["artist"].strip()
         if user_json.get("album") and user_json["album"].strip():
             user_input["album"] = user_json["album"].strip()
+        if user_json.get("track_num") and str(user_json["track_num"]).strip():
+            user_input["track_num"] = str(user_json["track_num"]).strip()
+        if user_json.get("year") and str(user_json["year"]).strip():
+            user_input["year"] = str(user_json["year"]).strip()
 
     try:
-        results = scraper.search_all_apis(row["path"], current_meta, exclude_ids, user_input)
+        results = scraper.search_all_apis(
+            row["path"], current_meta, exclude_ids, user_input
+        )
         # add_op_log(now, "scrape_all_success", f"批量搜索完成: {row['filename']}")
         commit()
         return jsonify({"ok": True, "original": current_meta, "results": results})
 
     except Exception as e:
         logger.error(f"批量搜索失败: {e}")
-        add_op_log( now, "scrape_all_error", f"批量搜索出错: {row['filename']} - {str(e)}")
+        add_op_log(
+            now, "scrape_all_error", f"批量搜索出错: {row['filename']} - {str(e)}"
+        )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1333,56 +1341,62 @@ def api_scrape_all(track_id: int):
 def api_files_audio_count():
     paths = request.args.get("paths", "").strip()
     print(f"[DEBUG] api_files_audio_count - 输入 paths: '{paths}'")
-    
+
     if not paths:
         print("[DEBUG] api_files_audio_count - paths 为空，返回空结果")
         return jsonify({"counts": {}})
 
     path_list = [p.strip().lstrip("/") for p in paths.split("|") if p.strip()]
     print(f"[DEBUG] api_files_audio_count - path_list: {path_list}")
-    
+
     base = Path(MUSIC_ROOT)
     print(f"[DEBUG] api_files_audio_count - MUSIC_ROOT: {MUSIC_ROOT}")
     print(f"[DEBUG] api_files_audio_count - base path: {base}")
     print(f"[DEBUG] api_files_audio_count - base resolved: {base.resolve()}")
-    
+
     counts = {}
 
     for rel in path_list:
         print(f"\n[DEBUG] 处理路径: '{rel}'")
         rel_normalized = rel.replace("/", "\\") if "\\" in MUSIC_ROOT else rel
         print(f"[DEBUG] 规范化后路径: '{rel_normalized}'")
-        
+
         cur = (base / rel_normalized).resolve()
         print(f"[DEBUG] 完整路径: {cur}")
-        
+
         base_resolved = str(base.resolve())
         cur_str = str(cur)
-        print(f"[DEBUG] 安全检查 - cur.startswith(base): {cur_str.startswith(base_resolved)}")
-        
+        print(
+            f"[DEBUG] 安全检查 - cur.startswith(base): {cur_str.startswith(base_resolved)}"
+        )
+
         if not cur_str.startswith(base_resolved):
             print(f"[DEBUG] 路径越界，跳过，count=0")
             counts[rel] = 0
             continue
-        
+
         print(f"[DEBUG] is_dir: {cur.is_dir()}")
         if not cur.is_dir():
             print(f"[DEBUG] 不是目录，跳过，count=0")
             counts[rel] = 0
             continue
-            
+
         try:
             print(f"[DEBUG] 开始扫描目录...")
             files = list(cur.rglob("*"))
             print(f"[DEBUG] 找到 {len(files)} 个文件/目录")
-            
-            audio_files = [f for f in files if f.is_file() and f.suffix.lower().lstrip(".") in ("mp3", "flac")]
+
+            audio_files = [
+                f
+                for f in files
+                if f.is_file() and f.suffix.lower().lstrip(".") in ("mp3", "flac")
+            ]
             print(f"[DEBUG] 音频文件列表: {audio_files}")
-            
+
             count = len(audio_files)
             counts[rel] = count
             print(f"[DEBUG] 音频文件数量: {count}")
-            
+
         except OSError as e:
             print(f"[DEBUG] OSError: {e}，count=0")
             counts[rel] = 0
@@ -1400,7 +1414,7 @@ def api_batch_scrape():
         return jsonify({"ok": False, "error": "缺少 track_ids"}), 400
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     rows = get_tracks_by_ids(track_ids)
     row_map = {row["id"]: row for row in rows}
 
@@ -1412,7 +1426,7 @@ def api_batch_scrape():
                 "ok": False,
                 "error": "曲目不存在",
                 "_log_type": "error",
-                "_log_msg": f"批量搜索出错: track_id={track_id} - 曲目不存在"
+                "_log_msg": f"批量搜索出错: track_id={track_id} - 曲目不存在",
             }
 
         current_meta = {
@@ -1434,9 +1448,15 @@ def api_batch_scrape():
                 user_input["artist"] = track_input["artist"].strip()
             if track_input.get("album") and track_input["album"].strip():
                 user_input["album"] = track_input["album"].strip()
+            if track_input.get("track_num") and str(track_input["track_num"]).strip():
+                user_input["track_num"] = str(track_input["track_num"]).strip()
+            if track_input.get("year") and str(track_input["year"]).strip():
+                user_input["year"] = str(track_input["year"]).strip()
 
         try:
-            scrape_results = scraper.search_all_apis(row["path"], current_meta, user_input=user_input)
+            scrape_results = scraper.search_all_apis(
+                row["path"], current_meta, user_input=user_input
+            )
             all_items = []
             for api_name, items in scrape_results.items():
                 for item in items:
@@ -1459,7 +1479,7 @@ def api_batch_scrape():
                 "filename": row["filename"] if row["filename"] else "",
                 "relative_path": get_relative_path(row["path"], MUSIC_ROOT),
                 "_log_type": "success",
-                "_log_msg": f"批量搜索完成: {row['filename']}"
+                "_log_msg": f"批量搜索完成: {row['filename']}",
             }
         except Exception as e:
             return {
@@ -1469,12 +1489,15 @@ def api_batch_scrape():
                 "track_title": row["title"] if row["title"] else "",
                 "filename": row["filename"] if row["filename"] else "",
                 "_log_type": "error",
-                "_log_msg": f"批量搜索出错: {row['filename']} - {str(e)}"
+                "_log_msg": f"批量搜索出错: {row['filename']} - {str(e)}",
             }
-    
+
     results = []
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(scrape_single_track, track_id): track_id for track_id in track_ids}
+        futures = {
+            executor.submit(scrape_single_track, track_id): track_id
+            for track_id in track_ids
+        }
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
@@ -1484,24 +1507,28 @@ def api_batch_scrape():
             #     add_op_log(now, f"batch_scrape_{log_type}", log_msg)
             result.pop("_log_type", None)
             result.pop("_log_msg", None)
-    
+
     commit()
     return jsonify({"ok": True, "results": results})
 
 
 # === 定时任务相关 API ===
 
+
 @api_bp.route("/api/task/config", methods=["GET"])
 @require_auth
 def api_get_task_config():
     """获取任务配置"""
     from repository.task_repository import get_task_config
+
     config = get_task_config()
-    return jsonify({
-        "scrape_enabled": bool(config["scrape_enabled"]),
-        "organize_enabled": bool(config["organize_enabled"]),
-        "interval_minutes": config["interval_minutes"]
-    })
+    return jsonify(
+        {
+            "scrape_enabled": bool(config["scrape_enabled"]),
+            "organize_enabled": bool(config["organize_enabled"]),
+            "interval_minutes": config["interval_minutes"],
+        }
+    )
 
 
 @api_bp.route("/api/task/config", methods=["POST"])
@@ -1509,29 +1536,32 @@ def api_get_task_config():
 def api_set_task_config():
     """设置任务配置"""
     from repository.task_repository import set_task_config, commit
-    
+
     data = request.get_json(force=True)
     scrape_enabled = int(data.get("scrape_enabled", False))
     organize_enabled = int(data.get("organize_enabled", False))
     interval_minutes = int(data.get("interval_minutes", 60))
-    
+
     # 时间间隔最小为5分钟
     if interval_minutes < 5:
         interval_minutes = 5
-    
+
     set_task_config(scrape_enabled, organize_enabled, interval_minutes)
     commit()
-    
+
     # 更新定时任务调度器
     from app import update_scheduler
+
     update_scheduler()
-    
-    return jsonify({
-        "ok": True,
-        "scrape_enabled": bool(scrape_enabled),
-        "organize_enabled": bool(organize_enabled),
-        "interval_minutes": interval_minutes
-    })
+
+    return jsonify(
+        {
+            "ok": True,
+            "scrape_enabled": bool(scrape_enabled),
+            "organize_enabled": bool(organize_enabled),
+            "interval_minutes": interval_minutes,
+        }
+    )
 
 
 @api_bp.route("/api/task/status", methods=["GET"])
@@ -1539,11 +1569,11 @@ def api_set_task_config():
 def api_get_task_status():
     """获取任务状态"""
     from repository.task_repository import get_task_status
-    
+
     scrape_status = get_task_status("scrape")
     organize_status = get_task_status("organize")
     scheduled_status = get_task_status("scheduled")
-    
+
     def format_status(status):
         return {
             "status": status["status"],
@@ -1555,14 +1585,16 @@ def api_get_task_status():
             "run_count": status["run_count"],
             "success_count": status["success_count"],
             "failure_count": status["failure_count"],
-            "is_manual": bool(status["is_manual"])
+            "is_manual": bool(status["is_manual"]),
         }
-    
-    return jsonify({
-        "scrape": format_status(scrape_status),
-        "organize": format_status(organize_status),
-        "scheduled": format_status(scheduled_status)
-    })
+
+    return jsonify(
+        {
+            "scrape": format_status(scrape_status),
+            "organize": format_status(organize_status),
+            "scheduled": format_status(scheduled_status),
+        }
+    )
 
 
 @api_bp.route("/api/task/execute", methods=["POST"])
@@ -1570,18 +1602,18 @@ def api_get_task_status():
 def api_execute_task():
     """手动执行任务"""
     from services.task_service import run_manual_task
-    
+
     data = request.get_json(force=True)
     task_type = data.get("task_type", "both")
-    
+
     if task_type not in ["scrape", "organize", "both"]:
         return jsonify({"ok": False, "error": "无效的任务类型"}), 400
-    
+
     result = run_manual_task(task_type)
-    
+
     if "error" in result:
         return jsonify({"ok": False, "error": result["error"]}), 500
-    
+
     return jsonify({"ok": True, "result": result})
 
 
@@ -1590,9 +1622,11 @@ def api_execute_task():
 def api_get_running_task():
     """检查是否有任务正在运行"""
     from repository.task_repository import is_task_running
-    
-    return jsonify({
-        "scrape_running": is_task_running("scrape"),
-        "organize_running": is_task_running("organize"),
-        "scheduled_running": is_task_running("scheduled")
-    })
+
+    return jsonify(
+        {
+            "scrape_running": is_task_running("scrape"),
+            "organize_running": is_task_running("organize"),
+            "scheduled_running": is_task_running("scheduled"),
+        }
+    )

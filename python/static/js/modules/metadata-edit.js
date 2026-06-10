@@ -278,7 +278,9 @@ async function scrapeMetadata() {
     const userInput = {
       title: editState.title || '',
       artist: editState.artist || '',
-      album: editState.album || ''
+      album: editState.album || '',
+      track_num: editState.track_num ?? '',
+      year: editState.year || ''
     };
     const result = await POST(`/tracks/${trackId}/scrape-all`, userInput);
 
@@ -401,9 +403,16 @@ async function refreshApiResults(api) {
 
   // 获取当前显示的所有 ID（用于排除，使用 idOrMd5）
   const currentIds = window._scrapeResultsByApi[api] || [];
-
+  const userInput = {
+    exclude_ids: currentIds,
+    title: editState.title || '',
+    artist: editState.artist || '',
+    album: editState.album || '',
+    track_num: editState.track_num ?? '',
+    year: editState.year || ''
+  };
   try {
-    const result = await POST(`/tracks/${trackId}/scrape-all`, { exclude_ids: currentIds });
+    const result = await POST(`/tracks/${trackId}/scrape-all`, userInput);
 
     if (result.ok) {
       const newItems = result.results[api] || [];

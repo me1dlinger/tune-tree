@@ -19,11 +19,12 @@ def normalize_str(text: str) -> str:
     """对字符串进行Unicode正规化，用于比较"""
     if not text:
         return ""
-    return unicodedata.normalize('NFKC', text).lower().strip()
+    return unicodedata.normalize("NFKC", text).lower().strip()
 
 
 class RateLimitException(Exception):
     """API 风控异常"""
+
     pass
 
 
@@ -40,13 +41,20 @@ class MetadataScraper:
         self.api_order = ["cloud", "kugou"]
         self._kugou_rate_limited = False
 
-    def _calculate_match_score(self, result: Dict, keywords: List[str], current_meta: Dict = None) -> float:
+    def _calculate_match_score(
+        self,
+        result: Dict,
+        keywords: List[str],
+        current_meta: Dict = None,
+        user_input: Dict = None,
+    ) -> float:
         """
         计算搜索结果与关键词的匹配分数
 
         评分规则：
         - 相同加分，不同扣分，让分数差距更大
-        - 音轨号匹配单独评分（从元数据或文件名提取）
+        - 音轨号匹配单独评分（优先级：用户输入 > 元数据标签 > 文件名提取）
+        - 年份匹配单独评分（优先级：用户输入 > 元数据标签）
 
         加分规则：
         - 歌名精确匹配：+10分
@@ -56,14 +64,18 @@ class MetadataScraper:
         - 专辑精确匹配：+6分
         - 专辑部分匹配：+3分
         - 音轨号匹配：+5分（处理数字格式差异，如"04"和"4"视为相同）
+        - 年份匹配：+4分
 
         扣分规则：
         - 歌名不匹配：-10分
         - 艺术家不匹配：-8分
         - 专辑不匹配：-6分
+        - 音轨号不匹配：-4分
+        - 年份不匹配：-3分
         """
         score = 0.0
         current_meta = current_meta or {}
+        user_input = user_input or {}
 
         title_keyword = keywords[0] if keywords else ""
         artist_keyword = keywords[1] if len(keywords) > 1 else ""
@@ -102,40 +114,93 @@ class MetadataScraper:
             elif result_album:
                 score -= self.ALBUM_WEIGHT * 0.8
 
-        # 音轨号评分（不加入搜索关键词，只在评分阶段参与）
-        score += self._calculate_track_score(result, current_meta)
+        # 音轨号评分（优先级：用户输入 > 元数据标签 > 文件名提取）
+        score += self._calculate_track_score(result, current_meta, user_input)
+
+        # 年份评分（优先级：用户输入 > 元数据标签）
+        score += self._calculate_year_score(result, current_meta, user_input)
 
         result["_match_score"] = score
         return score
 
-    def _calculate_track_score(self, result: Dict, current_meta: Dict) -> float:
+    def _calculate_track_score(
+        self, result: Dict, current_meta: Dict, user_input: Dict = None
+    ) -> float:
         """
         计算音轨号匹配分数
-        从元数据或文件名提取音轨号进行比较
+        优先级：用户输入 > 元数据标签 > 文件名提取
         处理数字格式差异（如"04"和"4"视为相同）
         """
         TRACK_WEIGHT = 5
+        user_input = user_input or {}
 
         # 获取搜索结果中的音轨号
         result_track = result.get("track_num")
         result_track_num = self._parse_track_number(result_track)
 
-        # 获取当前元数据中的音轨号
-        meta_track = current_meta.get("track_num") or current_meta.get("track")
-        meta_track_num = self._parse_track_number(meta_track)
+        # 优先级1：用户输入的音轨号
+        ref_track_num = None
+        if user_input.get("track_num"):
+            ref_track_num = self._parse_track_number(user_input["track_num"])
 
-        # 如果元数据中没有音轨号，尝试从文件名提取
-        if meta_track_num is None and current_meta.get("filename"):
-            meta_track_num = self._extract_track_from_filename(current_meta["filename"])
+        # 优先级2：元数据标签中的音轨号
+        if ref_track_num is None:
+            meta_track = current_meta.get("track_num") or current_meta.get("track")
+            ref_track_num = self._parse_track_number(meta_track)
 
+        # 优先级3：从文件名提取
+        if ref_track_num is None and current_meta.get("filename"):
+            ref_track_num = self._extract_track_from_filename(current_meta["filename"])
         # 比较音轨号
-        if result_track_num is not None and meta_track_num is not None:
-            if result_track_num == meta_track_num:
+        if result_track_num is not None and ref_track_num is not None:
+            if result_track_num == ref_track_num:
                 return TRACK_WEIGHT
             else:
                 return -TRACK_WEIGHT * 0.8
 
         return 0.0
+
+    def _calculate_year_score(
+        self, result: Dict, current_meta: Dict, user_input: Dict = None
+    ) -> float:
+        """
+        计算年份匹配分数
+        优先级：用户输入 > 元数据标签
+        没有年份参考值则不纳入评分
+        """
+        YEAR_WEIGHT = 4
+        user_input = user_input or {}
+
+        result_year = result.get("year")
+        result_year_num = self._parse_year(result_year)
+
+        ref_year_num = None
+        if user_input.get("year"):
+            ref_year_num = self._parse_year(user_input["year"])
+
+        if ref_year_num is None:
+            ref_year_num = self._parse_year(current_meta.get("year"))
+        if result_year_num is not None and ref_year_num is not None:
+            if result_year_num == ref_year_num:
+                return YEAR_WEIGHT
+            else:
+                return -YEAR_WEIGHT * 0.75
+
+        return 0.0
+
+    def _parse_year(self, year_value) -> int:
+        """
+        解析年份，返回整数或None
+        """
+        if year_value is None:
+            return None
+        if isinstance(year_value, int):
+            return year_value if 1000 <= year_value <= 9999 else None
+        if isinstance(year_value, str):
+            match = re.search(r"(\d{4})", year_value.strip())
+            if match:
+                return int(match.group(1))
+        return None
 
     def _parse_track_number(self, track_value) -> int:
         """
@@ -148,7 +213,7 @@ class MetadataScraper:
         # 处理字符串形式的音轨号，如 "04", "4/12", "4"
         if isinstance(track_value, str):
             # 提取开头的数字部分
-            match = re.match(r'^\s*(\d+)\s*[/\-]?.*$', track_value.strip())
+            match = re.match(r"^\s*(\d+)\s*[/\-]?.*$", track_value.strip())
             if match:
                 return int(match.group(1))
             return None
@@ -169,19 +234,22 @@ class MetadataScraper:
 
         # 获取不带扩展名的文件名
         import os
+
         filename_no_ext = os.path.splitext(os.path.basename(filename))[0]
 
         # 匹配开头的音轨号格式："04." 或 "04 -" 或 "04_" 或 "04 "
-        match = re.match(r'^\s*(\d{1,3})\s*[.\-_ ]+.*$', filename_no_ext)
+        match = re.match(r"^\s*(\d{1,3})\s*[.\-_ ]+.*$", filename_no_ext)
         if match:
             return int(match.group(1))
 
         return None
 
-    def _build_search_keywords(self, filename: str, current_meta: Dict, user_input: Dict = None) -> List[str]:
+    def _build_search_keywords(
+        self, filename: str, current_meta: Dict, user_input: Dict = None
+    ) -> List[str]:
         """
         构建搜索关键词列表
-        
+
         优先级：
         1. 用户输入（user_input）- 最高优先级
         2. 元数据标签（current_meta）
@@ -192,6 +260,7 @@ class MetadataScraper:
         user_input = user_input or {}
 
         import os
+
         filename_no_ext = os.path.splitext(os.path.basename(filename))[0]
 
         # 检查用户输入
@@ -207,15 +276,22 @@ class MetadataScraper:
         # 尝试从文件名解析 artist - title 格式（仅当没有用户输入和元数据时）
         parsed_artist = None
         parsed_title = None
-        if not has_user_title and not has_user_artist and not has_meta_title and not has_meta_artist:
+        if (
+            not has_user_title
+            and not has_user_artist
+            and not has_meta_title
+            and not has_meta_artist
+        ):
             # 匹配 "artist - title" 格式（中间有空格-空格）
-            match = re.match(r'^\s*([^-]+?)\s*-\s*(.+?)\s*$', filename_no_ext)
+            match = re.match(r"^\s*([^-]+?)\s*-\s*(.+?)\s*$", filename_no_ext)
             if match:
                 parsed_artist = match.group(1).strip()
                 parsed_title = match.group(2).strip()
                 # 确保解析出来的内容不为空
                 if parsed_artist and parsed_title:
-                    logger.info(f"从文件名解析: artist='{parsed_artist}', title='{parsed_title}'")
+                    logger.info(
+                        f"从文件名解析: artist='{parsed_artist}', title='{parsed_title}'"
+                    )
 
         # 确定歌名：优先用户输入，其次元数据，然后解析结果，最后文件名
         title = None
@@ -227,28 +303,36 @@ class MetadataScraper:
             title = parsed_title
         else:
             # 去除音轨号前缀（如 "06. " 或 "06 - "）
-            cleaned_title = re.sub(r'^\d+\s*[.-]\s*', '', filename_no_ext)
+            cleaned_title = re.sub(r"^\d+\s*[.-]\s*", "", filename_no_ext)
             title = cleaned_title if cleaned_title else filename_no_ext
         keywords.append(title)
 
         # 确定艺术家：优先用户输入，其次元数据，然后解析结果，最后从目录路径提取
         artist_from_path = None
         album_from_path = None
-        
-        if not has_user_artist and not has_user_album and not has_meta_artist and not has_meta_album and not parsed_artist:
+
+        if (
+            not has_user_artist
+            and not has_user_album
+            and not has_meta_artist
+            and not has_meta_album
+            and not parsed_artist
+        ):
             # 从目录路径提取艺术家和专辑（仅当没有用户输入和元数据时）
             try:
                 relative_path = os.path.dirname(filename)
                 # 获取路径组件
-                path_parts = relative_path.replace('\\', '/').strip('/').split('/')
+                path_parts = relative_path.replace("\\", "/").strip("/").split("/")
                 # 过滤空组件
                 path_parts = [p for p in path_parts if p and p.strip()]
-                
+
                 # 如果有至少2个目录层级，认为第一个是艺术家，第二个是专辑
                 if len(path_parts) >= 2:
                     artist_from_path = path_parts[-2]
                     album_from_path = path_parts[-1]
-                    logger.info(f"从目录路径解析: artist='{artist_from_path}', album='{album_from_path}'")
+                    logger.info(
+                        f"从目录路径解析: artist='{artist_from_path}', album='{album_from_path}'"
+                    )
                 elif len(path_parts) == 1:
                     # 只有一个目录层级，作为艺术家
                     artist_from_path = path_parts[0]
@@ -266,7 +350,7 @@ class MetadataScraper:
             selected_artist = parsed_artist
         elif artist_from_path:
             selected_artist = artist_from_path
-            
+
         if selected_artist and selected_artist != title:
             keywords.append(selected_artist)
 
@@ -278,13 +362,19 @@ class MetadataScraper:
             selected_album = current_meta["album"]
         elif album_from_path:
             selected_album = album_from_path
-            
-        if selected_album and selected_album != title and selected_album != selected_artist:
+
+        if (
+            selected_album
+            and selected_album != title
+            and selected_album != selected_artist
+        ):
             keywords.append(selected_album)
 
         return keywords
 
-    def scrape(self, filename: str, current_meta: Dict, preferred_api: Optional[str] = None) -> Optional[Dict]:
+    def scrape(
+        self, filename: str, current_meta: Dict, preferred_api: Optional[str] = None
+    ) -> Optional[Dict]:
         """
         刮削元数据
         """
@@ -292,7 +382,11 @@ class MetadataScraper:
         keywords = self._build_search_keywords(filename, current_meta)
         logger.info(f"开始刮削元数据，关键词: {keywords}")
 
-        api_list = [preferred_api] if preferred_api and preferred_api in self.api_order else self.api_order
+        api_list = (
+            [preferred_api]
+            if preferred_api and preferred_api in self.api_order
+            else self.api_order
+        )
 
         for api_name in api_list:
             logger.info(f"尝试使用 {api_name} API")
@@ -329,7 +423,9 @@ class MetadataScraper:
                 elif api_name == "kugou":
                     song_info = KugouApi.get_song_info(search_results[0]["idOrMd5"])
                     if song_info and song_info.get("errcode") == 1002:
-                        raise RateLimitException(f"关键词 '{keyword}' 通过 {api_name} 触发风控")
+                        raise RateLimitException(
+                            f"关键词 '{keyword}' 通过 {api_name} 触发风控"
+                        )
                 if song_info:
                     result_dict = self._song_info_to_dict(song_info, api_name)
                     result_dict["_id"] = search_results[0]["idOrMd5"]
@@ -350,37 +446,47 @@ class MetadataScraper:
             "album": song_info["album"],
             "album_artist": song_info["singer"],
             "year": song_info["year"],
-            "track_num": song_info["trackNumber"][0] if song_info.get("trackNumber") else None,
+            "track_num": song_info["trackNumber"][0]
+            if song_info.get("trackNumber")
+            else None,
             "lyrics": song_info.get("lyric"),
             "_source": source,
-            "_has_cover": song_info.get("picBuffer") is not None and song_info.get("picBuffer").getvalue() != b'',
+            "_has_cover": song_info.get("picBuffer") is not None
+            and song_info.get("picBuffer").getvalue() != b"",
         }
 
         if song_info.get("picBuffer") and song_info.get("picBuffer").getvalue():
-            result["_cover_data"] = base64.b64encode(song_info.get("picBuffer").getvalue()).decode()
+            result["_cover_data"] = base64.b64encode(
+                song_info.get("picBuffer").getvalue()
+            ).decode()
 
         return result
 
-    def search_all_apis(self, filename: str, current_meta: Dict, exclude_ids: List[str] = None, user_input: Dict = None) -> Dict[str, List[Dict]]:
+    def search_all_apis(
+        self,
+        filename: str,
+        current_meta: Dict,
+        exclude_ids: List[str] = None,
+        user_input: Dict = None,
+    ) -> Dict[str, List[Dict]]:
         """
         批量搜索 API，优先使用 cloud，如果返回 0 条结果则使用 kugou
         每个API返回最多5条结果，按匹配度排序
         如果指定了 exclude_ids，则会排除这些歌曲ID后返回最多5条结果
-        
+
         :param user_input: 用户输入的关键词（来自前端输入框），优先级最高
         """
         self._kugou_rate_limited = False
         keywords = self._build_search_keywords(filename, current_meta, user_input)
         logger.info(f"批量搜索开始，关键词: {keywords}")
 
-        results = {
-            "cloud": [],
-            "kugou": []
-        }
+        results = {"cloud": [], "kugou": []}
 
         # 优先使用 cloud API
         try:
-            cloud_results = self._search_api_with_multiple_results("cloud", keywords, current_meta, exclude_ids)
+            cloud_results = self._search_api_with_multiple_results(
+                "cloud", keywords, current_meta, exclude_ids, user_input
+            )
             results["cloud"] = cloud_results
             logger.info(f"cloud API 返回 {len(cloud_results)} 条结果")
         except Exception as e:
@@ -391,7 +497,9 @@ class MetadataScraper:
         if len(results["cloud"]) == 0:
             logger.info("cloud API 返回 0 条结果，尝试使用 kugou API")
             try:
-                kugou_results = self._search_api_with_multiple_results("kugou", keywords, current_meta, exclude_ids)
+                kugou_results = self._search_api_with_multiple_results(
+                    "kugou", keywords, current_meta, exclude_ids, user_input
+                )
                 results["kugou"] = kugou_results
                 logger.info(f"kugou API 返回 {len(kugou_results)} 条结果")
             except Exception as e:
@@ -405,7 +513,14 @@ class MetadataScraper:
 
         return results
 
-    def _fetch_song_detail(self, api_name: str, search_result: Dict, keywords: List[str], current_meta: Dict = None) -> Optional[Dict]:
+    def _fetch_song_detail(
+        self,
+        api_name: str,
+        search_result: Dict,
+        keywords: List[str],
+        current_meta: Dict = None,
+        user_input: Dict = None,
+    ) -> Optional[Dict]:
         """
         获取单条歌曲详情（供多线程调用）
         """
@@ -421,13 +536,20 @@ class MetadataScraper:
             if song_info:
                 result_dict = self._song_info_to_dict(song_info, api_name)
                 result_dict["_id"] = search_result["idOrMd5"]
-                self._calculate_match_score(result_dict, keywords, current_meta)
+                self._calculate_match_score(result_dict, keywords, current_meta, user_input)
                 return result_dict
         except Exception as e:
             logger.warning(f"获取 {api_name} 歌曲详情失败: {e}")
         return None
 
-    def _search_api_with_multiple_results(self, api_name: str, keywords: List[str], current_meta: Dict = None, exclude_ids: List[str] = None) -> List[Dict]:
+    def _search_api_with_multiple_results(
+        self,
+        api_name: str,
+        keywords: List[str],
+        current_meta: Dict = None,
+        exclude_ids: List[str] = None,
+        user_input: Dict = None,
+    ) -> List[Dict]:
         """
         搜索并返回最多5条结果，按匹配度排序
         先收集所有关键词的搜索结果，然后统一评分排序取前5
@@ -450,7 +572,9 @@ class MetadataScraper:
 
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [
-                    executor.submit(self._fetch_song_detail, api_name, sr, keywords, current_meta)
+                    executor.submit(
+                        self._fetch_song_detail, api_name, sr, keywords, current_meta, user_input
+                    )
                     for sr in search_results[:fetch_limit]
                 ]
                 for future in as_completed(futures):
@@ -466,24 +590,32 @@ class MetadataScraper:
             all_results = []
 
         # 按匹配度排序
-        all_results = sorted(all_results, key=lambda x: x.get("_match_score", 0), reverse=True)
-        
+        all_results = sorted(
+            all_results, key=lambda x: x.get("_match_score", 0), reverse=True
+        )
+
         # 如果有排除列表，先排除已显示的结果（使用 idOrMd5）
         if exclude_set:
             original_count = len(all_results)
             all_results = [r for r in all_results if r.get("_id") not in exclude_set]
-            logger.info(f"{api_name} API 排除 {original_count - len(all_results)} 条结果后剩余 {len(all_results)} 条")
-        
+            logger.info(
+                f"{api_name} API 排除 {original_count - len(all_results)} 条结果后剩余 {len(all_results)} 条"
+            )
+
         # 返回最多5条
         return_limit = 5
         all_results = all_results[:return_limit]
         for i, r in enumerate(all_results):
             r["_sort_index"] = i
-        logger.debug(f"{api_name} API 搜索结果（按匹配度排序）: {[(r.get('title'), r.get('artist'), r.get('_match_score')) for r in all_results]}")
+        logger.debug(
+            f"{api_name} API 搜索结果（按匹配度排序）: {[(r.get('title'), r.get('artist'), r.get('_match_score')) for r in all_results]}"
+        )
 
         return all_results
 
-    def scrape_artist_avatar(self, artist: str) -> tuple[Optional[bytes], Optional[str]]:
+    def scrape_artist_avatar(
+        self, artist: str
+    ) -> tuple[Optional[bytes], Optional[str]]:
         """
         刮削艺术家头像
         Returns: (image_data, successful_artist_name) or (None, None) if all failed
@@ -505,7 +637,7 @@ class MetadataScraper:
                 continue
 
         if not image_data or len(image_data) < 1000:
-            separators = ["/", "&", "\\", "、",";"]
+            separators = ["/", "&", "\\", "、", ";"]
             for name in artist_names:
                 if not name:
                     continue
@@ -514,13 +646,19 @@ class MetadataScraper:
                         fallback_name = name.split(sep)[0].strip()
                         if fallback_name and fallback_name != name:
                             try:
-                                image_data = NeteaseApi.download_artist_avatar(fallback_name)
+                                image_data = NeteaseApi.download_artist_avatar(
+                                    fallback_name
+                                )
                                 if image_data and len(image_data) >= 1000:
                                     successful_artist = fallback_name
-                                    logger.info(f"artist avatar fallback succeeded: '{name}' -> '{fallback_name}'")
+                                    logger.info(
+                                        f"artist avatar fallback succeeded: '{name}' -> '{fallback_name}'"
+                                    )
                                     break
                             except Exception as exc:
-                                logger.warning(f"netease api fallback failed for artist '{fallback_name}': {exc}")
+                                logger.warning(
+                                    f"netease api fallback failed for artist '{fallback_name}': {exc}"
+                                )
                             if image_data and len(image_data) >= 1000:
                                 break
                 if image_data and len(image_data) >= 1000:

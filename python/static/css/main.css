@@ -3868,9 +3868,24 @@ body {
     box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
+.batch-card-editing .batch-card-actions {
+    margin-top: auto;
+    justify-content: flex-start;
+}
+
 .batch-field-editing {
     flex-direction: column;
     align-items: stretch;
+}
+
+.batch-field-editing-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.batch-field-editing .batch-field-original {
+    display: inline;
 }
 
 .batch-field-input {
@@ -3898,6 +3913,16 @@ body {
 .batch-field-user-indicator {
     font-size: 10px;
     color: var(--accent);
+    margin-left: 4px;
+}
+
+.batch-field-same-indicator {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--blue);
+    opacity: 0.5;
+    flex-shrink: 0;
     margin-left: 4px;
 }
 
