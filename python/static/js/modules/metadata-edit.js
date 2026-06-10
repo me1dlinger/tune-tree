@@ -108,7 +108,7 @@ function renderEditModal(track) {
           <i class="bi bi-file-text"></i>
           编辑歌词
         </button>
-        ${scrapedData ? `<div class="scrape-success">已从 ${scrapedData._source} 获取元数据</div>` : ''}
+        ${scrapedData ? `<div class="scrape-success">已从 ${{ cloud: '网易云音乐', qq: 'QQ音乐', kugou: '酷狗音乐' }[scrapedData._source] || scrapedData._source} 获取元数据</div>` : ''}
       </div>
       <div class="edit-field">
         <label>歌名</label>
