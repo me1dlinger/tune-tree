@@ -166,6 +166,7 @@ def scan_library(root: str) -> dict:
 
     audio_files = []
     for dirpath, dirnames, filenames in os.walk(root_path):
+        dirnames[:] = [d for d in dirnames if d != ".upload_temp"]
         dirnames.sort()
         for filename in filenames:
             if Path(filename).suffix.lower() in AUDIO_EXTS:

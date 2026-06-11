@@ -4986,3 +4986,120 @@ body {
     color: var(--text3);
     padding: 4px 0;
 }
+
+/* Upload conflict modal */
+.upload-conflict-modal {
+    width: 90%;
+    max-width: 560px;
+}
+
+.upload-conflict-desc {
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 12px;
+}
+
+.upload-conflict-list {
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.upload-conflict-item {
+    padding: 10px 12px;
+    border-radius: var(--radius2);
+    background: var(--bg2);
+    margin-bottom: 8px;
+}
+
+.upload-conflict-new {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.upload-conflict-new i {
+    color: var(--accent);
+    font-size: 14px;
+}
+
+.upload-conflict-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-conflict-meta {
+    font-size: 11px;
+    color: var(--text3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-conflict-existing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--amber);
+    padding-left: 22px;
+}
+
+.upload-conflict-existing i {
+    font-size: 12px;
+}
+
+.upload-conflict-dir {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text2);
+    background: var(--bg3);
+    padding: 1px 5px;
+    border-radius: var(--radius);
+}
+
+.upload-conflict-filename {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text2);
+    background: var(--bg3);
+    padding: 1px 5px;
+    border-radius: var(--radius);
+}
+
+.upload-conflict-newinfo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text3);
+}
+
+.upload-conflict-newinfo i {
+    color: var(--accent);
+}
+
+.upload-conflict-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.upload-conflict-actions .toolbar-btn {
+    font-size: 12px;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}

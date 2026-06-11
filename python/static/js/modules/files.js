@@ -326,3 +326,169 @@ async function downloadFileOrDir(filePath, fileName, isDir) {
     showToast(`下载失败: ${e.message}`, 'error');
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   UPLOAD
+   ═══════════════════════════════════════════════════════════ */
+
+let _uploadCheckResult = null;
+
+function triggerFileUpload() {
+  const input = document.getElementById('file-upload-input');
+  input.value = '';
+  input.click();
+}
+
+async function handleFileUpload(fileList) {
+  if (!fileList || fileList.length === 0) return;
+
+  const files = Array.from(fileList);
+  const valid = files.filter(f => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    return ext === 'flac' || ext === 'mp3';
+  });
+  const invalid = files.filter(f => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    return ext !== 'flac' && ext !== 'mp3';
+  });
+
+  if (invalid.length > 0) {
+    showToast(`${invalid.length} 个文件格式不支持，已过滤（仅支持 FLAC/MP3）`, 'warn');
+  }
+
+  if (valid.length === 0) {
+    showToast('没有可上传的文件', 'warn');
+    return;
+  }
+
+  const btn = document.getElementById('file-upload-btn');
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> 检查中...';
+  btn.disabled = true;
+
+  try {
+    const formData = new FormData();
+    for (const f of valid) {
+      formData.append('files', f);
+    }
+
+    const result = await apiUpload('/files/upload-check', formData);
+
+    if (result.errors && result.errors.length > 0) {
+      const errMsgs = result.errors.map(e => e.error).join('；');
+      showToast(errMsgs, 'warn');
+    }
+
+    if (result.conflicts.length === 0) {
+      if (result.new_files.length === 0) {
+        showToast('没有可上传的文件', 'warn');
+        return;
+      }
+      const resolve = {};
+      for (const f of result.new_files) {
+        resolve[f.temp_id] = 'new';
+      }
+      await doUploadCommit(resolve, {});
+    } else {
+      _uploadCheckResult = result;
+      showUploadConflictModal(result.conflicts, result.new_files);
+    }
+  } catch (e) {
+    showToast(`检查失败: ${e.message}`, 'error');
+  } finally {
+    btn.innerHTML = origHTML;
+    btn.disabled = false;
+  }
+}
+
+function showUploadConflictModal(conflicts, newFiles) {
+  const list = document.getElementById('upload-conflict-list');
+  list.innerHTML = conflicts.map(c => {
+    const ex = c.existing;
+    return `
+    <div class="upload-conflict-item">
+      <div class="upload-conflict-new">
+        <i class="bi bi-music-note"></i>
+        <span class="upload-conflict-name">${esc(c.title)}</span>
+        <span class="upload-conflict-meta">${esc(c.artist)}${c.album ? ' · ' + esc(c.album) : ''}</span>
+      </div>
+      <div class="upload-conflict-existing">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        已存在于 <span class="upload-conflict-dir">${esc(ex.rel_dir)}</span>
+        <span class="upload-conflict-filename">${esc(ex.filename)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  const newCount = newFiles.length;
+  if (newCount > 0) {
+    list.innerHTML += `
+    <div class="upload-conflict-newinfo">
+      <i class="bi bi-plus-circle"></i>
+      另有 ${newCount} 首新歌曲将直接上传到当前目录
+    </div>`;
+  }
+
+  openModal('upload-conflict-modal');
+}
+
+async function uploadResolveAll(action) {
+  closeModal('upload-conflict-modal');
+
+  if (!_uploadCheckResult) return;
+  const result = _uploadCheckResult;
+  _uploadCheckResult = null;
+
+  if (action === 'cancel') {
+    await POST('/files/upload-cancel', { temp_ids: [...result.conflicts.map(c => c.temp_id), ...result.new_files.map(f => f.temp_id)] });
+    return;
+  }
+
+  const resolve = {};
+  const overwriteIds = {};
+
+  for (const f of result.new_files) {
+    resolve[f.temp_id] = 'new';
+  }
+
+  for (const c of result.conflicts) {
+    if (action === 'overwrite') {
+      resolve[c.temp_id] = 'overwrite';
+      overwriteIds[c.temp_id] = c.existing.id;
+    } else {
+      resolve[c.temp_id] = 'skip';
+    }
+  }
+
+  await doUploadCommit(resolve, overwriteIds);
+}
+
+async function doUploadCommit(resolve, overwriteIds) {
+  const btn = document.getElementById('file-upload-btn');
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> 上传中...';
+  btn.disabled = true;
+
+  try {
+    const result = await POST('/files/upload-commit', {
+      path: filePath,
+      resolve,
+      overwrite_ids: overwriteIds,
+    });
+
+    const parts = [];
+    if (result.uploaded.length > 0) parts.push(`${result.uploaded.length} 个文件已上传`);
+    if (result.skipped.length > 0) parts.push(`${result.skipped.length} 个文件已跳过`);
+    if (result.errors.length > 0) parts.push(`${result.errors.length} 个文件失败`);
+    showToast(parts.join('，'), result.errors.length > 0 ? 'warn' : 'success');
+
+    if (result.uploaded.length > 0) {
+      fetchFiles();
+    }
+  } catch (e) {
+    showToast(`上传失败: ${e.message}`, 'error');
+  } finally {
+    btn.innerHTML = origHTML;
+    btn.disabled = false;
+  }
+}

@@ -22,6 +22,7 @@ import threading
 import zipfile
 import io
 import os
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -77,6 +78,7 @@ from repository.track_repository import (
     delete_track_by_id,
     update_track_metadata,
     insert_track,
+    update_track_by_path,
     recalc_pending,
     commit,
 )
@@ -84,6 +86,10 @@ from repository.artist_repository import (
     get_artist_stats as repo_get_artist_stats,
     get_artists_without_cover,
     get_artist_by_id,
+    ensure_artist,
+)
+from repository.album_repository import (
+    ensure_album,
 )
 from services.similarity_service import find_similar_artists
 
@@ -731,6 +737,7 @@ def api_artist_scrape_cover(artist_id: int):
         img.save(cover_path, "JPEG", quality=90)
         if not artist_row["cover_path"]:
             from repository.artist_repository import update_artist
+
             update_artist(artist_id, cover_path=str(cover_path))
 
     except Exception as exc:
@@ -1174,6 +1181,8 @@ def api_files():
                 try:
                     if not entry.is_file():
                         continue
+                    if ".upload_temp" in entry.relative_to(base).parts:
+                        continue
                     ext = entry.suffix.lower().lstrip(".")
                     if ext not in ("mp3", "flac"):
                         continue
@@ -1231,6 +1240,8 @@ def api_files():
     entries_data = []
     for entry in entries:
         try:
+            if entry.name == ".upload_temp" and cur == base:
+                continue
             stat = entry.stat()
             is_dir = entry.is_dir()
             ext = entry.suffix.lower().lstrip(".") if not is_dir else "dir"
@@ -1732,6 +1743,373 @@ def api_scrape_all(track_id: int):
         )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+ALLOWED_UPLOAD_EXTS = {"flac", "mp3"}
+_upload_temp_dir = Path(MUSIC_ROOT) / ".upload_temp"
+
+
+def _find_matching_track(artist: str | None, album: str | None, title: str | None):
+    """Find a track in DB matching artist + album + title (all normalized).
+
+    Uses broad SQL query (matching on raw or normalized title) then
+    Python-side normalize_str() verification for reliable Unicode matching.
+    """
+    if not title:
+        return None
+    db = get_db()
+    norm_title = normalize_str(title)
+    norm_artist = normalize_str(artist) if artist else ""
+    norm_album = normalize_str(album) if album else ""
+    params: list[str] = [title, norm_title]
+    where_parts = ["(t.title = ? OR t.title = ?)"]
+    if norm_artist:
+        where_parts.append("t.artist = ?")
+        params.append(artist or "")
+    if album:
+        where_parts.append("t.album = ?")
+        params.append(album or "")
+    rows = db.execute(
+        "SELECT t.*, ar.name as artist_name FROM tracks t "
+        "LEFT JOIN artists ar ON t.artist_id = ar.id "
+        "WHERE " + " AND ".join(where_parts),
+        tuple(params),
+    ).fetchall()
+    for row in rows:
+        if normalize_str(row["title"] or "") != norm_title:
+            continue
+        if norm_artist and normalize_str(row["artist"] or "") != norm_artist:
+            continue
+        if norm_album and normalize_str(row["album"] or "") != norm_album:
+            continue
+        return row
+    return None
+
+
+@api_bp.route("/api/files/upload-check", methods=["POST"])
+@require_auth
+def api_files_upload_check():
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"ok": False, "error": "未选择文件"}), 400
+
+    _upload_temp_dir.mkdir(parents=True, exist_ok=True)
+
+    conflicts = []
+    new_files = []
+    errors = []
+
+    for f in files:
+        filename = f.filename
+        if not filename:
+            errors.append({"name": "", "error": "文件名为空"})
+            continue
+
+        ext = Path(filename).suffix.lower().lstrip(".")
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            errors.append(
+                {"name": filename, "error": f"不支持的格式 .{ext}，仅支持 FLAC/MP3"}
+            )
+            continue
+
+        temp_id = f"{int(time.time() * 1000)}_{filename}"
+        temp_path = _upload_temp_dir / temp_id
+
+        try:
+            f.save(str(temp_path))
+        except OSError as e:
+            errors.append({"name": filename, "error": str(e)})
+            continue
+
+        try:
+            meta = read_metadata(str(temp_path))
+        except Exception as e:
+            temp_path.unlink(missing_ok=True)
+            errors.append({"name": filename, "error": f"读取元数据失败: {e}"})
+            continue
+
+        artist = normalize_str(meta.get("artist") or "")
+        album = meta.get("album") or ""
+        title = meta.get("title") or ""
+
+        existing = _find_matching_track(artist or None, album or None, title or None)
+
+        file_info = {
+            "temp_id": temp_id,
+            "name": filename,
+            "size": temp_path.stat().st_size,
+            "title": title or filename,
+            "artist": artist,
+            "album": album,
+        }
+
+        if existing:
+            rel_path = (
+                str(Path(existing["path"]).relative_to(Path(MUSIC_ROOT)))
+                if existing["path"]
+                else ""
+            )
+            file_info["existing"] = {
+                "id": existing["id"],
+                "path": existing["path"],
+                "rel_dir": str(Path(rel_path).parent) if rel_path else "",
+                "filename": Path(existing["path"]).name if existing["path"] else "",
+                "title": existing["title"],
+                "artist": existing["artist_name"] or existing["artist"],
+                "album": existing["album"],
+            }
+            conflicts.append(file_info)
+        else:
+            new_files.append(file_info)
+
+    return jsonify(
+        {
+            "ok": True,
+            "conflicts": conflicts,
+            "new_files": new_files,
+            "errors": errors,
+        }
+    )
+
+
+@api_bp.route("/api/files/upload-commit", methods=["POST"])
+@require_auth
+def api_files_upload_commit():
+    data = request.get_json(force=True)
+    target = data.get("path", "").lstrip("/")
+    resolve = data.get("resolve", {})
+
+    base = Path(MUSIC_ROOT)
+    cur = (base / target).resolve()
+    if not str(cur).startswith(str(base.resolve())):
+        abort(403)
+    if not cur.is_dir():
+        abort(400)
+
+    uploaded = []
+    skipped = []
+    errors = []
+
+    for temp_id, action in resolve.items():
+        temp_path = _upload_temp_dir / temp_id
+        if not temp_path.exists():
+            errors.append({"name": temp_id, "error": "临时文件不存在"})
+            continue
+
+        if action == "skip":
+            temp_path.unlink(missing_ok=True)
+            skipped.append(
+                {"name": temp_id.split("_", 1)[-1] if "_" in temp_id else temp_id}
+            )
+            continue
+
+        try:
+            if action == "overwrite":
+                existing_id = data.get("overwrite_ids", {}).get(temp_id)
+                if not existing_id:
+                    temp_path.unlink(missing_ok=True)
+                    errors.append({"name": temp_id, "error": "缺少覆盖目标ID"})
+                    continue
+
+                existing_row = get_track_by_id(existing_id)
+                if not existing_row:
+                    temp_path.unlink(missing_ok=True)
+                    errors.append({"name": temp_id, "error": "目标曲目不存在"})
+                    continue
+
+                existing_path = Path(existing_row["path"])
+                dest = existing_path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+
+                shutil.move(str(temp_path), str(dest))
+
+                _ingest_uploaded_file(dest, existing_row["id"])
+                uploaded.append(
+                    {
+                        "name": dest.name,
+                        "size": dest.stat().st_size,
+                        "path": str(dest.relative_to(base)),
+                    }
+                )
+            else:
+                dest = cur / (temp_id.split("_", 1)[-1] if "_" in temp_id else temp_id)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+
+                shutil.move(str(temp_path), str(dest))
+
+                _ingest_uploaded_file(dest)
+                uploaded.append(
+                    {
+                        "name": dest.name,
+                        "size": dest.stat().st_size,
+                        "path": str(dest.relative_to(base)),
+                    }
+                )
+        except Exception as e:
+            logger.error(f"上传提交失败 {temp_id}: {e}")
+            temp_path.unlink(missing_ok=True)
+            errors.append({"name": temp_id, "error": str(e)})
+
+    for leftover in _upload_temp_dir.iterdir():
+        try:
+            if leftover.is_file():
+                age = time.time() - leftover.stat().st_mtime
+                if age > 3600:
+                    leftover.unlink()
+        except OSError:
+            pass
+
+    return jsonify(
+        {
+            "ok": True,
+            "uploaded": uploaded,
+            "skipped": skipped,
+            "errors": errors,
+        }
+    )
+
+
+def _ingest_uploaded_file(dest: Path, existing_track_id: int | None = None):
+    """Read metadata from an uploaded file and insert/update the tracks table + link artist/album."""
+
+    path_str = str(dest)
+    stat = dest.stat()
+    mtime = stat.st_mtime
+    ctime = stat.st_ctime
+    size = stat.st_size
+    ext = dest.suffix.lower().lstrip(".")
+    filename = dest.name
+    scanned_at = time.time()
+
+    meta = read_metadata(path_str)
+    missing = [f for f in ("title", "artist", "album") if not meta.get(f)]
+    pending = 1 if missing else 0
+    missing_str = ",".join(missing) if missing else ""
+
+    artist_name = normalize_str(meta.get("artist") or "")
+    album_name = meta.get("album") or ""
+    album_artist_name = meta.get("album_artist") or ""
+    track_artist_name = artist_name
+    year = meta.get("year")
+
+    effective_artist = album_artist_name or artist_name
+    artist_id = None
+    album_id = None
+    if effective_artist:
+        artist_id = ensure_artist(effective_artist)
+        if album_name:
+            album_id = ensure_album(album_name, artist_id, year=year)
+
+    if existing_track_id:
+        update_track_metadata(
+            existing_track_id,
+            {
+                "title": meta["title"],
+                "artist": artist_name or None,
+                "album": album_name,
+                "album_artist": meta["album_artist"],
+                "year": year,
+                "track_num": meta["track_num"],
+                "disc_num": meta["disc_num"],
+                "duration": meta["duration"],
+                "sample_rate": meta["sample_rate"],
+                "bitrate": meta["bitrate"],
+                "has_cover": meta["has_cover"],
+                "has_lyrics": meta["has_lyrics"],
+                "artist_id": artist_id,
+                "album_id": album_id,
+                "track_artist": track_artist_name,
+            },
+        )
+        db = get_db()
+        db.execute(
+            "UPDATE tracks SET filename=?, ext=?, size=?, mtime=?, ctime=?, pending=?, missing_tags=?, scanned_at=? WHERE id=?",
+            (
+                filename,
+                ext,
+                size,
+                mtime,
+                ctime,
+                pending,
+                missing_str,
+                scanned_at,
+                existing_track_id,
+            ),
+        )
+        db.commit()
+    else:
+        existing = get_track_by_path(path_str)
+        if existing:
+            update_track_by_path(
+                filename,
+                ext,
+                size,
+                mtime,
+                ctime,
+                meta["title"],
+                artist_name or None,
+                album_name,
+                meta["album_artist"],
+                year,
+                meta["track_num"],
+                meta["disc_num"],
+                meta["duration"],
+                meta["sample_rate"],
+                meta["bitrate"],
+                meta["has_cover"],
+                meta["has_lyrics"],
+                pending,
+                missing_str,
+                scanned_at,
+                path_str,
+                artist_id,
+                album_id,
+                track_artist_name,
+            )
+        else:
+            insert_track(
+                path_str,
+                filename,
+                ext,
+                size,
+                mtime,
+                ctime,
+                meta["title"],
+                artist_name or None,
+                album_name,
+                meta["album_artist"],
+                year,
+                meta["track_num"],
+                meta["disc_num"],
+                meta["duration"],
+                meta["sample_rate"],
+                meta["bitrate"],
+                meta["has_cover"],
+                meta["has_lyrics"],
+                pending,
+                missing_str,
+                scanned_at,
+                artist_id,
+                album_id,
+                track_artist_name,
+            )
+
+
+@api_bp.route("/api/files/upload-cancel", methods=["POST"])
+@require_auth
+def api_files_upload_cancel():
+    data = request.get_json(force=True)
+    temp_ids = data.get("temp_ids", [])
+    removed = 0
+    for temp_id in temp_ids:
+        temp_path = _upload_temp_dir / temp_id
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return jsonify({"ok": True, "removed": removed})
 
 
 @api_bp.route("/api/files/audio-count")

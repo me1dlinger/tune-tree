@@ -144,6 +144,11 @@
                 <i class="bi bi-search"></i>
                 批量搜索标签
               </button>
+              <button class="toolbar-btn" id="file-upload-btn" onclick="triggerFileUpload()">
+                <i class="bi bi-upload"></i>
+                上传
+              </button>
+              <input type="file" id="file-upload-input" multiple accept=".flac,.mp3" style="display:none;" onchange="handleFileUpload(this.files)">
               <button class="toolbar-btn" id="file-select-toggle" onclick="toggleFileSelectMode()">
                 <i class="bi bi-check-lg"></i>
                 <span id="file-select-text">多选</span>
@@ -523,6 +528,30 @@
       </div>
       <div class="modal-body" id="similar-detail-body">
         <div class="loading-row">加载中...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="upload-conflict-modal">
+    <div class="modal upload-conflict-modal">
+      <div class="modal-header">
+        <div class="modal-title">发现重复歌曲</div>
+        <button class="modal-close" onclick="closeModal('upload-conflict-modal')">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <p class="upload-conflict-desc">以下歌曲在库中已存在，请选择处理方式：</p>
+        <div class="upload-conflict-list" id="upload-conflict-list"></div>
+        <div class="upload-conflict-actions">
+          <button class="toolbar-btn" onclick="uploadResolveAll('overwrite')">
+            <i class="bi bi-arrow-repeat"></i> 全部覆盖
+          </button>
+          <button class="toolbar-btn" onclick="uploadResolveAll('skip')">
+            <i class="bi bi-skip-forward"></i> 全部跳过
+          </button>
+          <button class="toolbar-btn" onclick="uploadResolveAll('cancel')">
+            取消
+          </button>
+        </div>
       </div>
     </div>
   </div>
