@@ -182,13 +182,15 @@ function renderBatchCards() {
   const activeCards = batchCards.filter(c => !c.removed);
 
   if (activeCards.length === 0) {
-    body.innerHTML = `
-      <div class="scrape-empty-state">
-        <i class="bi bi-check-circle" style="font-size: 24px;"></i>
-        <div>所有卡片已处理完毕</div>
-      </div>
-    `;
-    updateBatchFooter();
+    const appliedCount = batchCards.filter(c => c.applied).length;
+    const skippedCount = batchCards.filter(c => c.removed && !c.applied).length;
+    const parts = [];
+    if (appliedCount > 0) parts.push(`已应用 ${appliedCount} 首`);
+    if (skippedCount > 0) parts.push(`跳过 ${skippedCount} 首`);
+    if (parts.length > 0) {
+      showToast(parts.join('，'), 'success');
+    }
+    closeBatchScrapeModal();
     return;
   }
 
@@ -556,10 +558,28 @@ async function saveBatchCardEdit(cardIndex) {
    CARD ACTIONS
    ═══════════════════════════════════════════════════════════ */
 
+function isCardEffectivelyUnchanged(card) {
+  const fields = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year'];
+  for (const key of fields) {
+    const effective = getBatchCardEffectiveVal(card, key);
+    const origRaw = card.original[key];
+    const origVal = (origRaw != null && String(origRaw) !== '') ? String(origRaw) : '';
+    if (effective !== origVal) return false;
+  }
+  return true;
+}
+
 async function applyBatchCard(cardIndex) {
   if (batchApplying) return;
   const card = batchCards[cardIndex];
   if (!card || card.applied || card.noResult) return;
+
+  if (isCardEffectivelyUnchanged(card)) {
+    card.applied = true;
+    showToast(`无变更，已跳过: ${card.trackTitle || card.filename}`, 'info');
+    animateCardOut(cardIndex);
+    return;
+  }
 
   batchApplying = true;
   try {
@@ -773,11 +793,23 @@ async function applyAllBatchCards() {
   }
 
   let successCount = 0;
+  let skipCount = 0;
   let failCount = 0;
 
   for (const card of activeCards) {
     try {
+      if (isCardEffectivelyUnchanged(card)) {
+        card.applied = true;
+        card.removed = true;
+        skipCount++;
+        continue;
+      }
       const applyData = { ...card.best };
+      for (const key of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year']) {
+        if (card.userInput[key]) {
+          applyData[key] = card.userInput[key];
+        }
+      }
       await POST(`/tracks/${card.trackId}/apply-scrape`, applyData);
       card.applied = true;
       card.removed = true;
@@ -793,8 +825,12 @@ async function applyAllBatchCards() {
     applyAllBtn.classList.remove('loading');
   }
 
-  if (successCount > 0) {
-    showToast(`已应用 ${successCount} 首歌曲的元数据${failCount > 0 ? `，${failCount} 首失败` : ''}`, 'success');
+  const parts = [];
+  if (successCount > 0) parts.push(`已应用 ${successCount} 首`);
+  if (skipCount > 0) parts.push(`跳过 ${skipCount} 首（无变更）`);
+  if (failCount > 0) parts.push(`${failCount} 首失败`);
+  if (parts.length > 0) {
+    showToast(parts.join('，'), successCount > 0 ? 'success' : 'info');
   }
 
   closeBatchScrapeModal();
