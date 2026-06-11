@@ -7,22 +7,22 @@
 /** 当前登录 Token */
 let TOKEN = '';
 
-/** 当前选中艺术家对象 { artist, album_count, track_count, all_organized } */
+/** 当前选中艺术家对象 { id, name, album_count, track_count, all_organized } */
 let currentArtist = null;
 
-/** 当前选中专辑名称 */
+/** 当前选中专辑 id */
 let currentAlbum = null;
 
 /** 当前艺术家的专辑列表 */
 let artistAlbums = [];
 
-/** 已勾选的专辑名称集合 */
+/** 已勾选的专辑 id 集合 */
 let selectedAlbums = new Set();
 
 /** 已勾选的曲目 id 集合 */
 let selectedTracks = new Set();
 
-/** 已勾选的艺术家名称集合（最多10个） */
+/** 已勾选的艺术家 id 集合（最多10个） */
 let selectedArtists = new Set();
 
 /** 当前激活的页面名称 */

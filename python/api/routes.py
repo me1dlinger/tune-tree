@@ -52,12 +52,13 @@ from repository.track_repository import (
     get_tracks_by_ids,
     get_track_by_filename_and_album,
     get_track_by_filename,
-    get_tracks_by_artist_and_album,
+    get_tracks_by_artist_id,
+    get_tracks_by_album_id,
     get_pending_tracks,
     get_duplicate_tracks,
     get_artists,
-    get_albums_by_artist,
-    get_artist_full_info,
+    get_artist_full_info_by_id,
+    get_artist_directory_path_by_id,
     count_total_tracks,
     count_total_artists,
     count_total_albums,
@@ -85,6 +86,72 @@ api_bp = Blueprint("api", __name__)
 
 SCAN_TIMEOUT_HOURS = 1
 scraper = MetadataScraper()
+
+
+def _relink_track_artist_album(track_id: int):
+    from repository.artist_repository import (
+        ensure_artist,
+        get_artist_by_name,
+        delete_artist,
+    )
+    from repository.album_repository import (
+        ensure_album,
+        get_album_by_title_and_artist,
+        delete_album,
+        get_album_by_id,
+    )
+
+    row = get_track_by_id(track_id)
+    if not row:
+        return
+    new_artist_name = row["artist"]
+    new_album_name = row["album"]
+    if not new_artist_name:
+        return
+
+    old_artist_id = row["artist_id"]
+    old_album_id = row["album_id"]
+
+    old_album = get_album_by_id(old_album_id) if old_album_id else None
+    old_artist = get_artist_by_id(old_artist_id) if old_artist_id else None
+
+    new_artist_id = ensure_artist(new_artist_name)
+    new_album_id = None
+    if new_album_name:
+        new_album_id = ensure_album(new_album_name, new_artist_id, year=row["year"])
+
+    update_track_metadata(
+        track_id,
+        {
+            "artist_id": new_artist_id,
+            "album_id": new_album_id,
+            "track_artist": new_artist_name,
+        },
+    )
+
+    if old_album_id and old_album_id != new_album_id:
+        remaining = get_tracks_by_album_id(old_album_id)
+        if not remaining:
+            delete_album(old_album_id)
+
+    if old_artist_id and old_artist_id != new_artist_id:
+        if old_album_id and old_album_id != new_album_id:
+            remaining_in_old_album = (
+                get_db()
+                .execute(
+                    "SELECT COUNT(*) FROM tracks WHERE album_id=? AND artist_id=?",
+                    (old_album_id, old_artist_id),
+                )
+                .fetchone()[0]
+            )
+            if remaining_in_old_album == 0 and old_album:
+                remaining_album_tracks = get_tracks_by_album_id(old_album_id)
+                if not remaining_album_tracks:
+                    delete_album(old_album_id)
+
+        remaining_albums = get_albums_by_artist_id(old_artist_id)
+        if not remaining_albums:
+            delete_artist(old_artist_id)
 
 
 def _check_scan_timeout():
@@ -171,17 +238,17 @@ def api_artists():
     return jsonify([dict(r) for r in rows])
 
 
-@api_bp.route("/api/artists/<path:artist>/albums")
+@api_bp.route("/api/artists/<int:artist_id>/albums")
 @require_auth
-def api_artist_albums(artist: str):
-    rows = get_albums_by_artist(artist)
+def api_artist_albums(artist_id: int):
+    rows = get_albums_by_artist_id(artist_id)
     return jsonify([dict(r) for r in rows])
 
 
-@api_bp.route("/api/artists/<path:artist>/albums/<path:album>/tracks")
+@api_bp.route("/api/albums/<int:album_id>/tracks")
 @require_auth
-def api_album_tracks(artist: str, album: str):
-    rows = get_tracks_by_artist_and_album(artist, album)
+def api_album_tracks(album_id: int):
+    rows = get_tracks_by_album_id(album_id)
     return jsonify([dict(r) for r in rows])
 
 
@@ -201,10 +268,19 @@ def api_track_download(track_id: int):
     return send_file(track_path, as_attachment=True, download_name=download_name)
 
 
-@api_bp.route("/api/artists/<path:artist>/albums/<path:album>/download")
+@api_bp.route("/api/albums/<int:album_id>/download")
 @require_auth
-def api_album_download(artist: str, album: str):
-    rows = get_tracks_by_artist_and_album(artist, album)
+def api_album_download(album_id: int):
+    from repository.album_repository import get_album_by_id
+
+    album = get_album_by_id(album_id)
+    if not album:
+        abort(404)
+    artist_row = get_artist_by_id(album["artist_id"]) if album["artist_id"] else None
+    artist_name = artist_row["name"] if artist_row else "Unknown"
+    album_title = album["title"] or "Unknown"
+
+    rows = get_tracks_by_album_id(album_id)
     if not rows:
         abort(404)
 
@@ -217,8 +293,8 @@ def api_album_download(artist: str, album: str):
                 zipf.write(track_path, arcname)
 
     zip_buffer.seek(0)
-    safe_artist = safe_filename(artist)
-    safe_album = safe_filename(album)
+    safe_artist = safe_filename(artist_name)
+    safe_album = safe_filename(album_title)
     zipname = f"{safe_artist} - {safe_album}.zip"
     return send_file(
         zip_buffer,
@@ -228,10 +304,15 @@ def api_album_download(artist: str, album: str):
     )
 
 
-@api_bp.route("/api/artists/<path:artist>/download")
+@api_bp.route("/api/artists/<int:artist_id>/download")
 @require_auth
-def api_artist_download(artist: str):
-    rows = get_tracks_by_artist(artist)
+def api_artist_download(artist_id: int):
+    artist_row = get_artist_by_id(artist_id)
+    if not artist_row:
+        abort(404)
+    artist_name = artist_row["name"]
+
+    rows = get_tracks_by_artist_id(artist_id)
     if not rows:
         abort(404)
 
@@ -245,7 +326,7 @@ def api_artist_download(artist: str):
                 zipf.write(track_path, arcname)
 
     zip_buffer.seek(0)
-    zipname = f"{safe_filename(artist)}.zip"
+    zipname = f"{safe_filename(artist_name)}.zip"
 
     return send_file(
         zip_buffer,
@@ -284,8 +365,8 @@ def api_tracks_batch_download():
         for row in rows:
             track_path = Path(row["path"])
             if track_path.exists():
-                artist = safe_filename(row.get("artist", "Unknown"))
-                album = safe_filename(row.get("album", "Unknown"))
+                artist = safe_filename(row["artist"] or "Unknown")
+                album = safe_filename(row["album"] or "Unknown")
                 track_name = track_path.name
                 arcname = f"{artist}/{album}/{track_name}"
                 zipf.write(track_path, arcname)
@@ -359,34 +440,40 @@ def safe_filename(name: str) -> str:
     return result or "Unknown"
 
 
-@api_bp.route("/api/artists/<path:artist>/full")
+@api_bp.route("/api/artists/<int:artist_id>/full")
 @require_auth
-def api_artist_full(artist: str):
-    result = get_artist_full_info(artist)
+def api_artist_full(artist_id: int):
+    result = get_artist_full_info_by_id(artist_id)
+    if not result:
+        abort(404)
     return jsonify(result)
 
 
-from repository.track_repository import get_artist_directory_path
+from repository.album_repository import (
+    get_album_by_id,
+    get_albums_by_artist_id,
+    update_album as update_album_repo,
+)
+from repository.artist_repository import get_artist_by_id
+from models.db import get_db
 
 ARTIST_COVER_FILENAME = "cover.jpg"
+ALBUM_COVER_FILENAME = "cover.jpg"
 MAX_ARTIST_COVER_SIZE = 5 * 1024 * 1024
 
 
-@api_bp.route("/api/artists/<path:artist>/cover", methods=["GET"])
+@api_bp.route("/api/artists/<int:artist_id>/cover", methods=["GET"])
 @require_auth
-def api_artist_cover_get(artist: str):
-    artist_dir = get_artist_directory_path(artist)
+def api_artist_cover_get(artist_id: int):
+    artist_dir = get_artist_directory_path_by_id(artist_id)
     if not artist_dir:
         abort(404)
     cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
     if not cover_path.exists():
         abort(404)
 
-    import os
-
     file_mtime = int(cover_path.stat().st_mtime)
-    artist_hash = hashlib.md5(artist.encode("utf-8")).hexdigest()[:8]
-    etag = f'"{artist_hash}-{file_mtime}"'
+    etag = f'"{artist_id}-{file_mtime}"'
 
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
@@ -407,10 +494,10 @@ def api_artist_cover_get(artist: str):
     )
 
 
-@api_bp.route("/api/artists/<path:artist>/cover", methods=["POST"])
+@api_bp.route("/api/artists/<int:artist_id>/cover", methods=["POST"])
 @require_auth
-def api_artist_cover_upload(artist: str):
-    artist_dir = get_artist_directory_path(artist)
+def api_artist_cover_upload(artist_id: int):
+    artist_dir = get_artist_directory_path_by_id(artist_id)
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
 
@@ -441,16 +528,16 @@ def api_artist_cover_upload(artist: str):
         img.save(cover_path, "JPEG", quality=90)
 
     except Exception as exc:
-        logger.error("artist cover write error %s: %s", artist, exc)
+        logger.error("artist cover write error %d: %s", artist_id, exc)
         return jsonify({"error": str(exc)}), 500
 
     return jsonify({"ok": True, "path": str(cover_path)})
 
 
-@api_bp.route("/api/artists/<path:artist>/cover/exists", methods=["GET"])
+@api_bp.route("/api/artists/<int:artist_id>/cover/exists", methods=["GET"])
 @require_auth
-def api_artist_cover_exists(artist: str):
-    artist_dir = get_artist_directory_path(artist)
+def api_artist_cover_exists(artist_id: int):
+    artist_dir = get_artist_directory_path_by_id(artist_id)
     if not artist_dir:
         return jsonify({"exists": False})
 
@@ -460,10 +547,10 @@ def api_artist_cover_exists(artist: str):
     return jsonify({"exists": exists})
 
 
-@api_bp.route("/api/artists/<path:artist>/cover", methods=["DELETE"])
+@api_bp.route("/api/artists/<int:artist_id>/cover", methods=["DELETE"])
 @require_auth
-def api_artist_cover_delete(artist: str):
-    artist_dir = get_artist_directory_path(artist)
+def api_artist_cover_delete(artist_id: int):
+    artist_dir = get_artist_directory_path_by_id(artist_id)
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
 
@@ -474,22 +561,151 @@ def api_artist_cover_delete(artist: str):
     try:
         cover_path.unlink()
     except Exception as exc:
-        logger.error("artist cover delete error %s: %s", artist, exc)
+        logger.error("artist cover delete error %d: %s", artist_id, exc)
         return jsonify({"error": str(exc)}), 500
 
     return jsonify({"ok": True})
 
 
-@api_bp.route("/api/artists/<path:artist>/scrape-cover", methods=["POST"])
+@api_bp.route("/api/albums/<int:album_id>/cover", methods=["GET"])
 @require_auth
-def api_artist_scrape_cover(artist: str):
-    artist_dir = get_artist_directory_path(artist)
+def api_album_cover_get(album_id: int):
+    album = get_album_by_id(album_id)
+    if not album:
+        abort(404)
+
+    artist_row = get_artist_by_id(album["artist_id"]) if album["artist_id"] else None
+    if not artist_row:
+        abort(404)
+
+    album_dir = Path(MUSIC_ROOT) / artist_row["dir_name"] / album["dir_name"]
+    cover_path = album_dir / ALBUM_COVER_FILENAME
+
+    if not cover_path.exists():
+        first_track = (
+            get_db()
+            .execute(
+                "SELECT path FROM tracks WHERE album_id=? AND has_cover=1 ORDER BY disc_num, track_num LIMIT 1",
+                (album_id,),
+            )
+            .fetchone()
+        )
+        if first_track:
+            from utils.metadata import extract_cover_to_file
+
+            if extract_cover_to_file(first_track["path"], str(cover_path)):
+                update_album_repo(album_id, cover_path=str(cover_path))
+            else:
+                abort(404)
+        else:
+            abort(404)
+
+    file_mtime = int(cover_path.stat().st_mtime)
+    etag = f'"{album_id}-{file_mtime}"'
+
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+
+    with open(cover_path, "rb") as f:
+        image_data = f.read()
+
+    return Response(
+        image_data,
+        mimetype="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=0, must-revalidate",
+            "ETag": etag,
+            "Last-Modified": datetime.fromtimestamp(file_mtime).strftime(
+                "%a, %d %b %Y %H:%M:%S GMT"
+            ),
+        },
+    )
+
+
+@api_bp.route("/api/albums/<int:album_id>/cover/exists", methods=["GET"])
+@require_auth
+def api_album_cover_exists(album_id: int):
+    album = get_album_by_id(album_id)
+    if not album:
+        return jsonify({"exists": False})
+
+    artist_row = get_artist_by_id(album["artist_id"]) if album["artist_id"] else None
+    if not artist_row:
+        return jsonify({"exists": False})
+
+    cover_path = (
+        Path(MUSIC_ROOT)
+        / artist_row["dir_name"]
+        / album["dir_name"]
+        / ALBUM_COVER_FILENAME
+    )
+    return jsonify({"exists": cover_path.exists()})
+
+
+@api_bp.route("/api/albums/<int:album_id>/cover", methods=["POST"])
+@require_auth
+def api_album_cover_upload(album_id: int):
+    album = get_album_by_id(album_id)
+    if not album:
+        return jsonify({"error": "album not found"}), 404
+
+    artist_row = get_artist_by_id(album["artist_id"]) if album["artist_id"] else None
+    if not artist_row:
+        return jsonify({"error": "artist not found"}), 404
+
+    if "cover" not in request.files:
+        return jsonify({"error": "cover file required"}), 400
+
+    f = request.files["cover"]
+    if not f.filename:
+        return jsonify({"error": "cover file required"}), 400
+
+    mime = f.mimetype
+    if mime not in ("image/jpeg", "image/png"):
+        return jsonify({"error": "only JPEG/PNG format supported"}), 400
+
+    image_data = f.read()
+    if len(image_data) > MAX_ARTIST_COVER_SIZE:
+        return jsonify({"error": "cover file too large (max 5MB)"}), 400
+
+    try:
+        from PIL import Image
+        import io as _io
+
+        img = Image.open(_io.BytesIO(image_data))
+        if img.format != "JPEG":
+            img = img.convert("RGB")
+
+        album_dir = Path(MUSIC_ROOT) / artist_row["dir_name"] / album["dir_name"]
+        album_dir.mkdir(parents=True, exist_ok=True)
+        cover_path = album_dir / ALBUM_COVER_FILENAME
+        img.save(cover_path, "JPEG", quality=90)
+
+        update_album_repo(album_id, cover_path=str(cover_path))
+
+    except Exception as exc:
+        logger.error("album cover write error %d: %s", album_id, exc)
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"ok": True, "path": str(cover_path)})
+
+
+@api_bp.route("/api/artists/<int:artist_id>/scrape-cover", methods=["POST"])
+@require_auth
+def api_artist_scrape_cover(artist_id: int):
+    artist_row = get_artist_by_id(artist_id)
+    if not artist_row:
+        abort(404)
+    artist_name = artist_row["name"]
+    artist_dir = get_artist_directory_path_by_id(artist_id)
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
-    image_data, successful_artist = scraper.scrape_artist_avatar(artist)
+    image_data, successful_artist = scraper.scrape_artist_avatar(artist_name)
 
     if not image_data or len(image_data) < 1000:
-        return jsonify({"error": f"failed to fetch artist avatar for: {artist}"}), 502
+        return jsonify(
+            {"error": f"failed to fetch artist avatar for: {artist_name}"}
+        ), 502
 
     if len(image_data) > MAX_ARTIST_COVER_SIZE:
         return jsonify({"error": "cover file too large (max 5MB)"}), 400
@@ -506,11 +722,15 @@ def api_artist_scrape_cover(artist: str):
         img.save(cover_path, "JPEG", quality=90)
 
     except Exception as exc:
-        logger.error("artist cover save error %s: %s", artist, exc)
+        logger.error("artist cover save error %d: %s", artist_id, exc)
         return jsonify({"error": str(exc)}), 500
 
     return jsonify(
-        {"ok": True, "path": str(cover_path), "artist": successful_artist or artist}
+        {
+            "ok": True,
+            "path": str(cover_path),
+            "artist": successful_artist or artist_name,
+        }
     )
 
 
@@ -697,6 +917,7 @@ def api_track_update_metadata(track_id: int):
         update_track_metadata(track_id, updated)
         if any(k in updated for k in ("artist", "album", "title")):
             update_track_metadata(track_id, {"organized": 0})
+            _relink_track_artist_album(track_id)
         recalc_pending(track_id)
         commit()
     return jsonify({"ok": True, "updated": updated})
@@ -851,6 +1072,27 @@ def api_track_by_path():
                 missing = [f for f in ("title", "artist", "album") if not meta.get(f)]
                 pending = 1 if missing else 0
                 missing_str = ",".join(missing) if missing else ""
+                artist_name = (
+                    normalize_str(meta["artist"]) if meta.get("artist") else None
+                )
+                album_name = meta.get("album") or ""
+                album_artist_name = meta.get("album_artist") or ""
+
+                artist_id = None
+                album_id = None
+                if artist_name:
+                    from repository.artist_repository import ensure_artist
+                    from repository.album_repository import ensure_album
+
+                    effective_artist = album_artist_name or artist_name
+                    artist_id = ensure_artist(effective_artist)
+                    if album_name:
+                        album_id = ensure_album(
+                            album_name,
+                            artist_id,
+                            year=meta.get("year"),
+                        )
+
                 insert_track(
                     path=candidate,
                     filename=Path(candidate).name,
@@ -859,9 +1101,7 @@ def api_track_by_path():
                     mtime=stat.st_mtime,
                     ctime=stat.st_ctime,
                     title=meta["title"],
-                    artist=normalize_str(meta["artist"])
-                    if meta.get("artist")
-                    else None,
+                    artist=artist_name,
                     album=meta["album"],
                     album_artist=meta["album_artist"],
                     year=meta["year"],
@@ -875,6 +1115,9 @@ def api_track_by_path():
                     pending=pending,
                     missing_tags=missing_str,
                     scanned_at=time.time(),
+                    artist_id=artist_id,
+                    album_id=album_id,
+                    track_artist=artist_name,
                 )
                 commit()
                 row = get_track_by_path(candidate)
@@ -1247,14 +1490,37 @@ def api_apply_scraped_metadata(track_id: int):
                 update_track_metadata(track_id, updated)
                 if any(k in updated for k in ("artist", "album", "title")):
                     update_track_metadata(track_id, {"organized": 0})
-
-        # 更新封面
+                    _relink_track_artist_album(track_id)
         cover_updated = False
         if data.get("_cover_data"):
             cover_data = base64.b64decode(data["_cover_data"])
             write_cover(row["path"], cover_data, "image/jpeg")
             update_track_metadata(track_id, {"has_cover": 1})
             cover_updated = True
+
+            album_id = row["album_id"]
+            if album_id:
+                album = get_album_by_id(album_id)
+                if album:
+                    artist_row = (
+                        get_artist_by_id(album["artist_id"])
+                        if album["artist_id"]
+                        else None
+                    )
+                    if artist_row:
+                        album_dir = os.path.join(
+                            MUSIC_ROOT, artist_row["dir_name"], album["dir_name"]
+                        )
+                        cover_file_path = os.path.join(album_dir, ALBUM_COVER_FILENAME)
+                        file_exists = os.path.exists(cover_file_path)
+
+                        if not album["cover_path"] and not file_exists:
+                            from utils.metadata import extract_cover_to_file
+
+                            if extract_cover_to_file(row["path"], cover_file_path):
+                                update_album_repo(album_id, cover_path=cover_file_path)
+                        elif not album["cover_path"] and file_exists:
+                            update_album_repo(album_id, cover_path=cover_file_path)
 
         # 更新歌词
         lyrics_updated = False

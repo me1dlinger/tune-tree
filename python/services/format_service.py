@@ -15,9 +15,12 @@ from repository.track_repository import (
     get_artist_by_track_id,
     update_track_path_and_name,
     count_tracks_by_artist_with_status,
+    count_tracks_by_artist_id_with_status,
     add_op_log,
     commit,
 )
+from repository.artist_repository import get_artist_by_name, get_artist_by_id
+from repository.album_repository import get_album_by_id, get_albums_by_artist_id
 from models.db import get_db
 
 logger = logging.getLogger("tunetree")
@@ -53,11 +56,12 @@ def preview_format(
     seen_files: dict[str, str] = {}
     tree_structure = {}
 
+    artist_row = get_artist_by_name(artist)
+    artist_dir_name = artist_row["dir_name"] if artist_row else safe_dirname(artist)
+
     if track_ids and len(track_ids) > 0:
         rows = get_tracks_by_ids(track_ids)
     else:
-        from repository.track_repository import get_albums_by_artist
-
         album_ids = album_ids or []
         albums_to_process = []
 
@@ -67,11 +71,11 @@ def preview_format(
                 if rows:
                     albums_to_process.append((alb_id, rows[0]["album"], rows))
         else:
-            albums = get_albums_by_artist(artist)
+            albums = get_albums_by_artist_id(artist_row["id"]) if artist_row else []
             for album in albums:
-                alb_id = album["sample_id"]
+                alb_id = album["id"]
                 rows = get_tracks_by_artist_and_album_id(artist, alb_id)
-                album_name = rows[0]["album"] if rows else album["album"]
+                album_name = rows[0]["album"] if rows else album["title"]
                 albums_to_process.append((alb_id, album_name, rows))
 
         all_rows = []
@@ -80,42 +84,48 @@ def preview_format(
                 all_rows.extend(rows)
         rows = all_rows
 
-    # 预先获取所有目标路径，检查是否已存在于数据库中
     db = get_db()
     all_paths = [row["path"] for row in rows]
     existing_paths = {}
     if all_paths:
         placeholders = ",".join("?" * len(all_paths))
         existing_rows = db.execute(
-            f"SELECT id, path FROM tracks WHERE path IN ({placeholders})",
-            all_paths
+            f"SELECT id, path FROM tracks WHERE path IN ({placeholders})", all_paths
         ).fetchall()
         for existing_row in existing_rows:
             existing_paths[existing_row["path"]] = existing_row["id"]
+
+    album_dir_cache: dict[int, str] = {}
 
     for row in rows:
         if row["pending"]:
             continue
         artist_name = row["artist"] or "Unknown"
         album_name = row["album"] or "Unknown"
-        artist_dir = safe_dirname(artist_name)
-        album_dir = safe_dirname(album_name)
 
-        artist_key = artist_dir.lower()
+        actual_artist_dir = artist_dir_name
+
+        album_id = row["album_id"]
+        if album_id and album_id not in album_dir_cache:
+            album_row = get_album_by_id(album_id)
+            album_dir_cache[album_id] = (
+                album_row["dir_name"] if album_row else safe_dirname(album_name)
+            )
+        actual_album_dir = album_dir_cache.get(album_id, safe_dirname(album_name))
+
+        artist_key = actual_artist_dir.lower()
 
         if artist_key in seen_artists:
             actual_artist_dir = seen_artists[artist_key]
         else:
-            actual_artist_dir = artist_dir
-            seen_artists[artist_key] = artist_dir
+            seen_artists[artist_key] = actual_artist_dir
 
-        album_key = f"{artist_key}::{album_dir.lower()}"
+        album_key = f"{artist_key}::{actual_album_dir.lower()}"
 
         if album_key in seen_albums:
             actual_album_dir = seen_albums[album_key]
         else:
-            actual_album_dir = album_dir
-            seen_albums[album_key] = album_dir
+            seen_albums[album_key] = actual_album_dir
 
         target_base = str(Path(MUSIC_ROOT) / actual_artist_dir / actual_album_dir)
 
@@ -124,9 +134,7 @@ def preview_format(
         ext = Path(new_name).suffix
         file_key = f"{target_base.lower()}::{stem.lower()}::{ext.lower()}"
 
-        # 使用 Path 对象进行路径比较，避免字符串拼接带来的编码或分隔符问题
         target_path = str(Path(target_base) / new_name)
-        # 对路径进行 Unicode 规范化，处理日文等非ASCII字符的规范化差异
         if target_path == row["path"]:
             status = "skip"
             skip_count += 1
@@ -134,7 +142,6 @@ def preview_format(
             status = "skip"
             skip_count += 1
         elif target_path in existing_paths and existing_paths[target_path] != row["id"]:
-            # 目标路径已被其他track占用，标记为冲突
             status = "conflict"
             conflict_count += 1
         else:
@@ -178,12 +185,12 @@ def delete_empty_dirs(path: Path) -> None:
     """递归删除空目录（从子目录到父目录）"""
     if not path.exists():
         return
-    
+
     # 先递归删除子目录中的空目录
     for child in path.iterdir():
         if child.is_dir():
             delete_empty_dirs(child)
-    
+
     # 检查当前目录是否为空
     try:
         if path.is_dir() and not any(path.iterdir()):
@@ -218,10 +225,11 @@ def execute_format(
             ).fetchone()
             if existing and (existing["organized"] == 0 or existing["pending"] == 1):
                 db.execute(
-                    "UPDATE tracks SET organized=1, pending=0 WHERE id=?", (item["track_id"],)
+                    "UPDATE tracks SET organized=1, pending=0 WHERE id=?",
+                    (item["track_id"],),
                 )
             continue
-        
+
         # Skip conflict files
         if item["status"] == "conflict":
             skipped += 1
@@ -232,7 +240,7 @@ def execute_format(
         try:
             # 记录原目录
             original_dirs.add(src.parent)
-            
+
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dst))
             update_track_path_and_name(item["track_id"], str(dst), dst.name)
@@ -246,8 +254,12 @@ def execute_format(
     for original_dir in original_dirs:
         delete_empty_dirs(original_dir)
 
-    # mark artist as organized if all albums done
-    all_org = count_tracks_by_artist_with_status(artist, 0, 0) == 0
+    artist_row = get_artist_by_name(artist)
+    all_org = (
+        count_tracks_by_artist_id_with_status(artist_row["id"], 0, 0) == 0
+        if artist_row
+        else count_tracks_by_artist_with_status(artist, 0, 0) == 0
+    )
 
     msg = (
         f"格式化完成：{artist} 移动 {moved} 个文件，跳过 {skipped} 个，{errors} 个失败"

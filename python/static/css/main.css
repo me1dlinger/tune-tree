@@ -892,7 +892,30 @@ body {
 
 .artist-cover-btn:hover {
     opacity: 1;
-    background: #ececea;
+    background: #eceaea;
+}
+
+.album-cover-actions {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    display: flex;
+    gap: 4px;
+}
+
+.album-cover-btn {
+    background: #f9f8fb;
+    border: none;
+    border-radius: 4px;
+    padding: 4px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.album-cover-btn:hover {
+    opacity: 1;
+    background: #eceaea;
 }
 
 .artist-title {
@@ -1113,6 +1136,23 @@ body {
     background: var(--accent);
     border-color: var(--accent);
     color: var(--bg1);
+}
+
+.ts-download-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text3);
+    padding: 2px 6px;
+    border-radius: 3px;
+    transition: color 0.2s, background 0.2s;
+    font-size: 12px;
+}
+
+.ts-download-btn:hover {
+    color: var(--text);
+    background: var(--bg3);
 }
 
 .track-row {

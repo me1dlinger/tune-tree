@@ -131,10 +131,10 @@ function renderEditModal(track) {
             <i class="bi bi-arrow-counterclockwise"></i> 重置
           </button>
           ${editModeActive
-            ? `<button class="toolbar-btn batch-btn-save-edit" onclick="saveMetadataEditMode()"><i class="bi bi-check-lg"></i> 保存</button>
+      ? `<button class="toolbar-btn batch-btn-save-edit" onclick="saveMetadataEditMode()"><i class="bi bi-check-lg"></i> 保存</button>
                <button class="toolbar-btn batch-btn-cancel-edit" onclick="cancelMetadataEditMode()"><i class="bi bi-x"></i> 取消</button>`
-            : `<button class="toolbar-btn batch-btn-edit" onclick="startMetadataEditMode()"><i class="bi bi-pencil"></i> 标签编辑</button>`
-          }
+      : `<button class="toolbar-btn batch-btn-edit" onclick="startMetadataEditMode()"><i class="bi bi-pencil"></i> 标签编辑</button>`
+    }
         </div>
         <div class="edit-fields-list">
           ${renderTagField('歌名', 'title')}
@@ -651,9 +651,13 @@ async function saveMetadataEdit() {
     if (editState.artist && editState.artist !== originalData.artist) {
       artistsToInvalidate.push(editState.artist);
     }
-    clearArtistsFromCache(artistsToInvalidate);
+    const artistIdsToInvalidate = artistsToInvalidate
+      .map(name => { const a = allArtists.find(x => x.name === name); return a ? a.id : null; })
+      .filter(id => id !== null);
+    clearArtistsFromCache(artistIdsToInvalidate);
 
     const artistChanged = editState.artist && editState.artist !== originalData.artist;
+    const newArtistName = editState.artist;
 
     showToast('保存成功', 'success');
     closeMetadataEdit();
@@ -662,14 +666,22 @@ async function saveMetadataEdit() {
       if (artistChanged) {
         await loadArtistTree(document.getElementById('artist-search')?.value || '');
       }
-      const targetArtist = artistChanged ? artistsToInvalidate[1] : currentArtist.artist;
-      const fullInfo = await GET(`/artists/${encodeURIComponent(targetArtist)}/full`);
-      setArtistToCache(targetArtist, fullInfo);
-      artistAlbums = fullInfo.albums;
-      artistTracksCache = {};
-      fullInfo.albums.forEach(al => { artistTracksCache[al.album] = al.tracks; });
-      if (artistChanged) {
-        currentArtist = allArtists.find(a => a.artist === targetArtist) || { artist: targetArtist };
+      const targetArtistName = artistChanged ? newArtistName : currentArtist.name;
+      let targetArtistObj = allArtists.find(a => a.name === targetArtistName);
+      if (!targetArtistObj && artistChanged) {
+        await loadArtistTree(document.getElementById('artist-search')?.value || '');
+        targetArtistObj = allArtists.find(a => a.name === targetArtistName);
+      }
+      const targetArtistId = targetArtistObj ? targetArtistObj.id : null;
+      if (targetArtistId) {
+        const fullInfo = await GET(`/artists/${targetArtistId}/full`);
+        setArtistToCache(targetArtistId, fullInfo);
+        artistAlbums = fullInfo.albums;
+        artistTracksCache = {};
+        fullInfo.albums.forEach(al => { artistTracksCache[al.id] = al.tracks; });
+        if (artistChanged) {
+          currentArtist = targetArtistObj;
+        }
       }
       currentAlbum = null;
       renderArtistView();

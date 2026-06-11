@@ -25,20 +25,17 @@ async function downloadTrack(trackId, filename, ext) {
   }
 }
 
-async function downloadAlbum(artist, album) {
-  const encodedArtist = encodeURIComponent(artist);
-  const encodedAlbum = encodeURIComponent(album);
+async function downloadAlbum(albumId) {
   try {
-    streamDownloadGet(`/artists/${encodedArtist}/albums/${encodedAlbum}/download`);
+    streamDownloadGet(`/albums/${albumId}/download`);
   } catch (e) {
     showToast(`下载失败: ${e.message}`, 'error');
   }
 }
 
-async function downloadArtist(artist) {
-  const encodedArtist = encodeURIComponent(artist);
+async function downloadArtist(artistId) {
   try {
-    streamDownloadGet(`/artists/${encodedArtist}/download`);
+    streamDownloadGet(`/artists/${artistId}/download`);
   } catch (e) {
     showToast(`下载失败: ${e.message}`, 'error');
   }
@@ -61,7 +58,7 @@ function downloadCurrentArtist() {
     showToast('请先选择一个艺术家', 'warn');
     return;
   }
-  downloadArtist(currentArtist.artist);
+  downloadArtist(currentArtist.id);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -117,49 +114,44 @@ function isCacheExpired(cachedAt) {
 
 /**
  * 从缓存中获取艺术家数据（检查过期时间）
- * @param {string} artist - 艺术家名称
+ * @param {number} artistId - 艺术家 ID
  * @returns {Object|null} 艺术家完整信息，如果不存在或已过期返回null
  */
-function getArtistFromCache(artist) {
+function getArtistFromCache(artistId) {
   const cache = getArtistCache();
-  const cachedData = cache.cache[artist];
+  const cachedData = cache.cache[artistId];
   if (!cachedData) return null;
 
-  // 检查缓存是否过期
   if (isCacheExpired(cachedData._cachedAt)) {
-    console.debug(`Artist "${artist}" cache expired (${CACHE_EXPIRE_HOURS} hours)`);
+    console.debug(`Artist ${artistId} cache expired (${CACHE_EXPIRE_HOURS} hours)`);
     return null;
   }
 
-  // 返回数据，但移除内部使用的时间戳字段
   const { _cachedAt, ...data } = cachedData;
   return data;
 }
 
 /**
  * 将艺术家数据存入缓存（FIFO策略），并记录缓存时间
- * @param {string} artist - 艺术家名称
+ * @param {number} artistId - 艺术家 ID
  * @param {Object} data - 艺术家完整信息
  */
-function setArtistToCache(artist, data) {
+function setArtistToCache(artistId, data) {
   const cache = getArtistCache();
 
-  // 如果已存在，先移除（后面重新添加到末尾）
-  if (cache.cache[artist]) {
-    const index = cache.items.indexOf(artist);
+  if (cache.cache[artistId]) {
+    const index = cache.items.indexOf(artistId);
     if (index > -1) {
       cache.items.splice(index, 1);
     }
   }
 
-  // 添加到缓存，包含缓存时间戳
-  cache.items.push(artist);
-  cache.cache[artist] = {
+  cache.items.push(artistId);
+  cache.cache[artistId] = {
     ...data,
     _cachedAt: Date.now()
   };
 
-  // 如果超过最大缓存数，移除最早的（FIFO）
   while (cache.items.length > MAX_CACHE_SIZE) {
     const oldestArtist = cache.items.shift();
     delete cache.cache[oldestArtist];
@@ -181,18 +173,18 @@ function clearArtistCache() {
 
 /**
  * 清除指定艺术家列表的缓存
- * @param {string[]} artists - 要清除缓存的艺术家名称数组
+ * @param {number[]} artistIds - 要清除缓存的艺术家 ID 数组
  */
-function clearArtistsFromCache(artists) {
-  if (!artists || artists.length === 0) return;
+function clearArtistsFromCache(artistIds) {
+  if (!artistIds || artistIds.length === 0) return;
 
   const cache = getArtistCache();
   let cleared = 0;
 
-  artists.forEach(artist => {
-    if (cache.cache[artist]) {
-      delete cache.cache[artist];
-      const index = cache.items.indexOf(artist);
+  artistIds.forEach(artistId => {
+    if (cache.cache[artistId]) {
+      delete cache.cache[artistId];
+      const index = cache.items.indexOf(artistId);
       if (index > -1) {
         cache.items.splice(index, 1);
       }
@@ -202,7 +194,7 @@ function clearArtistsFromCache(artists) {
 
   if (cleared > 0) {
     saveArtistCache(cache);
-    console.debug(`Cleared cache for ${cleared} artists:`, artists);
+    console.debug(`Cleared cache for ${cleared} artists:`, artistIds);
   }
 }
 
@@ -263,7 +255,7 @@ function filterArtists(q) {
   let toRender = allArtists;
   if (q) {
     toRender = allArtists.filter(a =>
-      a.artist.toLowerCase().includes(q.toLowerCase())
+      a.name.toLowerCase().includes(q.toLowerCase())
     );
   }
   renderArtistTree(getSortedArtists(toRender));
@@ -328,7 +320,7 @@ function getSortedArtists(artists) {
       break;
     case 'name':
     default:
-      sorted.sort((a, b) => (a.artist || '').localeCompare(b.artist || '', undefined, { sensitivity: 'base', numeric: true }) * multiplier);
+      sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base', numeric: true }) * multiplier);
   }
   return sorted;
 }
@@ -356,31 +348,29 @@ function renderArtistTree(artists) {
     return;
   }
   tree.innerHTML = artists.map(a => {
-    // 如果开启隐藏已整理，跳过已格式化的艺术家
     if (hideOrganizedArtists && a.all_organized) return '';
 
-    const isSelected = selectedArtists.has(a.artist);
+    const isSelected = selectedArtists.has(a.id);
     const showCheckbox = artistSelectionEnabled && isSelected;
 
-    // 检查是否有任务在执行
-    const taskStatus = (typeof AsyncFormat !== 'undefined') ? AsyncFormat.getArtistTaskStatus(a.artist) : '';
+    const taskStatus = (typeof AsyncFormat !== 'undefined') ? AsyncFormat.getArtistTaskStatus(a.id) : '';
     const statusClass = taskStatus ? ` task-status-${taskStatus.replace(' ', '-')}` : '';
     const statusTitle = taskStatus ? ` title="任务状态：${taskStatus}"` : '';
 
     return `
-      <div class="tree-artist ${isSelected ? 'selected' : ''}${statusClass}" id="ta-${eid(a.artist)}">
-        <div class="tree-artist-header" id="tah-${eid(a.artist)}" data-artist="${esc(a.artist)}"${statusTitle}>
+      <div class="tree-artist ${isSelected ? 'selected' : ''}${statusClass}" id="ta-${a.id}">
+        <div class="tree-artist-header" id="tah-${a.id}" data-artist-id="${a.id}"${statusTitle}>
           ${artistSelectionEnabled ? `
-          <div class="tree-checkbox" onclick="toggleArtistSelection(event, '${escJs(a.artist)}')">
+          <div class="tree-checkbox" onclick="toggleArtistSelection(event, ${a.id})">
             ${showCheckbox ? '✓' : ''}
           </div>
           ` : ''}
-          <div class="tree-chevron" id="tch-${eid(a.artist)}" onclick="toggleArtistExpand('${escJs(a.artist)}')">▶</div>
-          <div class="tree-artist-name" onclick="selectArtistFromName('${escJs(a.artist)}')">${esc(a.artist)}${taskStatus ? `<span class="artist-task-status">${esc(taskStatus)}</span>` : ''}</div>
+          <div class="tree-chevron" id="tch-${a.id}" onclick="toggleArtistExpand(${a.id})">▶</div>
+          <div class="tree-artist-name" onclick="selectArtistFromId(${a.id})">${esc(a.name)}${taskStatus ? `<span class="artist-task-status">${esc(taskStatus)}</span>` : ''}</div>
           ${a.all_organized ? '<div class="tree-organized" title="已整理"></div>' : ''}
           <div class="tree-badge">${a.track_count}</div>
         </div>
-        <div class="tree-albums" id="talb-${eid(a.artist)}">
+        <div class="tree-albums" id="talb-${a.id}">
           <div class="loading-row" style="font-size:10px;">点击箭头展开...</div>
         </div>
       </div>
@@ -393,42 +383,40 @@ function renderArtistTree(artists) {
  * @param {MouseEvent} e
  * @param {string} artist
  */
-function toggleArtistSelection(e, artist) {
+function toggleArtistSelection(e, artistId) {
   e.stopPropagation();
 
-  // 检查艺术家是否已有任务在执行
-  if (typeof AsyncFormat !== 'undefined' && !AsyncFormat.canSelectArtist(artist)) {
-    const task = AsyncFormat.getTaskByArtist(artist);
-    const status = AsyncFormat.getArtistTaskStatus(artist);
-    showToast(`艺术家 ${artist} 已有任务正在执行：${status}`, 'warn');
+  if (typeof AsyncFormat !== 'undefined' && !AsyncFormat.canSelectArtist(artistId)) {
+    const status = AsyncFormat.getArtistTaskStatus(artistId);
+    showToast(`艺术家已有任务正在执行：${status}`, 'warn');
     return;
   }
 
-  const wasSelected = selectedArtists.has(artist);
+  const wasSelected = selectedArtists.has(artistId);
 
   if (wasSelected) {
-    selectedArtists.delete(artist);
+    selectedArtists.delete(artistId);
   } else {
     if (selectedArtists.size >= MAX_SELECTED_ARTISTS) {
       showToast(`最多只能选择 ${MAX_SELECTED_ARTISTS} 个艺术家`, 'warn');
       return;
     }
-    selectedArtists.add(artist);
+    selectedArtists.add(artistId);
   }
 
-  const treeArtist = document.getElementById('ta-' + eid(artist));
+  const treeArtist = document.getElementById('ta-' + artistId);
   if (treeArtist) {
-    treeArtist.classList.toggle('selected', selectedArtists.has(artist));
+    treeArtist.classList.toggle('selected', selectedArtists.has(artistId));
     const checkbox = treeArtist.querySelector('.tree-checkbox');
     if (checkbox) {
-      checkbox.textContent = selectedArtists.has(artist) ? '✓' : '';
+      checkbox.textContent = selectedArtists.has(artistId) ? '✓' : '';
     }
   }
 
   const rangeBtn = document.getElementById('range-select-btn');
   if (rangeBtn && rangeBtn.classList.contains('active')) {
     if (!wasSelected) {
-      selectArtistRange(artist);
+      selectArtistRange(artistId);
     }
   }
 
@@ -522,7 +510,7 @@ function toggleRangeSelectMode() {
   } else {
     const searchInput = document.getElementById('artist-search');
     const currentArtists = getSortedArtists(allArtists.filter(a =>
-      !searchInput.value || a.artist.toLowerCase().includes(searchInput.value.toLowerCase())
+      !searchInput.value || a.name.toLowerCase().includes(searchInput.value.toLowerCase())
     ));
 
     if (currentArtists.length === 0) {
@@ -536,7 +524,7 @@ function toggleRangeSelectMode() {
 }
 
 /** 选择艺术家范围（从起始艺术家到当前艺术家） */
-function selectArtistRange(artist) {
+function selectArtistRange(artistId) {
   if (!artistSelectionEnabled) {
     showToast('请先开启勾选艺术家模式', 'warn');
     return;
@@ -544,7 +532,7 @@ function selectArtistRange(artist) {
 
   const searchInput = document.getElementById('artist-search');
   const currentArtists = getSortedArtists(allArtists.filter(a =>
-    !searchInput.value || a.artist.toLowerCase().includes(searchInput.value.toLowerCase())
+    !searchInput.value || a.name.toLowerCase().includes(searchInput.value.toLowerCase())
   ));
 
   if (currentArtists.length === 0) {
@@ -553,18 +541,19 @@ function selectArtistRange(artist) {
   }
 
   if (!rangeSelectStartArtist) {
-    rangeSelectStartArtist = artist;
+    rangeSelectStartArtist = artistId;
     const rangeBtn = document.getElementById('range-select-btn');
     if (rangeBtn) {
       rangeBtn.classList.add('active');
-      rangeBtn.title = `起点：${artist}`;
+      const startArtist = allArtists.find(a => a.id === artistId);
+      rangeBtn.title = `起点：${startArtist ? startArtist.name : artistId}`;
     }
-    showToast(`已设置范围起点：${artist}，现在点击另一个艺术家作为终点`, 'info');
+    showToast(`已设置范围起点，现在点击另一个艺术家作为终点`, 'info');
     return;
   }
 
-  const startIndex = currentArtists.findIndex(a => a.artist === rangeSelectStartArtist);
-  const endIndex = currentArtists.findIndex(a => a.artist === artist);
+  const startIndex = currentArtists.findIndex(a => a.id === rangeSelectStartArtist);
+  const endIndex = currentArtists.findIndex(a => a.id === artistId);
 
   if (startIndex === -1 || endIndex === -1) {
     showToast('无法确定范围（艺术家可能已被过滤）', 'warn');
@@ -584,24 +573,23 @@ function selectArtistRange(artist) {
   let skippedCount = 0;
   for (let i = minIndex; i <= maxIndex; i++) {
     const artistData = currentArtists[i];
-    // 如果开启隐藏已整理，跳过已格式化的艺术家
     if (hideOrganizedArtists && artistData.all_organized) {
       skippedCount++;
       continue;
     }
-    const a = artistData.artist;
-    if (!selectedArtists.has(a)) {
+    const aid = artistData.id;
+    if (!selectedArtists.has(aid)) {
       if (selectedArtists.size >= MAX_SELECTED_ARTISTS) {
         showToast(`最多只能选择 ${MAX_SELECTED_ARTISTS} 个艺术家，已选择 ${selectedArtists.size} 个`, 'warn');
         break;
       }
-      selectedArtists.add(a);
+      selectedArtists.add(aid);
       count++;
     }
   }
 
-  const startName = currentArtists[minIndex].artist;
-  const endName = currentArtists[maxIndex].artist;
+  const startName = currentArtists[minIndex].name;
+  const endName = currentArtists[maxIndex].name;
   rangeSelectStartArtist = null;
 
   const rangeBtn = document.getElementById('range-select-btn');
@@ -624,12 +612,11 @@ function selectArtistRange(artist) {
  * 点击箭头：仅展开/收起专辑列表，不触发右侧视图
  * @param {string} artist
  */
-async function toggleArtistExpand(artist) {
-  const albums = document.getElementById('talb-' + eid(artist));
-  const chevron = document.getElementById('tch-' + eid(artist));
+async function toggleArtistExpand(artistId) {
+  const albums = document.getElementById('talb-' + artistId);
+  const chevron = document.getElementById('tch-' + artistId);
   const isOpen = albums.classList.contains('open');
 
-  // 收起所有其他展开的艺术家
   document.querySelectorAll('.tree-artist-header').forEach(h => h.classList.remove('active'));
   document.querySelectorAll('.tree-albums').forEach(a => a.classList.remove('open'));
 
@@ -637,9 +624,8 @@ async function toggleArtistExpand(artist) {
     albums.classList.add('open');
     chevron.textContent = '▼';
 
-    // 只在专辑列表为空时才加载（避免重复请求）
     if (!albums.querySelector('.tree-album')) {
-      await loadArtistAlbumsOnly(artist, albums);
+      await loadArtistAlbumsOnly(artistId, albums);
     }
   } else {
     albums.classList.remove('open');
@@ -651,9 +637,9 @@ async function toggleArtistExpand(artist) {
  * 点击艺术家名字：触发右侧视图展示
  * @param {string} artist
  */
-async function selectArtistFromName(artist) {
-  const albums = document.getElementById('talb-' + eid(artist));
-  await selectArtist(artist, albums);
+async function selectArtistFromId(artistId) {
+  const albums = document.getElementById('talb-' + artistId);
+  await selectArtist(artistId, albums);
 }
 
 /**
@@ -661,14 +647,14 @@ async function selectArtistFromName(artist) {
  * @param {string} artist
  * @param {HTMLElement} albumsEl — 侧边栏专辑容器
  */
-async function loadArtistAlbumsOnly(artist, albumsEl) {
+async function loadArtistAlbumsOnly(artistId, albumsEl) {
   try {
-    const artistAlbumsTemp = await GET(`/artists/${encodeURIComponent(artist)}/albums`);
+    const artistAlbumsTemp = await GET(`/artists/${artistId}/albums`);
 
     albumsEl.innerHTML = artistAlbumsTemp.map(al => `
-      <div class="tree-album" id="talbcard-${eid(artist + '|' + al.album)}"
-           onclick="selectAlbumFromTree('${escJs(artist)}','${escJs(al.album)}')">
-        <div class="tree-album-name">${esc(al.album)}</div>
+      <div class="tree-album" id="talbcard-${al.id}"
+           onclick="selectAlbumFromTree(${artistId}, ${al.id})">
+        <div class="tree-album-name">${esc(al.title)}</div>
         ${al.all_organized ? '<div style="font-size:8px;color:var(--accent)">●</div>' : ''}
         <div class="tree-album-count">${al.track_count}</div>
       </div>
@@ -687,36 +673,33 @@ let artistTracksCache = {};
  * @param {string} artist
  * @param {HTMLElement|null} albumsEl — 侧边栏专辑容器（null 表示仅刷新主视图）
  */
-async function selectArtist(artist, albumsEl) {
-  currentArtist = allArtists.find(a => a.artist === artist);
+async function selectArtist(artistId, albumsEl) {
+  currentArtist = allArtists.find(a => a.id === artistId);
   currentAlbum = null;
   selectedAlbums.clear();
   selectedTracks.clear();
 
   try {
-    // 先从缓存中获取
-    let fullInfo = getArtistFromCache(artist);
+    let fullInfo = getArtistFromCache(artistId);
     let fromCache = !!fullInfo;
 
-    // 如果缓存中没有，请求API
     if (!fullInfo) {
-      fullInfo = await GET(`/artists/${encodeURIComponent(artist)}/full`);
-      // 将数据存入缓存（FIFO策略）
-      setArtistToCache(artist, fullInfo);
+      fullInfo = await GET(`/artists/${artistId}/full`);
+      setArtistToCache(artistId, fullInfo);
     }
 
     artistAlbums = fullInfo.albums;
 
     artistTracksCache = {};
     fullInfo.albums.forEach(al => {
-      artistTracksCache[al.album] = al.tracks;
+      artistTracksCache[al.id] = al.tracks;
     });
 
     if (albumsEl) {
       albumsEl.innerHTML = artistAlbums.map(al => `
-        <div class="tree-album" id="talbcard-${eid(artist + '|' + al.album)}"
-             onclick="selectAlbumFromTree('${escJs(artist)}','${escJs(al.album)}')">
-          <div class="tree-album-name">${esc(al.album)}</div>
+        <div class="tree-album" id="talbcard-${al.id}"
+             onclick="selectAlbumFromTree(${artistId}, ${al.id})">
+          <div class="tree-album-name">${esc(al.title)}</div>
           ${al.all_organized ? '<div style="font-size:8px;color:var(--accent)">●</div>' : ''}
           <div class="tree-album-count">${al.track_count}</div>
         </div>
@@ -726,11 +709,10 @@ async function selectArtist(artist, albumsEl) {
     renderArtistView();
     switchPage('artist');
 
-    // 调试信息：显示是否从缓存获取
     if (fromCache) {
-      console.debug(`Artist "${artist}" loaded from cache`);
+      console.debug(`Artist ${artistId} loaded from cache`);
     } else {
-      console.debug(`Artist "${artist}" loaded from API`);
+      console.debug(`Artist ${artistId} loaded from API`);
     }
   } catch (e) {
     showToast('加载失败: ' + e.message, 'error');
@@ -743,16 +725,15 @@ async function selectArtist(artist, albumsEl) {
  * @param {string} artist
  * @param {string} album
  */
-async function selectAlbumFromTree(artist, album) {
-  // 检查当前艺术家是否正确，如果不正确或不存在，先加载艺术家数据
-  if (!currentArtist || currentArtist.artist !== artist) {
-    await selectArtist(artist, null);
+async function selectAlbumFromTree(artistId, albumId) {
+  if (!currentArtist || currentArtist.id !== artistId) {
+    await selectArtist(artistId, null);
   }
 
   document.querySelectorAll('.tree-album').forEach(el => el.classList.remove('active'));
-  const card = document.getElementById('talbcard-' + eid(artist + '|' + album));
+  const card = document.getElementById('talbcard-' + albumId);
   if (card) card.classList.add('active');
-  currentAlbum = album;
+  currentAlbum = albumId;
   selectedAlbums.clear();
   selectedTracks.clear();
   renderArtistView();
@@ -766,48 +747,56 @@ async function selectAlbumFromTree(artist, album) {
 /** 艺术家封面缓存 */
 let artistCoverCache = {};
 
-function artistCoverUrl(artist) {
-  const bust = artistCoverCache[artist] ? `&_t=${Date.now()}` : '';
-  return `/api/artists/${encodeURIComponent(artist)}/cover?token=${TOKEN}${bust}`;
+/** 专辑封面缓存 */
+let albumCoverCache = {};
+
+function artistCoverUrl(artistId) {
+  const bust = artistCoverCache[artistId] ? `&_t=${Date.now()}` : '';
+  return `/api/artists/${artistId}/cover?token=${TOKEN}${bust}`;
 }
 
-async function scrapeArtistCover(artist) {
+function albumCoverUrl(albumId) {
+  const bust = albumCoverCache[albumId] ? `&_t=${Date.now()}` : '';
+  return `/api/albums/${albumId}/cover?token=${TOKEN}${bust}`;
+}
+
+async function scrapeArtistCover(artistId) {
   try {
     showToast('正在从网易云获取歌手头像...', 'info');
-    const result = await POST(`/artists/${encodeURIComponent(artist)}/scrape-cover`, {});
+    const result = await POST(`/artists/${artistId}/scrape-cover`, {});
 
     if (result.error) {
       showToast('获取失败: ' + result.error, 'error');
       return;
     }
 
-    artistCoverCache[artist] = true;
-    await loadArtistCover(artist);
+    artistCoverCache[artistId] = true;
+    await loadArtistCover(artistId);
     showToast('歌手头像获取成功', 'success');
   } catch (err) {
     showToast('获取失败: ' + err.message, 'error');
   }
 }
 
-async function deleteArtistCover(artist) {
+async function deleteArtistCover(artistId) {
   try {
     showToast('正在删除歌手头像...', 'info');
-    const result = await DELETE(`/artists/${encodeURIComponent(artist)}/cover`);
+    const result = await DELETE(`/artists/${artistId}/cover`);
 
     if (result.error) {
       showToast('删除失败: ' + result.error, 'error');
       return;
     }
 
-    delete artistCoverCache[artist];
-    await loadArtistCover(artist);
+    delete artistCoverCache[artistId];
+    await loadArtistCover(artistId);
     showToast('歌手头像已删除', 'success');
   } catch (err) {
     showToast('删除失败: ' + err.message, 'error');
   }
 }
 
-async function loadArtistCover(artist) {
+async function loadArtistCover(artistId) {
   const coverEl = document.getElementById('artist-cover-img');
   if (!coverEl) return;
 
@@ -816,21 +805,21 @@ async function loadArtistCover(artist) {
   coverEl.innerHTML = `<i class="bi bi-person" style="font-size: 36px;"></i>`;
 
   try {
-    const exists = await GET(`/artists/${encodeURIComponent(artist)}/cover/exists`);
+    const exists = await GET(`/artists/${artistId}/cover/exists`);
     if (exists.exists) {
       const img = document.createElement('img');
       img.className = 'artist-cover-image';
-      img.src = artistCoverUrl(artist);
-      img.alt = artist;
+      img.src = artistCoverUrl(artistId);
+      img.alt = currentArtist ? currentArtist.name : '';
       img.style.cursor = 'zoom-in';
       img.onclick = (e) => {
         e.stopPropagation();
-        const safeArtist = (artist || 'unknown').replace(/[\\/:*?"<>|]/g, '_');
-        openCoverImageViewer(img.src, safeArtist);
+        const safeName = (currentArtist ? currentArtist.name : 'unknown').replace(/[\\/:*?"<>|]/g, '_');
+        openCoverImageViewer(img.src, safeName);
       };
       img.onerror = () => {
         coverEl.innerHTML = `<i class="bi bi-person" style="font-size: 36px;"></i>`;
-        coverEl.onclick = () => uploadArtistCover(artist);
+        coverEl.onclick = () => uploadArtistCover(artistId);
       };
 
       const actionsDiv = document.createElement('div');
@@ -848,15 +837,15 @@ async function loadArtistCover(artist) {
       `;
       actionsDiv.querySelectorAll('button')[0].onclick = (e) => {
         e.stopPropagation();
-        uploadArtistCover(artist);
+        uploadArtistCover(artistId);
       };
       actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
         e.stopPropagation();
-        scrapeArtistCover(artist);
+        scrapeArtistCover(artistId);
       };
       actionsDiv.querySelector('#delete-cover-btn').onclick = (e) => {
         e.stopPropagation();
-        deleteArtistCover(artist);
+        deleteArtistCover(artistId);
       };
 
       coverEl.innerHTML = '';
@@ -875,11 +864,11 @@ async function loadArtistCover(artist) {
       `;
       actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
         e.stopPropagation();
-        uploadArtistCover(artist);
+        uploadArtistCover(artistId);
       };
       actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
         e.stopPropagation();
-        scrapeArtistCover(artist);
+        scrapeArtistCover(artistId);
       };
       coverEl.appendChild(actionsDiv);
     }
@@ -893,17 +882,143 @@ async function loadArtistCover(artist) {
     `;
     actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
       e.stopPropagation();
-      uploadArtistCover(artist);
+      uploadArtistCover(artistId);
     };
     coverEl.appendChild(actionsDiv);
   }
 }
 
+async function loadAlbumCovers(albums) {
+  for (const al of albums) {
+    const wrap = document.getElementById('alcw-' + al.id);
+    if (!wrap) continue;
+
+    try {
+      const exists = await GET(`/albums/${al.id}/cover/exists`);
+      if (exists.exists) {
+        const img = document.createElement('img');
+        img.className = 'album-cover-img';
+        img.src = albumCoverUrl(al.id);
+        img.alt = al.title || '';
+        img.loading = 'lazy';
+        img.style.cursor = 'zoom-in';
+        img.onclick = (e) => {
+          e.stopPropagation();
+          const artistName = currentArtist ? currentArtist.name : 'unknown';
+          const albumTitle = al.title || 'unknown';
+          const safeName = `${artistName} - ${albumTitle}`.replace(/[\\/:*?"<>|]/g, '_');
+          openCoverImageViewer(img.src, safeName);
+        };
+        img.onerror = () => {
+          img.style.display = 'none';
+          const ph = wrap.querySelector('.album-cover-placeholder');
+          if (ph) ph.style.display = '';
+          const actions = wrap.querySelector('.album-cover-actions');
+          if (actions) actions.remove();
+        };
+        img.onload = () => {
+          const ph = wrap.querySelector('.album-cover-placeholder');
+          if (ph) ph.style.display = 'none';
+        };
+        wrap.insertBefore(img, wrap.firstChild);
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'album-cover-actions';
+        actionsDiv.innerHTML = `
+          <button class="album-cover-btn" title="上传封面">
+            <i class="bi bi-upload"></i>
+          </button>
+        `;
+        actionsDiv.querySelector('button').onclick = (e) => {
+          e.stopPropagation();
+          uploadAlbumCover(al.id);
+        };
+        wrap.appendChild(actionsDiv);
+      } else {
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'album-cover-actions';
+        actionsDiv.innerHTML = `
+          <button class="album-cover-btn" title="上传封面">
+            <i class="bi bi-upload"></i>
+          </button>
+        `;
+        actionsDiv.querySelector('button').onclick = (e) => {
+          e.stopPropagation();
+          uploadAlbumCover(al.id);
+        };
+        wrap.appendChild(actionsDiv);
+      }
+    } catch (e) {
+      // ignore — placeholder stays
+    }
+  }
+}
+
+function uploadAlbumCover(albumId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg,image/png';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('图片文件过大，最大支持 5MB', 'error');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('cover', file);
+
+    try {
+      showToast('正在上传专辑封面...', 'info');
+      const result = await apiUpload(`/albums/${albumId}/cover`, formData);
+
+      if (result.ok) {
+        showToast('专辑封面上传成功', 'success');
+        albumCoverCache[albumId] = true;
+        const wrap = document.getElementById('alcw-' + albumId);
+        if (wrap) {
+          const existingImg = wrap.querySelector('.album-cover-img');
+          if (existingImg) {
+            existingImg.src = albumCoverUrl(albumId);
+          } else {
+            const img = document.createElement('img');
+            img.className = 'album-cover-img';
+            img.src = albumCoverUrl(albumId);
+            img.alt = '';
+            img.loading = 'lazy';
+            img.style.cursor = 'zoom-in';
+            const al = artistAlbums.find(a => a.id === albumId);
+            img.onclick = (ev) => {
+              ev.stopPropagation();
+              const artistName = currentArtist ? currentArtist.name : 'unknown';
+              const albumTitle = al ? al.title : 'unknown';
+              const safeName = `${artistName} - ${albumTitle}`.replace(/[\\/:*?"<>|]/g, '_');
+              openCoverImageViewer(img.src, safeName);
+            };
+            img.onload = () => {
+              const ph = wrap.querySelector('.album-cover-placeholder');
+              if (ph) ph.style.display = 'none';
+            };
+            wrap.insertBefore(img, wrap.firstChild);
+          }
+        }
+      } else {
+        showToast('上传失败: ' + (result.error || '未知错误'), 'error');
+      }
+    } catch (err) {
+      showToast('上传失败: ' + err.message, 'error');
+    }
+  };
+  input.click();
+}
+
 /**
  * 上传艺术家封面
- * @param {string} artist
+ * @param {number} artistId
  */
-function uploadArtistCover(artist) {
+function uploadArtistCover(artistId) {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/jpeg,image/png';
@@ -921,12 +1036,12 @@ function uploadArtistCover(artist) {
 
     try {
       showToast('正在上传艺术家封面...', 'info');
-      const result = await apiUpload(`/artists/${encodeURIComponent(artist)}/cover`, formData);
+      const result = await apiUpload(`/artists/${artistId}/cover`, formData);
 
       if (result.ok) {
         showToast('艺术家封面上传成功', 'success');
-        artistCoverCache[artist] = true;
-        await loadArtistCover(artist);
+        artistCoverCache[artistId] = true;
+        await loadArtistCover(artistId);
       } else {
         showToast('上传失败: ' + (result.error || '未知错误'), 'error');
       }
@@ -943,13 +1058,14 @@ function renderArtistView() {
   const view = document.getElementById('artist-view');
   const a = currentArtist;
 
-  // 面包屑
-  let bc = `<span>${esc(a.artist)}</span>`;
-  if (currentAlbum) bc += `<span class="sep">/</span><span>${esc(currentAlbum)}</span>`;
+  const currentAlbumObj = currentAlbum ? artistAlbums.find(al => al.id === currentAlbum) : null;
+
+  let bc = `<span>${esc(a.name)}</span>`;
+  if (currentAlbumObj) bc += `<span class="sep">/</span><span>${esc(currentAlbumObj.title)}</span>`;
   document.getElementById('breadcrumb').innerHTML = bc;
 
   const albumsToShow = currentAlbum
-    ? artistAlbums.filter(al => al.album === currentAlbum)
+    ? artistAlbums.filter(al => al.id === currentAlbum)
     : artistAlbums;
 
   const totalTracks = artistAlbums.reduce((s, al) => s + al.track_count, 0);
@@ -961,7 +1077,7 @@ function renderArtistView() {
         <i class="bi bi-person" style="font-size: 36px;"></i>
       </div>
       <div class="artist-info-block">
-          <div class="artist-title">${esc(a.artist)}</div>
+          <div class="artist-title">${esc(a.name)}</div>
           <div class="artist-meta">
             <span>${artistAlbums.length} 张专辑</span>
             <span>${totalTracks} 首曲目</span>
@@ -976,26 +1092,20 @@ function renderArtistView() {
 
     <div class="albums-grid">
       ${albumsToShow.map(al => `
-        <div class="album-card ${selectedAlbums.has(al.album) ? 'selected' : ''}" id="alcard-${eid(al.album)}">
-          <div class="album-cover-wrap">
-            ${al.has_cover_some && al.sample_id
-      ? `<img class="album-cover-img" src="${coverUrl(al.sample_id)}" onerror="this.style.display='none'" loading="lazy">`
-      : ''
-    }
-            <div class="album-cover-placeholder" ${al.has_cover_some && al.sample_id ? 'style="display:none"' : ''}>
+        <div class="album-card ${selectedAlbums.has(al.id) ? 'selected' : ''}" id="alcard-${al.id}">
+          <div class="album-cover-wrap" id="alcw-${al.id}">
+            <div class="album-cover-placeholder">
               <i class="bi bi-disc" style="font-size: 40px;"></i>
             </div>
             <div class="album-select-overlay">
-              <div class="album-checkbox" onclick="toggleAlbum(event,'${escJs(al.album)}')">
-                ${selectedAlbums.has(al.album) ? '✓' : ''}
+              <div class="album-checkbox" onclick="toggleAlbum(event, ${al.id})">
+                ${selectedAlbums.has(al.id) ? '✓' : ''}
               </div>
             </div>
-            <div class="album-download-overlay" onclick="event.stopPropagation();downloadAlbum('${escJs(a.artist)}', '${escJs(al.album)}')">
-              <i class="bi bi-download"></i>
-            </div>
+
           </div>
-          <div class="album-info" onclick="expandAlbum('${escJs(al.album)}')">
-            <div class="album-name">${esc(al.album)}${al.all_organized ? '<span class="album-organized">●</span>' : ''}</div>
+          <div class="album-info" onclick="expandAlbum(${al.id})">
+            <div class="album-name">${esc(al.title)}${al.all_organized ? '<span class="album-organized">●</span>' : ''}</div>
             <div class="album-year">${al.year || '—'} · ${al.track_count} 曲</div>
           </div>
         </div>
@@ -1007,7 +1117,8 @@ function renderArtistView() {
     </div>
   `;
 
-  loadArtistCover(a.artist);
+  loadArtistCover(a.id);
+  loadAlbumCovers(albumsToShow);
   updateToolbar();
 }
 
@@ -1021,15 +1132,18 @@ function renderArtistView() {
  */
 function renderTrackSection(album) {
   const tracks = album.tracks || [];
-  const albumName = album.album;
+  const albumId = album.id;
 
   return `
-    <div class="track-section" id="ts-${eid(albumName)}">
+    <div class="track-section" id="ts-${albumId}">
       <div class="track-section-header">
-        <div class="check-all ${selectedAlbums.has(albumName) ? 'checked' : ''}" onclick="toggleAlbumTracks('${escJs(albumName)}')">
-          ${selectedAlbums.has(albumName) ? '✓' : ''}
+        <div class="check-all ${selectedAlbums.has(albumId) ? 'checked' : ''}" onclick="toggleAlbumTracks(${albumId})">
+          ${selectedAlbums.has(albumId) ? '✓' : ''}
         </div>
-        <span>${esc(albumName)}</span>
+        <span>${esc(album.title)}</span>
+        <button class="ts-download-btn" onclick="downloadAlbum(${albumId})" title="下载专辑">
+          <i class="bi bi-download"></i>
+        </button>
       </div>
       <div class="track-header-row">
         <div class="th"></div><div class="th"></div><div class="th">#</div>
@@ -1040,7 +1154,7 @@ function renderTrackSection(album) {
         <div class="th" style="text-align:right;">添加时间</div>
         <div class="th"></div>
       </div>
-      <div id="tl-${eid(albumName)}">
+      <div id="tl-${albumId}">
         ${tracks.map(t => {
     const dur = t.duration ? fmtDur(t.duration) : '—';
     const sr = t.sample_rate
@@ -1078,26 +1192,31 @@ function renderTrackSection(album) {
 
 /**
  * 加载并渲染单张专辑的曲目列表（兼容旧代码，从缓存中获取）
- * @param {string} artist
- * @param {string} album
+ * @param {number} artistId
+ * @param {number} albumId
  */
-async function loadTrackSection(artist, album) {
+async function loadTrackSection(artistId, albumId) {
   const container = document.getElementById('track-sections');
-  const sectionId = 'ts-' + eid(album);
+  const sectionId = 'ts-' + albumId;
 
   if (!document.getElementById(sectionId)) {
     const div = document.createElement('div');
     div.className = 'track-section';
     div.id = sectionId;
 
-    const tracks = artistTracksCache[album] || [];
+    const tracks = artistTracksCache[albumId] || [];
+    const albumObj = artistAlbums.find(al => al.id === albumId);
+    const albumTitle = albumObj ? albumObj.title : '';
 
     div.innerHTML = `
       <div class="track-section-header">
-        <div class="check-all ${selectedAlbums.has(album) ? 'checked' : ''}" onclick="toggleAlbumTracks('${escJs(album)}')">
-          ${selectedAlbums.has(album) ? '✓' : ''}
+        <div class="check-all ${selectedAlbums.has(albumId) ? 'checked' : ''}" onclick="toggleAlbumTracks(${albumId})">
+          ${selectedAlbums.has(albumId) ? '✓' : ''}
         </div>
-        <span>${esc(album)}</span>
+        <span>${esc(albumTitle)}</span>
+        <button class="ts-download-btn" onclick="downloadAlbum(${albumId})" title="下载专辑">
+          <i class="bi bi-download"></i>
+        </button>
       </div>
       <div class="track-header-row">
         <div class="th"></div><div class="th"></div><div class="th">#</div>
@@ -1108,7 +1227,7 @@ async function loadTrackSection(artist, album) {
         <div class="th" style="text-align:right;">添加时间</div>
         <div class="th"></div>
       </div>
-      <div id="tl-${eid(album)}">
+      <div id="tl-${albumId}">
         ${tracks.map(t => {
       const dur = t.duration ? fmtDur(t.duration) : '—';
       const sr = t.sample_rate
@@ -1152,45 +1271,45 @@ async function loadTrackSection(artist, album) {
 /**
  * 切换单张专辑的勾选状态
  * @param {MouseEvent} e
- * @param {string} album
+ * @param {number} albumId
  */
-function toggleAlbum(e, album) {
+function toggleAlbum(e, albumId) {
   e.stopPropagation();
-  const wasSelected = selectedAlbums.has(album);
+  const wasSelected = selectedAlbums.has(albumId);
 
   if (wasSelected) {
-    selectedAlbums.delete(album);
+    selectedAlbums.delete(albumId);
   } else {
-    selectedAlbums.add(album);
+    selectedAlbums.add(albumId);
   }
 
-  const card = document.getElementById('alcard-' + eid(album));
+  const card = document.getElementById('alcard-' + albumId);
   if (card) {
-    card.classList.toggle('selected', selectedAlbums.has(album));
+    card.classList.toggle('selected', selectedAlbums.has(albumId));
     const checkbox = card.querySelector('.album-checkbox');
     if (checkbox) {
-      checkbox.textContent = selectedAlbums.has(album) ? '✓' : '';
+      checkbox.textContent = selectedAlbums.has(albumId) ? '✓' : '';
     }
   }
 
-  const section = document.getElementById('ts-' + eid(album));
+  const section = document.getElementById('ts-' + albumId);
   if (section) {
     const checkAll = section.querySelector('.check-all');
     if (checkAll) {
       checkAll.textContent = '✓';
-      checkAll.classList.toggle('checked', selectedAlbums.has(album));
+      checkAll.classList.toggle('checked', selectedAlbums.has(albumId));
     }
   }
 
-  if (wasSelected !== selectedAlbums.has(album)) {
-    const tracks = artistTracksCache[album] || [];
-    if (selectedAlbums.has(album)) {
+  if (wasSelected !== selectedAlbums.has(albumId)) {
+    const tracks = artistTracksCache[albumId] || [];
+    if (selectedAlbums.has(albumId)) {
       tracks.forEach(t => selectedTracks.add(t.id));
     } else {
       tracks.forEach(t => selectedTracks.delete(t.id));
     }
 
-    const tlEl = document.getElementById('tl-' + eid(album));
+    const tlEl = document.getElementById('tl-' + albumId);
     if (tlEl) {
       tracks.forEach(t => {
         const row = document.getElementById('tr-' + t.id);
@@ -1201,12 +1320,12 @@ function toggleAlbum(e, album) {
         }
       });
 
-      const section = document.getElementById('ts-' + eid(album));
+      const section = document.getElementById('ts-' + albumId);
       if (section) {
         const checkAll = section.querySelector('.check-all');
         if (checkAll) {
-          checkAll.textContent = selectedAlbums.has(album) ? '✓' : '';
-          checkAll.classList.toggle('checked', selectedAlbums.has(album));
+          checkAll.textContent = selectedAlbums.has(albumId) ? '✓' : '';
+          checkAll.classList.toggle('checked', selectedAlbums.has(albumId));
         }
       }
     }
@@ -1219,8 +1338,8 @@ function toggleAlbum(e, album) {
  * 切换某张专辑下所有曲目的勾选状态
  * @param {string} album
  */
-function toggleAlbumTracks(album) {
-  const section = document.getElementById('ts-' + eid(album));
+function toggleAlbumTracks(albumId) {
+  const section = document.getElementById('ts-' + albumId);
   if (!section) return;
 
   const rows = section.querySelectorAll('.track-row');
@@ -1235,16 +1354,16 @@ function toggleAlbumTracks(album) {
 
   if (allSelected) {
     ids.forEach(id => selectedTracks.delete(id));
-    selectedAlbums.delete(album);
+    selectedAlbums.delete(albumId);
   } else {
     ids.forEach(id => selectedTracks.add(id));
-    selectedAlbums.add(album);
+    selectedAlbums.add(albumId);
   }
 
   const checkAll = section.querySelector('.check-all');
   if (checkAll) {
-    checkAll.textContent = selectedAlbums.has(album) ? '✓' : '';
-    checkAll.classList.toggle('checked', selectedAlbums.has(album));
+    checkAll.textContent = selectedAlbums.has(albumId) ? '✓' : '';
+    checkAll.classList.toggle('checked', selectedAlbums.has(albumId));
   }
 
   rows.forEach(row => {
@@ -1256,11 +1375,11 @@ function toggleAlbumTracks(album) {
     }
   });
 
-  const card = document.getElementById('alcard-' + eid(album));
+  const card = document.getElementById('alcard-' + albumId);
   if (card) {
     const checkbox = card.querySelector('.album-checkbox');
     if (checkbox) {
-      checkbox.textContent = selectedAlbums.has(album) ? '✓' : '';
+      checkbox.textContent = selectedAlbums.has(albumId) ? '✓' : '';
     }
   }
 
@@ -1282,7 +1401,7 @@ function toggleTrack(e, id) {
   const section = tl ? tl.parentNode : null;
   if (!section || !section.classList.contains('track-section')) return;
 
-  const album = section.id.replace('ts-', '');
+  const albumId = parseInt(section.id.replace('ts-', ''));
 
   if (selectedTracks.has(id)) selectedTracks.delete(id);
   else selectedTracks.add(id);
@@ -1305,15 +1424,15 @@ function toggleTrack(e, id) {
     checkAll.classList.toggle('checked', allSelected);
   }
 
-  if (allSelected !== selectedAlbums.has(album)) {
-    if (allSelected) selectedAlbums.add(album);
-    else selectedAlbums.delete(album);
+  if (allSelected !== selectedAlbums.has(albumId)) {
+    if (allSelected) selectedAlbums.add(albumId);
+    else selectedAlbums.delete(albumId);
 
-    const card = document.getElementById('alcard-' + eid(album));
+    const card = document.getElementById('alcard-' + albumId);
     if (card) {
       const checkbox = card.querySelector('.album-checkbox');
       if (checkbox) {
-        checkbox.textContent = selectedAlbums.has(album) ? '✓' : '';
+        checkbox.textContent = selectedAlbums.has(albumId) ? '✓' : '';
       }
     }
   }
@@ -1323,14 +1442,14 @@ function toggleTrack(e, id) {
 
 /** 全选 / 取消全选当前艺术家所有专辑 */
 function selectAllAlbums() {
-  const allSelected = artistAlbums.every(al => selectedAlbums.has(al.album));
+  const allSelected = artistAlbums.every(al => selectedAlbums.has(al.id));
   selectedAlbums.clear();
   selectedTracks.clear();
 
   if (!allSelected) {
-    artistAlbums.forEach(al => selectedAlbums.add(al.album));
+    artistAlbums.forEach(al => selectedAlbums.add(al.id));
     for (const al of artistAlbums) {
-      const tracks = artistTracksCache[al.album] || [];
+      const tracks = artistTracksCache[al.id] || [];
       tracks.forEach(t => selectedTracks.add(t.id));
     }
   }
@@ -1342,8 +1461,8 @@ function selectAllAlbums() {
  * 展开/折叠单张专辑视图
  * @param {string} album
  */
-function expandAlbum(album) {
-  currentAlbum = currentAlbum === album ? null : album;
+function expandAlbum(albumId) {
+  currentAlbum = currentAlbum === albumId ? null : albumId;
   selectedAlbums.clear();
   renderArtistView();
 }
@@ -1362,7 +1481,7 @@ function updateToolbar() {
   const hasAlbumTrackSelection = selectedAlbums.size > 0 || selectedTracks.size > 0;
 
   const allSelected = artistAlbums.length > 0 &&
-    artistAlbums.every(al => selectedAlbums.has(al.album));
+    artistAlbums.every(al => selectedAlbums.has(al.id));
   if (selectAllBtn) {
     selectAllBtn.textContent = allSelected ? '取消全选' : '全选专辑';
     selectAllBtn.style.display = hasArtistSelection ? 'none' : 'flex';

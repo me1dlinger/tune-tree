@@ -31,13 +31,13 @@ async function initApp() {
   // 自动选择第一位艺术家并显示专辑信息
   if (allArtists && allArtists.length > 0) {
     const sortedArtists = getSortedArtists(allArtists);
-    const firstArtist = sortedArtists[0].artist;
+    const firstArtistId = sortedArtists[0].id;
     // 等待艺术家视图加载完成后再加载其他页面数据
-    await selectArtistFromName(firstArtist);
+    await selectArtistFromId(firstArtistId);
   }
 
   loadFiles('');
-  loadStats(); 
+  loadStats();
   loadPending();
   loadLogs();
 }
@@ -79,19 +79,17 @@ async function doScan() {
   try {
     const r = await POST('/scan', {});
     showToast(`扫描完成：新增 ${r.added} 更新 ${r.updated} 移除 ${r.removed}`, 'success');
-    
+
     // 清空所有艺术家缓存，确保重新扫描后获取最新数据
     clearArtistCache();
-    console.debug('Scan: cleared all artist cache');
-    
     await loadArtistTree();
     loadStats();
     loadPending();
     loadLogs();
-    
+
     // 如果当前艺术家存在，重新加载他的数据
     if (currentArtist) {
-      await selectArtist(currentArtist.artist, null);
+      await selectArtist(currentArtist.id, null);
     }
   } catch (e) {
     if (e.message === 'scan_in_progress') {

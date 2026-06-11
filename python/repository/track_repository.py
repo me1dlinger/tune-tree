@@ -61,37 +61,67 @@ def get_all_track_paths():
 
 
 def get_tracks_by_ids(track_ids: list[int]):
-    """根据 ID 列表获取 tracks"""
     db = get_db()
     placeholders = ",".join("?" * len(track_ids))
     return db.execute(
-        f"SELECT * FROM tracks WHERE id IN ({placeholders}) ORDER BY artist, album, disc_num, track_num, filename",
+        f"SELECT t.* FROM tracks t LEFT JOIN artists a ON t.artist_id = a.id LEFT JOIN albums al ON t.album_id = al.id WHERE t.id IN ({placeholders}) ORDER BY a.name, al.title, t.disc_num, t.track_num, t.filename",
         track_ids,
     ).fetchall()
 
 
 def get_tracks_by_artist_and_album(artist: str, album: str):
-    """根据艺术家和专辑获取 tracks"""
     db = get_db()
     return db.execute(
-        "SELECT * FROM tracks WHERE artist=? AND album=? ORDER BY disc_num, track_num, filename",
-        (artist, album),
+        """
+        SELECT t.* FROM tracks t
+        JOIN artists a ON t.artist_id = a.id
+        JOIN albums al ON t.album_id = al.id
+        WHERE a.name_normalized=? AND al.title_normalized=?
+        ORDER BY t.disc_num, t.track_num, t.filename
+    """,
+        (normalize_str(artist), normalize_str(album)),
     ).fetchall()
 
 
 def get_tracks_by_artist_and_album_id(artist: str, album_id: int):
-    """根据艺术家和专辑 ID 获取 tracks"""
     db = get_db()
     return db.execute(
-        "SELECT * FROM tracks WHERE artist=? AND album=(SELECT album FROM tracks WHERE id=? LIMIT 1) ORDER BY disc_num, track_num, filename",
-        (artist, album_id),
+        """
+        SELECT t.* FROM tracks t
+        JOIN artists a ON t.artist_id = a.id
+        WHERE a.name_normalized=? AND t.album_id=?
+        ORDER BY t.disc_num, t.track_num, t.filename
+    """,
+        (normalize_str(artist), album_id),
     ).fetchall()
 
 
 def get_tracks_by_artist(artist: str):
-    """根据艺术家获取 tracks"""
     db = get_db()
-    return db.execute("SELECT * FROM tracks WHERE artist=?", (artist,)).fetchall()
+    return db.execute(
+        """
+        SELECT t.* FROM tracks t
+        JOIN artists a ON t.artist_id = a.id
+        WHERE a.name_normalized=?
+    """,
+        (normalize_str(artist),),
+    ).fetchall()
+
+
+def get_tracks_by_artist_id(artist_id: int):
+    db = get_db()
+    return db.execute(
+        "SELECT * FROM tracks WHERE artist_id=? ORDER BY album_id, disc_num, track_num, filename",
+        (artist_id,),
+    ).fetchall()
+
+
+def get_tracks_by_album_id(album_id: int):
+    db = get_db()
+    return db.execute(
+        "SELECT * FROM tracks WHERE album_id=? ORDER BY disc_num, track_num, filename",
+        (album_id,),
+    ).fetchall()
 
 
 def get_pending_tracks():
@@ -125,20 +155,23 @@ def insert_track(
     mtime: float,
     ctime: float,
     title: str,
-    artist: str,
-    album: str,
-    album_artist: str,
-    year: str,
-    track_num: int,
-    disc_num: int,
-    duration: float,
-    sample_rate: int,
-    bitrate: int,
+    artist: str | None,
+    album: str | None,
+    album_artist: str | None,
+    year: str | None,
+    track_num: int | None,
+    disc_num: int | None,
+    duration: float | None,
+    sample_rate: int | None,
+    bitrate: int | None,
     has_cover: int,
     has_lyrics: int,
     pending: int,
-    missing_tags: str,
+    missing_tags: str | None,
     scanned_at: float,
+    artist_id: int | None = None,
+    album_id: int | None = None,
+    track_artist: str | None = None,
 ):
     """插入新的 track"""
     db = get_db()
@@ -147,8 +180,8 @@ def insert_track(
         INSERT INTO tracks
         (path,filename,ext,size,mtime,ctime,title,artist,album,album_artist,year,
          track_num,disc_num,duration,sample_rate,bitrate,has_cover,has_lyrics,
-         pending,missing_tags,scanned_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         pending,missing_tags,scanned_at,artist_id,album_id,track_artist)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """,
         (
             path,
@@ -172,6 +205,9 @@ def insert_track(
             pending,
             missing_tags,
             scanned_at,
+            artist_id,
+            album_id,
+            track_artist,
         ),
     )
 
@@ -183,21 +219,24 @@ def update_track_by_path(
     mtime: float,
     ctime: float,
     title: str,
-    artist: str,
-    album: str,
-    album_artist: str,
-    year: str,
-    track_num: int,
-    disc_num: int,
-    duration: float,
-    sample_rate: int,
-    bitrate: int,
+    artist: str | None,
+    album: str | None,
+    album_artist: str | None,
+    year: str | None,
+    track_num: int | None,
+    disc_num: int | None,
+    duration: float | None,
+    sample_rate: int | None,
+    bitrate: int | None,
     has_cover: int,
     has_lyrics: int,
     pending: int,
-    missing_tags: str,
+    missing_tags: str | None,
     scanned_at: float,
     path: str,
+    artist_id: int | None = None,
+    album_id: int | None = None,
+    track_artist: str | None = None,
 ):
     """根据路径更新 track"""
     db = get_db()
@@ -206,7 +245,7 @@ def update_track_by_path(
         UPDATE tracks SET filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
         album=?,album_artist=?,year=?,track_num=?,disc_num=?,duration=?,
         sample_rate=?,bitrate=?,has_cover=?,has_lyrics=?,pending=?,
-        missing_tags=?,scanned_at=?
+        missing_tags=?,scanned_at=?,artist_id=?,album_id=?,track_artist=?
         WHERE path=?
     """,
         (
@@ -230,6 +269,9 @@ def update_track_by_path(
             pending,
             missing_tags,
             scanned_at,
+            artist_id,
+            album_id,
+            track_artist,
             path,
         ),
     )
@@ -244,7 +286,14 @@ def update_track_path_and_name(track_id: int, new_path: str, new_filename: str):
     )
 
 
-FORBIDDEN_UPDATE_FIELDS = {"path", "filename", "ext", "size", "mtime", "ctime"}
+FORBIDDEN_UPDATE_FIELDS = {
+    "path",
+    "filename",
+    "ext",
+    "size",
+    "mtime",
+    "ctime",
+}
 
 
 def update_track_metadata(track_id: int, fields: dict):
@@ -304,148 +353,113 @@ def delete_track_by_id(track_id: int):
 
 
 def get_artist_by_track_id(track_id: int):
-    """根据 track ID 获取艺术家"""
     db = get_db()
-    row = db.execute("SELECT artist FROM tracks WHERE id=?", (track_id,)).fetchone()
-    return row["artist"] if row else None
+    row = db.execute(
+        "SELECT a.name FROM tracks t JOIN artists a ON t.artist_id = a.id WHERE t.id=?",
+        (track_id,),
+    ).fetchone()
+    return row["name"] if row else None
 
 
 def count_tracks_by_artist_with_status(artist: str, organized: int, pending: int):
-    """统计艺术家特定状态的 tracks 数量"""
     db = get_db()
     return db.execute(
-        "SELECT COUNT(*) as c FROM tracks WHERE artist=? AND organized=? AND pending=?",
-        (artist, organized, pending),
+        """
+        SELECT COUNT(*) as c FROM tracks t
+        JOIN artists a ON t.artist_id = a.id
+        WHERE a.name_normalized=? AND t.organized=? AND t.pending=?
+    """,
+        (normalize_str(artist), organized, pending),
+    ).fetchone()["c"]
+
+
+def count_tracks_by_artist_id_with_status(artist_id: int, organized: int, pending: int):
+    db = get_db()
+    return db.execute(
+        "SELECT COUNT(*) as c FROM tracks WHERE artist_id=? AND organized=? AND pending=?",
+        (artist_id, organized, pending),
     ).fetchone()["c"]
 
 
 # === Artist 相关操作 ===
 
 
-def get_artists(query: str = None):
-    """获取艺术家列表，支持搜索"""
-    db = get_db()
-    if query:
-        return db.execute(
-            """
-            SELECT artist,
-                   COUNT(DISTINCT album) AS album_count,
-                   COUNT(*) AS track_count,
-                   MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized,
-                   MAX(ctime) AS last_created_at
-            FROM tracks
-            WHERE artist IS NOT NULL AND artist != '' AND artist LIKE ?
-            GROUP BY artist
-            ORDER BY artist COLLATE NOCASE
-        """,
-            (f"%{query}%",),
-        ).fetchall()
-    else:
-        return db.execute("""
-            SELECT artist,
-                   COUNT(DISTINCT album) AS album_count,
-                   COUNT(*) AS track_count,
-                   MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized,
-                   MAX(ctime) AS last_created_at
-            FROM tracks
-            WHERE artist IS NOT NULL AND artist != ''
-            GROUP BY artist
-            ORDER BY artist COLLATE NOCASE
-        """).fetchall()
+def get_artists(query: str | None = None):
+    from repository.artist_repository import get_all_artists
+
+    return get_all_artists(query)
 
 
 # === Album 相关操作 ===
 
 
 def get_albums_by_artist(artist: str):
-    """根据艺术家获取专辑列表"""
-    db = get_db()
-    return db.execute(
-        """
-        SELECT album,
-               MIN(year) AS year,
-               COUNT(*) AS track_count,
-               MIN(has_cover) AS has_cover_some,
-               MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized,
-               MIN(id) AS sample_id
-        FROM tracks
-        WHERE artist=? AND album IS NOT NULL AND album != ''
-        GROUP BY album
-        ORDER BY year, album COLLATE NOCASE
-    """,
-        (artist,),
-    ).fetchall()
+    from repository.artist_repository import get_artist_by_name
+    from repository.album_repository import get_albums_by_artist_id
+
+    a = get_artist_by_name(artist)
+    if not a:
+        return []
+    return get_albums_by_artist_id(a["id"])
 
 
 def get_artist_full_info(artist: str):
-    """获取艺术家的完整信息，包括所有专辑及其下的所有歌曲"""
-    db = get_db()
+    from repository.artist_repository import get_artist_by_name
+    from repository.album_repository import get_albums_by_artist_id
 
-    albums = db.execute(
-        """
-        SELECT album,
-               MIN(year) AS year,
-               COUNT(*) AS track_count,
-               MIN(has_cover) AS has_cover_some,
-               MIN(CASE WHEN organized=0 AND pending=0 THEN 0 ELSE 1 END) AS all_organized,
-               MIN(id) AS sample_id
-        FROM tracks
-        WHERE artist=? AND album IS NOT NULL AND album != ''
-        GROUP BY album
-        ORDER BY year, album COLLATE NOCASE
-    """,
-        (artist,),
-    ).fetchall()
-
-    tracks = db.execute(
-        """
-        SELECT * FROM tracks 
-        WHERE artist=? 
-        ORDER BY album, disc_num, track_num, filename
-    """,
-        (artist,),
-    ).fetchall()
-
+    a = get_artist_by_name(artist)
+    if not a:
+        return {"artist": artist, "albums": []}
+    albums = get_albums_by_artist_id(a["id"])
+    tracks = get_tracks_by_artist_id(a["id"])
     albums_with_tracks = []
     for album in albums:
         album_dict = dict(album)
-        album_dict["tracks"] = [dict(t) for t in tracks if t["album"] == album["album"]]
+        album_dict["tracks"] = [dict(t) for t in tracks if t["album_id"] == album["id"]]
         albums_with_tracks.append(album_dict)
-
     return {"artist": artist, "albums": albums_with_tracks}
 
 
+def get_artist_full_info_by_id(artist_id: int):
+    from repository.artist_repository import get_artist_by_id
+    from repository.album_repository import get_albums_by_artist_id
+
+    a = get_artist_by_id(artist_id)
+    if not a:
+        return None
+    albums = get_albums_by_artist_id(artist_id)
+
+    tracks = get_tracks_by_artist_id(artist_id)
+    albums_with_tracks = []
+    for album in albums:
+        album_dict = dict(album)
+        album_dict["tracks"] = [dict(t) for t in tracks if t["album_id"] == album["id"]]
+        albums_with_tracks.append(album_dict)
+    result = dict(a)
+    result["albums"] = albums_with_tracks
+    return result
+
+
 def get_artist_directory_path(artist: str) -> str | None:
-    """获取艺术家的目录路径
+    from repository.artist_repository import get_artist_by_name
 
-    优先从已整理的歌曲路径推断目录结构。如果艺术家没有任何已整理的歌曲，
-    则在音乐库根目录下创建艺术家目录。
-    """
-    db = get_db()
-    row = db.execute(
-        """
-        SELECT path FROM tracks
-        WHERE artist=? AND organized=1
-        LIMIT 1
-        """,
-        (artist,),
-    ).fetchone()
-    if row:
-        from pathlib import Path
-
-        track_path = Path(row["path"])
-        parts = track_path.parts
-        artist_safe = safe_dirname(artist)
-        artist_norm = normalize_str(artist_safe.lower().strip())
-        for i in range(len(parts) - 1, 0, -1):
-            folder_name = parts[i]
-            folder_safe = safe_dirname(folder_name)
-            folder_norm = normalize_str(folder_safe.lower())
-            if folder_norm == artist_norm:
-                return str(Path(*parts[: i + 1]))
-        return str(track_path.parent.parent)
-
+    a = get_artist_by_name(artist)
+    if a:
+        artist_dir = os.path.join(MUSIC_ROOT, a["dir_name"])
+        os.makedirs(artist_dir, exist_ok=True)
+        return artist_dir
     artist_dir = os.path.join(MUSIC_ROOT, safe_dirname(artist))
+    os.makedirs(artist_dir, exist_ok=True)
+    return artist_dir
+
+
+def get_artist_directory_path_by_id(artist_id: int) -> str | None:
+    from repository.artist_repository import get_artist_by_id
+
+    a = get_artist_by_id(artist_id)
+    if not a:
+        return None
+    artist_dir = os.path.join(MUSIC_ROOT, a["dir_name"])
     os.makedirs(artist_dir, exist_ok=True)
     return artist_dir
 
@@ -460,19 +474,15 @@ def count_total_tracks():
 
 
 def count_total_artists():
-    """统计总艺术家数"""
-    db = get_db()
-    return db.execute(
-        "SELECT COUNT(DISTINCT artist) FROM tracks WHERE artist IS NOT NULL AND artist!=''",
-    ).fetchone()[0]
+    from repository.artist_repository import count_total_artists as _count
+
+    return _count()
 
 
 def count_total_albums():
-    """统计总专辑数"""
-    db = get_db()
-    return db.execute(
-        "SELECT COUNT(DISTINCT artist||'|'||album) FROM tracks WHERE artist IS NOT NULL AND album IS NOT NULL",
-    ).fetchone()[0]
+    from repository.album_repository import count_total_albums as _count
+
+    return _count()
 
 
 def count_pending_tracks():
@@ -482,29 +492,15 @@ def count_pending_tracks():
 
 
 def count_organized_artists():
-    """统计已整理的艺术家数"""
-    db = get_db()
-    return db.execute("""
-        SELECT COUNT(*) FROM (
-          SELECT artist FROM tracks
-          WHERE artist IS NOT NULL AND artist!=''
-          GROUP BY artist
-          HAVING SUM(CASE WHEN organized=0 AND pending=0 THEN 1 ELSE 0 END) = 0
-        )
-    """).fetchone()[0]
+    from repository.artist_repository import count_organized_artists as _count
+
+    return _count()
 
 
 def count_organized_albums():
-    """统计已整理的专辑数"""
-    db = get_db()
-    return db.execute("""
-        SELECT COUNT(*) FROM (
-          SELECT artist,album FROM tracks
-          WHERE artist IS NOT NULL AND album IS NOT NULL
-          GROUP BY artist,album
-          HAVING SUM(CASE WHEN organized=0 AND pending=0 THEN 1 ELSE 0 END) = 0
-        )
-    """).fetchone()[0]
+    from repository.album_repository import count_organized_albums as _count
+
+    return _count()
 
 
 def count_duplicate_groups():

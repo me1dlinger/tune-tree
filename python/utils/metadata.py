@@ -11,30 +11,53 @@ from mutagen import File as MutagenFile
 
 logger = logging.getLogger("tunetree")
 
+
 def _normalize_path(path: str) -> str:
     """对路径进行Unicode正规化，处理日语假名等字符的不同表示形式"""
-    return unicodedata.normalize('NFC', path)
+    return unicodedata.normalize("NFC", path)
+
 
 INVISIBLE_CHARS = {
     0x00A0,  # Non-breaking space
-    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A,  # Various spaces
+    0x2000,
+    0x2001,
+    0x2002,
+    0x2003,
+    0x2004,
+    0x2005,
+    0x2006,
+    0x2007,
+    0x2008,
+    0x2009,
+    0x200A,  # Various spaces
     0x202F,  # Narrow no-break space
     0x205F,  # Medium mathematical space
     0x3000,  # Ideographic space (fullwidth space)
     0x2028,  # Line separator
     0x2029,  # Paragraph separator
     0x200B,  # Zero width space
-    0x200C, 0x200D,  # Zero width non-joiner / joiner
+    0x200C,
+    0x200D,  # Zero width non-joiner / joiner
     0xFEFF,  # Byte order mark / zero width no-break space
     0x180E,  # Mongolian free variation selector
     0x2060,  # Word joiner
-    0x2061, 0x2062, 0x2063, 0x2064,  # Function application / invisible times / etc.
-    0x206A, 0x206B, 0x206C, 0x206D, 0x206E, 0x206F,  # Invisible operators
+    0x2061,
+    0x2062,
+    0x2063,
+    0x2064,  # Function application / invisible times / etc.
+    0x206A,
+    0x206B,
+    0x206C,
+    0x206D,
+    0x206E,
+    0x206F,  # Invisible operators
 }
+
 
 def _remove_invisible(text: str) -> str:
     """移除字符串中的不可见Unicode字符"""
     return "".join(c for c in text if ord(c) not in INVISIBLE_CHARS)
+
 
 def normalize_str(text: str) -> str:
     """对字符串进行Unicode正规化，用于比较和存储
@@ -42,35 +65,36 @@ def normalize_str(text: str) -> str:
     同时移除不可见字符"""
     if not text:
         return text
-    normalized = unicodedata.normalize('NFKC', text)
+    normalized = unicodedata.normalize("NFKC", text)
     return _remove_invisible(normalized)
+
 
 def _find_file(path: str) -> str:
     """尝试多种Unicode正规化形式查找文件，返回可访问的路径"""
     # 尝试原始路径
     if Path(path).exists():
         return path
-    
+
     # 尝试NFC正规化
-    nfc_path = unicodedata.normalize('NFC', path)
+    nfc_path = unicodedata.normalize("NFC", path)
     if Path(nfc_path).exists():
         return nfc_path
-    
+
     # 尝试NFD正规化
-    nfd_path = unicodedata.normalize('NFD', path)
+    nfd_path = unicodedata.normalize("NFD", path)
     if Path(nfd_path).exists():
         return nfd_path
-    
+
     # 尝试NFKC正规化
-    nfkc_path = unicodedata.normalize('NFKC', path)
+    nfkc_path = unicodedata.normalize("NFKC", path)
     if Path(nfkc_path).exists():
         return nfkc_path
-    
+
     # 尝试NFKD正规化
-    nfkd_path = unicodedata.normalize('NFKD', path)
+    nfkd_path = unicodedata.normalize("NFKD", path)
     if Path(nfkd_path).exists():
         return nfkd_path
-    
+
     # 都找不到，返回原始路径
     return path
 
@@ -169,6 +193,42 @@ def get_cover_b64(path: str) -> str | None:
     except Exception as exc:
         logger.warning("cover extract error %s: %s", path, exc)
     return None
+
+
+def extract_cover_to_file(track_path: str, output_path: str) -> bool:
+    """Extract embedded cover art from a track and save to output_path.
+    Returns True if cover was extracted and saved successfully."""
+    try:
+        actual_path = _find_file(track_path)
+        ext = Path(actual_path).suffix.lower()
+        raw = MutagenFile(actual_path)
+        if raw is None:
+            return False
+        cover_data = None
+        if ext == ".flac":
+            pics = raw.pictures
+            if pics:
+                cover_data = pics[0].data
+        elif ext == ".mp3":
+            tags = raw.tags or {}
+            for k, v in tags.items():
+                if k.startswith("APIC"):
+                    cover_data = v.data
+                    break
+        if not cover_data:
+            return False
+        from PIL import Image
+        import io
+
+        img = Image.open(io.BytesIO(cover_data))
+        if img.format != "JPEG":
+            img = img.convert("RGB")
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        img.save(output_path, "JPEG", quality=90)
+        return True
+    except Exception as exc:
+        logger.warning("cover extract to file error %s: %s", track_path, exc)
+        return False
 
 
 TAG_MAP = {

@@ -35,10 +35,14 @@ async function openFormatModal() {
 
     if (hasArtistSelection) {
       // 多艺术家格式化 - 使用批量接口一次性提交
-      const artists = Array.from(selectedArtists);
+      const artistIds = Array.from(selectedArtists);
+      const artistNames = artistIds.map(aid => {
+        const a = allArtists.find(x => x.id === aid);
+        return a ? a.name : null;
+      }).filter(n => n !== null);
 
       const batchResult = await POST('/format/batch-preview', {
-        artists: artists,
+        artists: artistNames,
       });
       formatPreviewData = batchResult.results;
 
@@ -48,12 +52,12 @@ async function openFormatModal() {
       let formatData;
       if (selectedAlbums.size > 0) {
         const albumIds = artistAlbums
-          .filter(al => selectedAlbums.has(al.album))
-          .map(al => al.sample_id);
+          .filter(al => selectedAlbums.has(al.id))
+          .map(al => al.id);
         // 如果 albumIds 为空，改用 track_ids（可能是只选了单首歌曲导致）
         if (albumIds.length > 0) {
           formatData = await POST('/format/preview', {
-            artist: currentArtist.artist,
+            artist: currentArtist.name,
             album_ids: albumIds,
           });
         } else {
@@ -66,8 +70,8 @@ async function openFormatModal() {
           track_ids: Array.from(selectedTracks),
         });
       }
-      formatPreviewData[currentArtist.artist] = formatData;
-      renderSingleArtistPreview(formatData, currentArtist.artist);
+      formatPreviewData[currentArtist.name] = formatData;
+      renderSingleArtistPreview(formatData, currentArtist.name);
     }
 
     btn.disabled = false;
@@ -262,7 +266,8 @@ function removePreviewTab(event, index) {
   delete formatPreviewData[artistToRemove];
 
   // 从选中集合中移除
-  selectedArtists.delete(artistToRemove);
+  const artistObj = allArtists.find(a => a.name === artistToRemove);
+  if (artistObj) selectedArtists.delete(artistObj.id);
 
   const newArtists = Object.keys(formatPreviewData);
   if (newArtists.length === 0) {
@@ -318,10 +323,10 @@ async function executeFormat() {
 
     if (hasArtistSelection) {
       // 多艺术家格式化 - 使用批量接口一次性提交
-      const artists = Object.keys(formatPreviewData);
+      const artistNames = Object.keys(formatPreviewData);
 
       const batchResult = await POST('/format/batch-execute', {
-        artists: artists,
+        artists: artistNames,
       });
       totalMoved = batchResult.total_moved || 0;
       totalSkipped = batchResult.total_skipped || 0;
@@ -331,12 +336,12 @@ async function executeFormat() {
       let result;
       if (selectedAlbums.size > 0) {
         const albumIds = artistAlbums
-          .filter(al => selectedAlbums.has(al.album))
-          .map(al => al.sample_id);
+          .filter(al => selectedAlbums.has(al.id))
+          .map(al => al.id);
         // 如果 albumIds 为空，改用 track_ids（可能是只选了单首歌曲导致）
         if (albumIds.length > 0) {
           result = await POST('/format/execute', {
-            artist: currentArtist.artist,
+            artist: currentArtist.name,
             album_ids: albumIds,
           });
         } else {
@@ -367,7 +372,7 @@ async function executeFormat() {
 
     await loadArtistTree();
     if (currentArtist) {
-      await selectArtist(currentArtist.artist, null);
+      await selectArtist(currentArtist.id, null);
     }
     loadStats();
     loadLogs();
