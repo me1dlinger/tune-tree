@@ -14,6 +14,11 @@ let originalData = null;
 let scrapedData = null;
 let newCoverFile = null;
 let newCoverPreviewUrl = null;
+let editModeActive = false;
+let initialEditState = null;
+let initialScrapedData = null;
+let initialNewCoverFile = null;
+let initialNewCoverPreviewUrl = null;
 
 /* ═══════════════════════════════════════════════════════════
    OPEN / CLOSE
@@ -33,6 +38,11 @@ function openMetadataEdit(track) {
   scrapedData = null;
   newCoverFile = null;
   newCoverPreviewUrl = null;
+  editModeActive = false;
+  initialEditState = { ...editState };
+  initialScrapedData = null;
+  initialNewCoverFile = null;
+  initialNewCoverPreviewUrl = null;
 
   const modal = document.getElementById('metadata-edit-modal');
   modal.dataset.trackId = track.id;
@@ -45,6 +55,14 @@ function closeMetadataEdit() {
   originalData = null;
   scrapedData = null;
   newCoverFile = null;
+  editModeActive = false;
+  initialEditState = null;
+  initialScrapedData = null;
+  initialNewCoverFile = null;
+  if (initialNewCoverPreviewUrl) {
+    URL.revokeObjectURL(initialNewCoverPreviewUrl);
+    initialNewCoverPreviewUrl = null;
+  }
   if (newCoverPreviewUrl) {
     URL.revokeObjectURL(newCoverPreviewUrl);
     newCoverPreviewUrl = null;
@@ -71,101 +89,165 @@ function renderEditModal(track) {
 
   const coverImg = coverPreview
     ? `<img src="${coverPreview}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" onclick="openCoverImageViewer('${coverPreview}', '${coverFilename}')">`
-    : `<i class="bi bi-disc" style="font-size: 32px;"></i>`;
+    : `<i class="bi bi-disc" style="font-size: 48px;"></i>`;
 
-  // 显示相对路径
   const relativePath = track.relative_path || track.path || '';
-  const pathHtml = relativePath ? `
-    <div class="edit-path-info">
-      <i class="bi bi-folder-open"></i>
-      <span class="edit-path-text">${esc(relativePath)}</span>
-    </div>
-  ` : '';
+
+  const sourceLabel = scrapedData
+    ? { cloud: '网易云', qq: 'QQ音乐', kugou: '酷狗' }[scrapedData._api || scrapedData._source] || scrapedData._source || ''
+    : '';
 
   return `
-    <div class="edit-cover-area">
-      <div class="edit-cover-preview">${coverImg}</div>
-      <div class="edit-cover-actions">
-        ${coverUrl ? `<button class="toolbar-btn" onclick="downloadCoverImage('${coverUrl}', '${coverFilename}')" title="下载封面">
-          <i class="bi bi-download"></i>
-          下载封面
-        </button>` : ''}
-        <label class="toolbar-btn" title="上传替换封面">
-          <i class="bi bi-upload"></i>
-          上传替换
-          <input type="file" accept="image/jpeg,image/png" style="display:none;" onchange="handleCoverUpload(this)">
-        </label>
-      </div>
-    </div>
-    ${pathHtml}
-    <div class="edit-form">
-      <div class="scrape-section">
-        <button class="toolbar-btn scrape-btn" onclick="scrapeMetadata()" id="scrape-btn">
-          <i class="bi bi-search"></i>
-          音乐标签
-        </button>
-        <button class="toolbar-btn" onclick="editLyrics()">
-          <i class="bi bi-file-text"></i>
-          编辑歌词
-        </button>
-        ${scrapedData ? `<div class="scrape-success">已从 ${{ cloud: '网易云音乐', qq: 'QQ音乐', kugou: '酷狗音乐' }[scrapedData._source] || scrapedData._source} 获取元数据</div>` : ''}
-      </div>
-      <div class="edit-field">
-        <label>歌名</label>
-        ${renderFieldWithComparison('title')}
-      </div>
-      <div class="edit-field">
-        <label>艺术家</label>
-        ${renderFieldWithComparison('artist')}
-      </div>
-      <div class="edit-field">
-        <label>专辑名</label>
-        ${renderFieldWithComparison('album')}
-      </div>
-      <div class="edit-field">
-        <label>专辑艺术家</label>
-        ${renderFieldWithComparison('album_artist')}
-      </div>
-      <div class="edit-field-row">
-        <div class="edit-field">
-          <label>音轨号</label>
-          ${renderFieldWithComparison('track_num')}
+    <div class="edit-layout">
+      <div class="edit-left">
+        <div class="edit-cover-preview">${coverImg}</div>
+        <div class="edit-cover-actions">
+          ${coverUrl ? `<button class="toolbar-btn" onclick="downloadCoverImage('${coverUrl}', '${coverFilename}')" title="下载封面">
+            <i class="bi bi-download"></i> 下载封面
+          </button>` : ''}
+          <label class="toolbar-btn" title="上传替换封面">
+            <i class="bi bi-upload"></i> 上传替换
+            <input type="file" accept="image/jpeg,image/png" style="display:none;" onchange="handleCoverUpload(this)">
+          </label>
         </div>
-        <div class="edit-field">
-          <label>年份</label>
-          ${renderFieldWithComparison('year')}
+      </div>
+      <div class="edit-right">
+        ${relativePath ? `
+        <div class="edit-path-info">
+          <i class="bi bi-folder-open"></i>
+          <span class="edit-path-text">${esc(relativePath)}</span>
+        </div>
+        ` : ''}
+        <div class="edit-right-header">
+          ${sourceLabel ? `<span class="batch-card-source ${scrapedData._api || ''}"><i class="bi bi-tag"></i> ${sourceLabel}</span>` : ''}
+          <span style="flex:1;"></span>
+          <button class="toolbar-btn scrape-btn" onclick="scrapeMetadata()" id="scrape-btn">
+            <i class="bi bi-search"></i> 标签搜索
+          </button>
+          <button class="toolbar-btn" onclick="editLyrics()">
+            <i class="bi bi-file-text"></i> 歌词编辑
+          </button>
+          <button class="toolbar-btn edit-btn-reset" onclick="resetMetadataEdit()">
+            <i class="bi bi-arrow-counterclockwise"></i> 重置
+          </button>
+          ${editModeActive
+            ? `<button class="toolbar-btn batch-btn-save-edit" onclick="saveMetadataEditMode()"><i class="bi bi-check-lg"></i> 保存</button>
+               <button class="toolbar-btn batch-btn-cancel-edit" onclick="cancelMetadataEditMode()"><i class="bi bi-x"></i> 取消</button>`
+            : `<button class="toolbar-btn batch-btn-edit" onclick="startMetadataEditMode()"><i class="bi bi-pencil"></i> 标签编辑</button>`
+          }
+        </div>
+        <div class="edit-fields-list">
+          ${renderTagField('歌名', 'title')}
+          ${renderTagField('艺术家', 'artist')}
+          ${renderTagField('专辑', 'album')}
+          ${renderTagField('专辑艺术家', 'album_artist')}
+          <div class="batch-field-row">
+            ${renderTagField('音轨号', 'track_num')}
+            ${renderTagField('年份', 'year')}
+          </div>
         </div>
       </div>
     </div>
   `;
 }
 
-function renderFieldWithComparison(field) {
-  const currentValue = esc(String(editState[field] || ''));
-  const originalValue = esc(String(originalData[field] || ''));
-  const scrapedValue = scrapedData ? esc(String(scrapedData[field] || '')) : null;
-  const hasChange = scrapedData && scrapedValue !== originalValue && scrapedValue !== '';
+function renderTagField(label, fieldKey) {
+  const origRaw = originalData[fieldKey];
+  const hasOrig = origRaw != null && String(origRaw) !== '';
+  const origVal = hasOrig ? String(origRaw) : '';
+  const currentVal = editState[fieldKey] != null ? String(editState[fieldKey]) : '';
+  const hasChange = currentVal !== '' && currentVal !== origVal;
+  const isDifferent = hasChange && hasOrig;
+  const isSame = hasOrig && currentVal === origVal;
 
-  if (field === 'track_num') {
+  if (editModeActive) {
     return `
-      <input type="number" min="0" value="${currentValue}" data-field="${field}" oninput="handleFieldInput(this)">
-      ${hasChange ? `<div class="scraped-suggestion" onclick="useScrapedValue('${field}')">推荐: ${scrapedValue}</div>` : ''}
-      ${originalValue !== '' ? `<div class="original-value">原值: ${originalValue}</div>` : ''}
+      <div class="batch-field batch-field-editing ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''} ${isSame ? 'has-same' : ''}">
+        <div class="batch-field-editing-header">
+          <span class="batch-field-label">${label}</span>
+          ${isDifferent ? `<span class="batch-field-original">${esc(origVal)}</span>` : ''}
+        </div>
+        <input type="text"
+               class="batch-field-input"
+               data-field="${fieldKey}"
+               value="${esc(currentVal)}"
+               placeholder="${esc(label)}..."
+               oninput="handleEditFieldInput(this)">
+      </div>
     `;
   }
 
+  const displayVal = currentVal || '';
   return `
-    <input type="text" value="${currentValue}" data-field="${field}" oninput="handleFieldInput(this)">
-    ${hasChange ? `<div class="scraped-suggestion" onclick="useScrapedValue('${field}')">推荐: ${scrapedValue}</div>` : ''}
-    ${originalValue !== '' ? `<div class="original-value">原值: ${originalValue}</div>` : ''}
+    <div class="batch-field ${hasChange ? 'has-change' : ''} ${isDifferent ? 'has-original' : ''} ${isSame ? 'has-same' : ''}">
+      <span class="batch-field-label">${label}</span>
+      ${isDifferent ? `<span class="batch-field-original">${esc(origVal)}</span>` : ''}
+      <span class="batch-field-value ${hasChange ? 'changed' : ''}">${esc(displayVal || '—')}</span>
+      ${isSame ? '<span class="batch-field-same-indicator"></span>' : ''}
+    </div>
   `;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   FIELD INPUT HANDLERS
-   ═══════════════════════════════════════════════════════════ */
+function startMetadataEditMode() {
+  editModeActive = true;
+  rerenderEditModal();
+  setTimeout(() => {
+    const firstInput = document.querySelector('.edit-right .batch-field-input');
+    if (firstInput) firstInput.focus();
+  }, 100);
+}
 
-function handleFieldInput(el) {
+function saveMetadataEditMode() {
+  editModeActive = false;
+  rerenderEditModal();
+  showToast('已保存编辑', 'success');
+}
+
+function cancelMetadataEditMode() {
+  editState = { ...originalData };
+  if (scrapedData) {
+    for (const key of ['title', 'artist', 'album', 'album_artist', 'year', 'track_num', 'lyrics']) {
+      if (scrapedData[key] !== null && scrapedData[key] !== undefined) {
+        editState[key] = scrapedData[key];
+      }
+    }
+  }
+  editModeActive = false;
+  rerenderEditModal();
+}
+
+function resetMetadataEdit() {
+  const tagKeys = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year'];
+  const hasOriginalTags = tagKeys.some(k => originalData[k] != null && String(originalData[k]) !== '');
+
+  if (hasOriginalTags) {
+    editState = { ...originalData };
+    scrapedData = null;
+  } else if (initialScrapedData) {
+    editState = { ...originalData };
+    for (const key of tagKeys) {
+      if (initialScrapedData[key] !== null && initialScrapedData[key] !== undefined) {
+        editState[key] = initialScrapedData[key];
+      }
+    }
+    scrapedData = initialScrapedData;
+  } else {
+    editState = { ...originalData };
+    scrapedData = null;
+  }
+
+  newCoverFile = initialNewCoverFile || null;
+  if (newCoverPreviewUrl) {
+    URL.revokeObjectURL(newCoverPreviewUrl);
+  }
+  newCoverPreviewUrl = initialNewCoverPreviewUrl || null;
+
+  editModeActive = false;
+  rerenderEditModal();
+  showToast('已重置', 'info');
+}
+
+function handleEditFieldInput(el) {
   const field = el.dataset.field;
   let val = el.value;
   if (field === 'track_num') {
@@ -175,15 +257,7 @@ function handleFieldInput(el) {
   editState[field] = val;
 }
 
-function useScrapedValue(field) {
-  if (!scrapedData) return;
-
-  if (field === 'lyrics') {
-    editState.lyrics = scrapedData.lyrics || '';
-  } else if (scrapedData[field] !== null && scrapedData[field] !== undefined) {
-    editState[field] = scrapedData[field];
-  }
-
+function rerenderEditModal() {
   const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
   GET(`/tracks/${trackId}`).then(track => {
     document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
@@ -215,7 +289,7 @@ function handleCoverUpload(input) {
 
   const preview = document.querySelector('#metadata-edit-modal .edit-cover-preview');
   if (preview) {
-    preview.innerHTML = `<img src="${newCoverPreviewUrl}" style="width:100%;height:100%;object-fit:cover;">`;
+    preview.innerHTML = `<img src="${newCoverPreviewUrl}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" onclick="openCoverImageViewer('${newCoverPreviewUrl}', '')">`;
   }
 }
 
@@ -505,14 +579,17 @@ function confirmScrapeSelection() {
     }
   }
 
-  const source = scrapedData._source;
-  closeScrapeResultsModal();
+  if (!initialScrapedData) {
+    initialScrapedData = scrapedData;
+    initialNewCoverFile = newCoverFile;
+    if (newCoverPreviewUrl && !initialNewCoverPreviewUrl) {
+      initialNewCoverPreviewUrl = newCoverPreviewUrl;
+    }
+  }
 
-  const trackId = document.getElementById('metadata-edit-modal').dataset.trackId;
-  GET(`/tracks/${trackId}`).then(track => {
-    document.getElementById('metadata-edit-modal').querySelector('.modal-body').innerHTML = renderEditModal(track);
-    showToast(`已选择 ${source} 的元数据`, 'success');
-  });
+  closeScrapeResultsModal();
+  rerenderEditModal();
+  showToast(`已选择 ${scrapedData._source} 的元数据`, 'success');
 }
 
 function closeScrapeResultsModal() {

@@ -2378,11 +2378,21 @@ body {
 }
 
 /* METADATA SCRAPING */
-.edit-cover-area {
+.edit-cover-preview {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius2);
+    overflow: hidden;
     display: flex;
-    gap: 16px;
-    align-items: flex-start;
-    margin-bottom: 12px;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.edit-cover-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .edit-path-info {
@@ -2409,37 +2419,6 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.edit-cover-preview {
-    width: 200px;
-    height: 200px;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    border-radius: var(--radius2);
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.edit-cover-preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.edit-cover-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding-top: 4px;
-}
-
-.edit-cover-actions .toolbar-btn {
-    font-size: 11px;
-    gap: 4px;
 }
 
 .edit-form {
@@ -2566,9 +2545,17 @@ body {
     gap: 8px;
 }
 
-.scrape-api-title.cloud { border-bottom-color: rgba(255, 0, 0, 0.3); }
-.scrape-api-title.qq { border-bottom-color: rgba(255, 221, 2, 0.3); }
-.scrape-api-title.kugou { border-bottom-color: rgba(34, 129, 215, 0.3); }
+.scrape-api-title.cloud {
+    border-bottom-color: rgba(255, 0, 0, 0.3);
+}
+
+.scrape-api-title.qq {
+    border-bottom-color: rgba(255, 221, 2, 0.3);
+}
+
+.scrape-api-title.kugou {
+    border-bottom-color: rgba(34, 129, 215, 0.3);
+}
 
 .scrape-api-title .api-name {
     flex: 1;
@@ -2581,10 +2568,21 @@ body {
     flex-shrink: 0;
 }
 
-.api-dot.cloud { background: #ff0000; }
-.api-dot.qq { background: #ffdd02; }
-.api-dot.kugou { background: #2281d7; }
-.api-dot.spotify { background: #1db954; }
+.api-dot.cloud {
+    background: #ff0000;
+}
+
+.api-dot.qq {
+    background: #ffdd02;
+}
+
+.api-dot.kugou {
+    background: #2281d7;
+}
+
+.api-dot.spotify {
+    background: #1db954;
+}
 
 .api-label {
     flex: 1;
@@ -2869,7 +2867,88 @@ body {
    ═══════════════════════════════════════════════════════════ */
 
 .edit-modal {
-    width: 480px;
+    width: 720px;
+}
+
+.edit-layout {
+    display: flex;
+    gap: 24px;
+}
+
+.edit-left {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 220px;
+    flex-shrink: 0;
+}
+
+.edit-left .edit-cover-preview {
+    width: 220px;
+    height: 220px;
+}
+
+.edit-left .edit-cover-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.edit-left .edit-cover-actions .toolbar-btn {
+    flex: 1;
+    font-size: 11px;
+    gap: 4px;
+    justify-content: center;
+}
+
+.edit-right {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.edit-right-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+.edit-fields-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+@media (max-width: 640px) {
+    .edit-modal {
+        width: 95vw;
+    }
+
+    .edit-layout {
+        flex-direction: column;
+    }
+
+    .edit-left {
+        width: 100%;
+        align-items: center;
+    }
+
+    .edit-left .edit-cover-preview {
+        width: 180px;
+        height: 180px;
+    }
+
+    .edit-left .edit-cover-actions {
+        width: auto;
+    }
+
+    .edit-right .edit-path-info {
+        width: 100%;
+    }
 }
 
 .detail-edit-btn {

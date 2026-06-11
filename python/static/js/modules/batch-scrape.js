@@ -322,6 +322,10 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
     `;
   }
 
+  const resetBtn = `<button class="toolbar-btn batch-btn-reset" onclick="resetBatchCard(${cardIndex})">
+         <i class="bi bi-arrow-counterclockwise"></i> 重置
+       </button>`;
+
   const editBtn = isEditing
     ? `<button class="toolbar-btn batch-btn-save-edit" onclick="saveBatchCardEdit(${cardIndex})">
          <i class="bi bi-check-lg"></i> 保存
@@ -363,6 +367,7 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
       <div class="batch-card-actions">
         ${editBtn}
         ${cancelBtn}
+        ${resetBtn}
         ${!isEditing ? `
         <button class="toolbar-btn batch-btn-apply" onclick="applyBatchCard(${cardIndex})" ${card.applied ? 'disabled' : ''}>
           <i class="bi bi-check-lg"></i> 应用
@@ -552,6 +557,28 @@ async function saveBatchCardEdit(cardIndex) {
   batchEditingIndex = -1;
   renderBatchCards();
   showToast('已保存', 'success');
+}
+
+function resetBatchCard(cardIndex) {
+  const card = batchCards[cardIndex];
+  if (!card) return;
+
+  const tagKeys = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year'];
+  const hasOriginalTags = tagKeys.some(k => card.original[k] != null && String(card.original[k]) !== '');
+
+  card.userInput = {};
+  if (hasOriginalTags) {
+    card.best = card.firstBest ? { ...card.firstBest } : null;
+  } else if (card.firstBest) {
+    card.best = { ...card.firstBest };
+  }
+
+  if (card._savedUserInput) {
+    delete card._savedUserInput;
+  }
+  batchEditingIndex = -1;
+  renderBatchCards();
+  showToast('已重置', 'info');
 }
 
 /* ═══════════════════════════════════════════════════════════
