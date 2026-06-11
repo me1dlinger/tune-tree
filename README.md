@@ -25,11 +25,12 @@
 
 ## 功能特性
 
-- **目录扫描** -- 递归扫描音乐根目录，将所有曲目索引到 SQLite，支持 8 线程并行处理，增量更新（仅处理变更文件）
+- **目录扫描** -- 递归扫描音乐根目录，增量更新（仅处理变更文件），自动关联艺术家和专辑信息
 - **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面
 - **待定文件** -- 列出缺少完整元数据的文件，支持在线编辑元数据
 - **元数据读取** -- 通过 mutagen 提取 ID3v2 / Vorbis Comment 标签、内嵌封面和歌词
 - **元数据刮削** -- 自动从网易云音乐、酷狗、QQ音乐获取缺失的标签、歌词和封面，支持多源并行搜索与智能匹配评分，支持在文件浏览视图批量勾选刮削
+- **专辑封面** -- 支持专辑封面自动提取和整理
 - **定时任务** -- 支持定时自动扫描和整理音乐库，可配置执行间隔（最小5分钟），支持手动触发
 - **歌词编辑** -- 支持在线编辑歌词，包括时间轴同步，支持网页加载音乐边听歌边快速编辑时间轴，支持快捷键和自动跳转，支持编辑进度缓存
 - **在线播放** -- 支持在浏览器中直接播放音乐，支持 Range 请求断点续传
@@ -39,50 +40,62 @@
 - **重复检测** -- 识别音乐库中的重复文件
 - **访问控制** -- 基于 Token 的简单认证
 
-
-
 ## 平台预览
 
 ### 艺术家列表及详情
+
 ![艺术家列表及详情](https://files.seeusercontent.com/2026/06/03/ak1H/image1.png)
 
 ### 编辑元数据
+
 ![编辑元数据](https://files.seeusercontent.com/2026/06/03/6nKa/image11.png)
 
 ### 搜索元数据标签
+
 ![搜索元数据标签](https://files.seeusercontent.com/2026/06/03/Tfp2/image12.png)
 
 ### 搜索歌词、编辑歌词和时间轴
+
 ![搜索歌词、编辑歌词和时间轴](https://files.seeusercontent.com/2026/06/03/E4un/image13.png)
 
 ### 单艺术家格式化预览
+
 ![单艺术家格式化预览](https://files.seeusercontent.com/2026/06/03/5Ira/image14.png)
 
 ### 艺术家多选格式化预览
+
 ![艺术家多选格式化预览](https://files.seeusercontent.com/2026/06/03/Jeq9/image15.png)
 
 ### 目录浏览
+
 ![目录浏览](https://files.seeusercontent.com/2026/06/03/yK5w/image2.png)
 
 ### 批量获取标签
+
 ![批量获取标签](https://files.seeusercontent.com/2026/06/03/Ycf6/image21.png)
 
 ### 艺术家多选格式化
+
 ![艺术家多选格式化](https://files.seeusercontent.com/2026/06/03/Bnl8/image3.png)
 
 ### 专辑多选格式化
+
 ![专辑多选格式化](https://files.seeusercontent.com/2026/06/03/6xNn/image4.png)
 
 ### 统计概览
+
 ![统计概览](https://files.seeusercontent.com/2026/06/03/oi2B/image5.png)
 
 ### 重复文件详情
+
 ![重复文件详情](https://files.seeusercontent.com/2026/06/03/Ud9d/image6.png)
 
 ### 定时任务
+
 ![定时任务](https://files.seeusercontent.com/2026/06/04/Mgi9/image_50.png)
 
 ### 夜间模式
+
 ![夜间模式](https://files.seeusercontent.com/2026/06/03/J9me/image7.png)
 
 ## 技术栈
@@ -95,7 +108,7 @@
 | 数据库      | SQLite3 (WAL mode)  | --    |
 | 音频元数据    | mutagen             | 1.47+ |
 | 图像处理     | Pillow              | 10.0+ |
-| HTTP 客户端  | requests            | 2.31+ |
+| HTTP 客户端 | requests            | 2.31+ |
 | 加密库      | cryptography        | --    |
 | WSGI 服务器 | Gunicorn / Waitress | --    |
 | 进程管理     | Supervisor          | --    |
@@ -150,13 +163,13 @@ docker-compose up -d
 
 在 `python/config.py` 中修改，或通过环境变量覆盖：
 
-| 变量           | 环境变量          | 默认值                              | 说明              |
-| ------------ | --------------- | -------------------------------- | --------------- |
-| `ACCESS_KEY` | `ACCESS_KEY`    | `tunetree-2026`                  | 登录密钥            |
-| `SECRET_KEY` | --              | `change-me-in-production-please` | Flask 会话密钥      |
-| `MUSIC_ROOT` | `MUSIC_ROOT`    | `/music`                         | 音乐根目录           |
-| `DB_ROOT`    | `DB_ROOT`       | `instance/`                      | 数据库目录           |
-| `DB_PATH`    | --              | `{DB_ROOT}/library.db`           | 数据库路径           |
+| 变量           | 环境变量         | 默认值                              | 说明         |
+| ------------ | ------------ | -------------------------------- | ---------- |
+| `ACCESS_KEY` | `ACCESS_KEY` | `tunetree-2026`                  | 登录密钥       |
+| `SECRET_KEY` | --           | `change-me-in-production-please` | Flask 会话密钥 |
+| `MUSIC_ROOT` | `MUSIC_ROOT` | `/music`                         | 音乐根目录      |
+| `DB_ROOT`    | `DB_ROOT`    | `instance/`                      | 数据库目录      |
+| `DB_PATH`    | --           | `{DB_ROOT}/library.db`           | 数据库路径      |
 
 > **安全提醒**：生产环境必须修改 `ACCESS_KEY` 和 `SECRET_KEY`
 
@@ -176,6 +189,8 @@ tune-tree/
 │   │   ├── kugou_api.py          # 酷狗音乐 API 客户端
 │   │   └── qqmusic_api.py        # QQ音乐 API 客户端
 │   ├── repository/            # 数据访问层
+│   │   ├── artist_repository.py  # 艺术家数据操作
+│   │   ├── album_repository.py   # 专辑数据操作
 │   │   ├── track_repository.py   # 曲目数据操作
 │   │   └── task_repository.py    # 定时任务数据操作
 │   ├── models/                # 数据模型层
@@ -225,121 +240,129 @@ tune-tree/
 
 ## API 一览
 
-所有接口需要 `X-Token` 请求头（值为 ACCESS_KEY），部分接口也支持 `?token=` 查询参数。
+所有接口需要 `X-Token` 请求头（值为 ACCESS\_KEY），部分接口也支持 `?token=` 查询参数。
 
 ### 认证
 
-| 方法   | 路径                 | 说明        |
-| ---- | ------------------ | --------- |
-| POST | `/api/auth/verify` | 验证 token  |
+| 方法   | 路径                 | 说明       |
+| ---- | ------------------ | -------- |
+| POST | `/api/auth/verify` | 验证 token |
 
 ### 扫描
 
-| 方法   | 路径                | 说明     |
-| ---- | ----------------- | ------ |
-| POST | `/api/scan`       | 扫描音乐目录 |
+| 方法   | 路径                 | 说明     |
+| ---- | ------------------ | ------ |
+| POST | `/api/scan`        | 扫描音乐目录 |
 | GET  | `/api/scan/status` | 查询扫描状态 |
 
 ### 艺术家与专辑
 
-| 方法   | 路径                                            | 说明                   |
-| ---- | --------------------------------------------- | -------------------- |
-| GET  | `/api/artists`                                | 获取艺术家列表（支持 `?q=` 搜索） |
-| GET  | `/api/artists/{artist}/albums`                | 获取专辑列表               |
-| GET  | `/api/artists/{artist}/albums/{album}/tracks` | 获取曲目列表               |
-| GET  | `/api/artists/{artist}/full`                  | 获取艺术家完整信息（含所有专辑及曲目）  |
+| 方法  | 路径                                    | 说明                   |
+| --- | ------------------------------------- | -------------------- |
+| GET | `/api/artists`                        | 获取艺术家列表（支持 `?q=` 搜索） |
+| GET | `/api/artists/<int:artist_id>/albums` | 获取专辑列表               |
+| GET | `/api/albums/<int:album_id>/tracks`   | 获取曲目列表               |
+| GET | `/api/artists/<int:artist_id>/full`   | 获取艺术家完整信息（含所有专辑及曲目）  |
 
 ### 艺术家封面
 
-| 方法     | 路径                                    | 说明         |
-| ------ | ------------------------------------- | ---------- |
-| GET    | `/api/artists/{artist}/cover`         | 获取艺术家封面    |
-| POST   | `/api/artists/{artist}/cover`         | 上传艺术家封面    |
-| DELETE | `/api/artists/{artist}/cover`         | 删除艺术家封面    |
-| GET    | `/api/artists/{artist}/cover/exists`  | 检查艺术家封面是否存在 |
-| POST   | `/api/artists/{artist}/scrape-cover`  | 从网易云刮削艺术家头像 |
+| 方法     | 路径                                          | 说明          |
+| ------ | ------------------------------------------- | ----------- |
+| GET    | `/api/artists/<int:artist_id>/cover`        | 获取艺术家封面     |
+| POST   | `/api/artists/<int:artist_id>/cover`        | 上传艺术家封面     |
+| DELETE | `/api/artists/<int:artist_id>/cover`        | 删除艺术家封面     |
+| GET    | `/api/artists/<int:artist_id>/cover/exists` | 检查艺术家封面是否存在 |
+| POST   | `/api/artists/<int:artist_id>/scrape-cover` | 从网易云刮削艺术家头像 |
+
+### 专辑封面
+
+| 方法   | 路径                                        | 说明         |
+| ---- | ----------------------------------------- | ---------- |
+| GET  | `/api/albums/<int:album_id>/cover`        | 获取专辑封面     |
+| POST | `/api/albums/<int:album_id>/cover`        | 上传专辑封面     |
+| GET  | `/api/albums/<int:album_id>/cover/exists` | 检查专辑封面是否存在 |
 
 ### 曲目
 
-| 方法     | 路径                                | 说明              |
-| ------ | --------------------------------- | --------------- |
-| GET    | `/api/tracks/{id}`                | 获取单曲详情（含歌词）     |
-| DELETE | `/api/tracks/{id}`                | 删除单曲（同时删除本地文件）  |
-| PUT    | `/api/tracks/{id}/metadata`       | 更新曲目元数据标签       |
-| PUT    | `/api/tracks/{id}/cover`          | 上传曲目封面          |
-| PUT    | `/api/tracks/{id}/lyrics`         | 更新曲目歌词          |
-| POST   | `/api/tracks/{id}/export-lrc`     | 导出歌词为 .lrc 文件   |
-| GET    | `/api/tracks/{id}/audio`          | 在线播放（支持 Range）  |
-| GET    | `/api/tracks/{id}/download`       | 下载单曲            |
-| GET    | `/api/tracks/by-path?path=`       | 按路径查找曲目         |
-| POST   | `/api/tracks/batch-delete`        | 批量删除曲目（`{ track_ids: [] }`） |
-| POST   | `/api/tracks/download-batch`      | 批量下载曲目（`{ track_ids: [] }`） |
-| POST   | `/api/tracks/batch-scrape`        | 批量刮削元数据（`{ track_ids: [], user_inputs: { id: { title, artist, album } } }`） |
+| 方法     | 路径                                      | 说明                                                                          |
+| ------ | --------------------------------------- | --------------------------------------------------------------------------- |
+| GET    | `/api/tracks/<int:track_id>`            | 获取单曲详情（含歌词）                                                                 |
+| DELETE | `/api/tracks/<int:track_id>`            | 删除单曲（同时删除本地文件）                                                              |
+| PUT    | `/api/tracks/<int:track_id>/metadata`   | 更新曲目元数据标签                                                                   |
+| PUT    | `/api/tracks/<int:track_id>/cover`      | 上传曲目封面                                                                      |
+| PUT    | `/api/tracks/<int:track_id>/lyrics`     | 更新曲目歌词                                                                      |
+| POST   | `/api/tracks/<int:track_id>/export-lrc` | 导出歌词为 .lrc 文件                                                               |
+| GET    | `/api/tracks/<int:track_id>/audio`      | 在线播放（支持 Range）                                                              |
+| GET    | `/api/tracks/<int:track_id>/download`   | 下载单曲                                                                        |
+| GET    | `/api/tracks/by-path?path=`             | 按路径查找曲目                                                                     |
+| POST   | `/api/tracks/batch-delete`              | 批量删除曲目（`{ track_ids: [] }`）                                                 |
+| POST   | `/api/tracks/download-batch`            | 批量下载曲目（`{ track_ids: [] }`）                                                 |
+| POST   | `/api/tracks/batch-scrape`              | 批量刮削元数据（`{ track_ids: [], user_inputs: { id: { title, artist, album } } }`） |
 
 ### 元数据刮削
 
-| 方法   | 路径                                    | 说明              |
-| ---- | ------------------------------------- | --------------- |
-| POST | `/api/tracks/{id}/scrape`             | 刮削元数据（支持指定 API） |
-| POST | `/api/tracks/{id}/apply-scrape`       | 应用刮削结果          |
-| POST | `/api/tracks/{id}/scrape-all`         | 批量搜索所有 API（支持 `exclude_ids`、`title`、`artist`、`album` 参数） |
+| 方法   | 路径                                        | 说明                                                       |
+| ---- | ----------------------------------------- | -------------------------------------------------------- |
+| POST | `/api/tracks/<int:track_id>/scrape`       | 刮削元数据（支持指定 API）                                          |
+| POST | `/api/tracks/<int:track_id>/apply-scrape` | 应用刮削结果                                                   |
+| POST | `/api/tracks/<int:track_id>/scrape-all`   | 批量搜索所有 API（支持 `exclude_ids`、`title`、`artist`、`album` 参数） |
 
 ### 歌词搜索
 
-| 方法   | 路径                       | 说明        |
-| ---- | ------------------------ | --------- |
-| POST | `/api/lyrics/search`     | 搜索歌词      |
-| GET  | `/api/lyrics/{song_id}`  | 获取歌词（含翻译） |
+| 方法   | 路径                      | 说明        |
+| ---- | ----------------------- | --------- |
+| POST | `/api/lyrics/search`    | 搜索歌词      |
+| GET  | `/api/lyrics/{song_id}` | 获取歌词（含翻译） |
 
 ### 封面
 
-| 方法  | 路径                    | 说明     |
-| --- | --------------------- | ------ |
-| GET | `/api/cover/{id}`     | 获取专辑封面 |
+| 方法  | 路径                          | 说明     |
+| --- | --------------------------- | ------ |
+| GET | `/api/cover/<int:track_id>` | 获取专辑封面 |
 
 ### 下载
 
-| 方法  | 路径                                                  | 说明          |
-| --- | --------------------------------------------------- | ----------- |
-| GET | `/api/artists/{artist}/download`                    | 下载艺术家所有曲目（ZIP） |
-| GET | `/api/artists/{artist}/albums/{album}/download`     | 下载专辑所有曲目（ZIP） |
-| GET | `/api/files/download?path=`                         | 下载文件或目录（ZIP） |
+| 方法  | 路径                                      | 说明             |
+| --- | --------------------------------------- | -------------- |
+| GET | `/api/artists/<int:artist_id>/download` | 下载艺术家所有曲目（ZIP） |
+| GET | `/api/albums/<int:album_id>/download`   | 下载专辑所有曲目（ZIP）  |
+| GET | `/api/files/download?path=`             | 下载文件或目录（ZIP）   |
 
 ### 文件浏览
 
-| 方法  | 路径                  | 说明                                       |
-| --- | ------------------- | ---------------------------------------- |
-| GET | `/api/files?path=`  | 目录浏览（支持 `limit`、`offset`、`sort`、`search`、`folders_first` 参数） |
-| GET | `/api/files/audio-count` | 获取音频文件统计 |
+| 方法  | 路径                       | 说明                                                           |
+| --- | ------------------------ | ------------------------------------------------------------ |
+| GET | `/api/files?path=`       | 目录浏览（支持 `limit`、`offset`、`sort`、`search`、`folders_first` 参数） |
+| GET | `/api/files/audio-count` | 获取音频文件统计                                                     |
 
 ### 格式化
 
-| 方法   | 路径                          | 说明        |
-| ---- | --------------------------- | --------- |
-| POST | `/api/format/preview`       | 格式化预览     |
-| POST | `/api/format/execute`       | 执行格式化     |
-| POST | `/api/format/batch-preview` | 批量格式化预览   |
-| POST | `/api/format/batch-execute` | 批量执行格式化   |
+| 方法   | 路径                          | 说明      |
+| ---- | --------------------------- | ------- |
+| POST | `/api/format/preview`       | 格式化预览   |
+| POST | `/api/format/execute`       | 执行格式化   |
+| POST | `/api/format/batch-preview` | 批量格式化预览 |
+| POST | `/api/format/batch-execute` | 批量执行格式化 |
 
 ### 统计与日志
 
-| 方法     | 路径           | 说明   |
-| ------ | ------------ | ---- |
-| GET    | `/api/stats` | 统计数据 |
-| GET    | `/api/pending` | 待定文件 |
+| 方法     | 路径                | 说明   |
+| ------ | ----------------- | ---- |
+| GET    | `/api/stats`      | 统计数据 |
+| GET    | `/api/pending`    | 待定文件 |
 | GET    | `/api/duplicates` | 重复文件 |
-| GET    | `/api/logs`  | 操作日志 |
-| DELETE | `/api/logs`  | 清空日志 |
+| GET    | `/api/logs`       | 操作日志 |
+| DELETE | `/api/logs`       | 清空日志 |
 
 ### 定时任务
 
-| 方法   | 路径                | 说明          |
-| ---- | ----------------- | ----------- |
-| GET  | `/api/task/config` | 获取任务配置      |
-| POST | `/api/task/config` | 设置任务配置（`{ scrape_enabled, organize_enabled, interval_minutes }`） |
-| GET  | `/api/task/status` | 获取任务状态（刮削、整理、定时任务） |
-| POST | `/api/task/execute` | 手动执行任务（`{ task_type: "scrape" \| "organize" \| "both" }`） |
-| GET  | `/api/task/running` | 检查是否有任务正在运行 |
+| 方法   | 路径                  | 说明                                                               |
+| ---- | ------------------- | ---------------------------------------------------------------- |
+| GET  | `/api/task/config`  | 获取任务配置                                                           |
+| POST | `/api/task/config`  | 设置任务配置（`{ scrape_enabled, organize_enabled, interval_minutes }`） |
+| GET  | `/api/task/status`  | 获取任务状态（刮削、整理、定时任务）                                               |
+| POST | `/api/task/execute` | 手动执行任务（`{ task_type: "scrape" \| "organize" \| "both" }`）        |
+| GET  | `/api/task/running` | 检查是否有任务正在运行                                                      |
 
 ## 命名规则
 
@@ -366,6 +389,51 @@ tune-tree/
 | `.mp3`  | ID3v2          | APIC | USLT |
 | `.flac` | Vorbis Comment | 内嵌   | 歌词字段 |
 
+## 数据模型与关联逻辑
+
+### 数据表结构
+
+系统使用三张核心表存储音乐数据：
+
+- **artists**：艺术家表（id, name, dir\_name）
+- **albums**：专辑表（id, title, dir\_name, artist\_id, cover\_path, year）
+- **tracks**：曲目表（id, title, artist, album, artist\_id, album\_id, path, ...）
+
+### 元数据更新关联逻辑
+
+当更新曲目元数据（艺术家、专辑）时，系统自动处理关联关系：
+
+```
+更新元数据
+├─ 仅专辑名变化
+│  ├─ 新专辑存在？→ 直接更新 album_id
+│  └─ 新专辑不存在 → 创建专辑 → 更新 album_id
+│     └─ 旧专辑无曲目 → 删除专辑记录
+│
+├─ 仅艺术家变化
+│  ├─ 新艺术家存在？
+│  │  ├─ 新艺术家有同名专辑？→ 直接更新 artist_id, album_id
+│  │  └─ 新艺术家无同名专辑 → 创建专辑 → 更新 artist_id, album_id
+│  └─ 新艺术家不存在 → 创建艺术家 → 创建专辑 → 更新 artist_id, album_id
+│     └─ 清理旧数据
+│        ├─ 旧艺术家+旧专辑无曲目 → 删除专辑记录
+│        └─ 旧艺术家无专辑 → 删除艺术家记录
+│
+└─ 艺术家和专辑都变化
+   ├─ 新艺术家存在？
+   │  ├─ 新艺术家有新专辑？→ 直接更新 artist_id, album_id
+   │  └─ 新艺术家无新专辑 → 创建专辑 → 更新 artist_id, album_id
+   └─ 新艺术家不存在 → 创建艺术家 → 创建专辑 → 更新 artist_id, album_id
+      └─ 清理旧数据
+         ├─ 旧艺术家+旧专辑无曲目 → 删除专辑记录
+         └─ 旧艺术家无专辑 → 删除艺术家记录
+```
+
+**清理规则**：
+
+- 专辑无曲目时自动删除
+- 艺术家无专辑时自动删除
+
 ## Windows / Linux 特殊字符处理
 
 支持跨平台处理特殊字符限制。
@@ -374,17 +442,17 @@ tune-tree/
 
 以下字符会被自动替换为下划线 `_`：
 
-| 字符 | Windows | Linux | 说明           |
-| ---- | ------- | ----- | ------------ |
-| `\`  | ❌      | ✅    | 反斜杠（目录分隔符） |
-| `/`  | ❌      | ❌    | 正斜杠（目录分隔符） |
-| `:`  | ❌      | ✅    | 冒号          |
-| `*`  | ❌      | ✅    | 星号（通配符）    |
-| `?`  | ❌      | ✅    | 问号（通配符）    |
-| `"`  | ❌      | ✅    | 双引号         |
-| `<`  | ❌      | ✅    | 小于号         |
-| `>`  | ❌      | ✅    | 大于号         |
-| `|`  | ❌      | ✅    | 竖线          |
+| 字符  | Windows | Linux | 说明         | <br /> |
+| --- | ------- | ----- | ---------- | :----- |
+| `\` | ❌       | ✅     | 反斜杠（目录分隔符） | <br /> |
+| `/` | ❌       | ❌     | 正斜杠（目录分隔符） | <br /> |
+| `:` | ❌       | ✅     | 冒号         | <br /> |
+| `*` | ❌       | ✅     | 星号（通配符）    | <br /> |
+| `?` | ❌       | ✅     | 问号（通配符）    | <br /> |
+| `"` | ❌       | ✅     | 双引号        | <br /> |
+| `<` | ❌       | ✅     | 小于号        | <br /> |
+| `>` | ❌       | ✅     | 大于号        | <br /> |
+| \`  | \`      | ❌     | ✅          | 竖线     |
 
 ### 其他处理规则
 
