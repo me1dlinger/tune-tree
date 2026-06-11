@@ -183,7 +183,8 @@ tune-tree/
 │   ├── services/              # 业务逻辑层
 │   │   ├── scan_service.py       # 目录扫描服务（多线程并行）
 │   │   ├── format_service.py     # 文件格式化服务
-│   │   ├── metadata_scraper.py   # 元数据刮削服务（多源并行+智能评分）
+│   │   ├── metadata_scraper.py   # 元数据刮削服务（多源并行+评分）
+│   │   ├── similarity_service.py # 相似艺术家检测服务（自适应相似度）
 │   │   ├── task_service.py       # 定时任务服务
 │   │   ├── netease_api.py        # 网易云音乐 API 客户端
 │   │   ├── kugou_api.py          # 酷狗音乐 API 客户端
@@ -206,6 +207,7 @@ tune-tree/
 │   │       ├── api.js            # API 请求封装
 │   │       ├── auth.js           # 认证模块
 │   │       ├── artist.js         # 艺术家视图
+│   │       ├── artist-stats.js   # 艺术家统计面板
 │   │       ├── batch-scrape.js         # 批量刮削
 │   │       ├── detail.js         # 曲目详情
 │   │       ├── files.js          # 目录浏览
@@ -349,6 +351,10 @@ tune-tree/
 | 方法     | 路径                | 说明   |
 | ------ | ----------------- | ---- |
 | GET    | `/api/stats`      | 统计数据 |
+| GET    | `/api/stats/artists` | 艺术家统计数据 |
+| GET    | `/api/stats/similar-artists` | 相似艺术家检测结果 |
+| GET    | `/api/stats/similar-artists/<int:artist_a_id>/<int:artist_b_id>` | 相似艺术家详情对比 |
+| POST   | `/api/artists/batch-scrape-covers` | 批量刮削艺术家封面 |
 | GET    | `/api/pending`    | 待定文件 |
 | GET    | `/api/duplicates` | 重复文件 |
 | GET    | `/api/logs`       | 操作日志 |
