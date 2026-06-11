@@ -121,6 +121,7 @@ function renderEditModal(track) {
         <div class="edit-right-header">
           ${sourceLabel ? `<span class="batch-card-source ${scrapedData._api || ''}"><i class="bi bi-tag"></i> ${sourceLabel}</span>` : ''}
           <span style="flex:1;"></span>
+          ${!editModeActive ? `
           <button class="toolbar-btn scrape-btn" onclick="scrapeMetadata()" id="scrape-btn">
             <i class="bi bi-search"></i> 标签搜索
           </button>
@@ -129,7 +130,7 @@ function renderEditModal(track) {
           </button>
           <button class="toolbar-btn edit-btn-reset" onclick="resetMetadataEdit()">
             <i class="bi bi-arrow-counterclockwise"></i> 重置
-          </button>
+          </button>` : ''}
           ${editModeActive
       ? `<button class="toolbar-btn batch-btn-save-edit" onclick="saveMetadataEditMode()"><i class="bi bi-check-lg"></i> 保存</button>
                <button class="toolbar-btn batch-btn-cancel-edit" onclick="cancelMetadataEditMode()"><i class="bi bi-x"></i> 取消</button>`
@@ -141,10 +142,8 @@ function renderEditModal(track) {
           ${renderTagField('艺术家', 'artist')}
           ${renderTagField('专辑', 'album')}
           ${renderTagField('专辑艺术家', 'album_artist')}
-          <div class="batch-field-row">
-            ${renderTagField('音轨号', 'track_num')}
-            ${renderTagField('年份', 'year')}
-          </div>
+          ${renderTagField('音轨号', 'track_num')}
+          ${renderTagField('年份', 'year')}
         </div>
       </div>
     </div>
