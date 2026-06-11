@@ -180,6 +180,13 @@
           </div>
         </div>
 
+        <!-- ARTIST STATS PAGE -->
+        <div class="page" id="page-artist-stats">
+          <div class="artist-stats-view" id="artist-stats-view">
+            <div class="loading-row">加载中...</div>
+          </div>
+        </div>
+
         <!-- PENDING PAGE -->
         <div class="page" id="page-pending">
           <div class="pending-view" id="pending-view">
@@ -507,6 +514,19 @@
 
   <div class="toast-container" id="toast-container"></div>
 
+  <!-- Similar Artists Detail Modal -->
+  <div class="modal-overlay" id="similar-detail-modal">
+    <div class="modal similar-detail-modal">
+      <div class="modal-header">
+        <div class="modal-title">相似艺术家详情</div>
+        <button class="modal-close" onclick="closeModal('similar-detail-modal')">&#10005;</button>
+      </div>
+      <div class="modal-body" id="similar-detail-body">
+        <div class="loading-row">加载中...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- JavaScript Modules (load order matters) -->
   <script defer src="static/js/modules/utils.js"></script>
   <script defer src="static/js/modules/api.js"></script>
@@ -517,6 +537,7 @@
   <script defer src="static/js/modules/artist.js"></script>
   <script defer src="static/js/modules/files.js"></script>
   <script defer src="static/js/modules/stats.js"></script>
+  <script defer src="static/js/modules/artist-stats.js"></script>
   <script defer src="static/js/modules/pending.js"></script>
   <script defer src="static/js/modules/logs.js"></script>
   <script defer src="static/js/modules/format.js"></script>

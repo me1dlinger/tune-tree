@@ -80,6 +80,12 @@ from repository.track_repository import (
     recalc_pending,
     commit,
 )
+from repository.artist_repository import (
+    get_artist_stats as repo_get_artist_stats,
+    get_artists_without_cover,
+    get_artist_by_id,
+)
+from services.similarity_service import find_similar_artists
 
 logger = logging.getLogger("tunetree")
 api_bp = Blueprint("api", __name__)
@@ -560,6 +566,9 @@ def api_artist_cover_delete(artist_id: int):
 
     try:
         cover_path.unlink()
+        from repository.artist_repository import update_artist
+
+        update_artist(artist_id, cover_path="")
     except Exception as exc:
         logger.error("artist cover delete error %d: %s", artist_id, exc)
         return jsonify({"error": str(exc)}), 500
@@ -720,6 +729,9 @@ def api_artist_scrape_cover(artist_id: int):
 
         cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
         img.save(cover_path, "JPEG", quality=90)
+        if not artist_row["cover_path"]:
+            from repository.artist_repository import update_artist
+            update_artist(artist_id, cover_path=str(cover_path))
 
     except Exception as exc:
         logger.error("artist cover save error %d: %s", artist_id, exc)
@@ -1320,6 +1332,127 @@ def api_stats():
             "scan_info": scan_info,
         }
     )
+
+
+@api_bp.route("/api/stats/artists")
+@require_auth
+def api_artist_stats():
+    stats = repo_get_artist_stats()
+    return jsonify(stats)
+
+
+@api_bp.route("/api/stats/similar-artists")
+@require_auth
+def api_similar_artists():
+    groups = find_similar_artists()
+    from repository.album_repository import get_albums_by_artist_id
+    from repository.track_repository import get_tracks_by_artist_id
+
+    result = []
+    for g in groups:
+        aid = g["artist_a"]["id"]
+        bid = g["artist_b"]["id"]
+        a_albums = get_albums_by_artist_id(aid)
+        b_albums = get_albums_by_artist_id(bid)
+        a_tracks = get_tracks_by_artist_id(aid)
+        b_tracks = get_tracks_by_artist_id(bid)
+        result.append(
+            {
+                "artist_a": {
+                    **g["artist_a"],
+                    "album_count": len(a_albums),
+                    "track_count": len(a_tracks),
+                },
+                "artist_b": {
+                    **g["artist_b"],
+                    "album_count": len(b_albums),
+                    "track_count": len(b_tracks),
+                },
+                "similarity": g["similarity"],
+            }
+        )
+    return jsonify(result)
+
+
+@api_bp.route("/api/stats/similar-artists/<int:artist_a_id>/<int:artist_b_id>")
+@require_auth
+def api_similar_artists_detail(artist_a_id, artist_b_id):
+    from repository.album_repository import get_albums_by_artist_id
+    from repository.track_repository import get_tracks_by_artist_id
+
+    a = get_artist_by_id(artist_a_id)
+    b = get_artist_by_id(artist_b_id)
+    if not a or not b:
+        abort(404)
+
+    a_albums = [dict(r) for r in get_albums_by_artist_id(artist_a_id)]
+    b_albums = [dict(r) for r in get_albums_by_artist_id(artist_b_id)]
+    a_tracks = [dict(r) for r in get_tracks_by_artist_id(artist_a_id)]
+    b_tracks = [dict(r) for r in get_tracks_by_artist_id(artist_b_id)]
+
+    return jsonify(
+        {
+            "artist_a": {
+                "id": a["id"],
+                "name": a["name"],
+                "albums": a_albums,
+                "tracks": a_tracks,
+            },
+            "artist_b": {
+                "id": b["id"],
+                "name": b["name"],
+                "albums": b_albums,
+                "tracks": b_tracks,
+            },
+        }
+    )
+
+
+@api_bp.route("/api/artists/batch-scrape-covers", methods=["POST"])
+@require_auth
+def api_batch_scrape_covers():
+    data = request.get_json(force=True) or {}
+    artist_ids = data.get("artist_ids", [])
+    if not artist_ids:
+        return jsonify({"error": "artist_ids required"}), 400
+
+    results = []
+    for aid in artist_ids:
+        artist_row = get_artist_by_id(aid)
+        if not artist_row:
+            results.append({"id": aid, "ok": False, "error": "not found"})
+            continue
+        artist_name = artist_row["name"]
+        artist_dir = get_artist_directory_path_by_id(aid)
+        if not artist_dir:
+            results.append({"id": aid, "ok": False, "error": "no directory"})
+            continue
+        try:
+            image_data, successful_artist = scraper.scrape_artist_avatar(artist_name)
+            if not image_data or len(image_data) < 1000:
+                results.append({"id": aid, "ok": False, "error": "no image"})
+                continue
+            if len(image_data) > MAX_ARTIST_COVER_SIZE:
+                results.append({"id": aid, "ok": False, "error": "too large"})
+                continue
+            from PIL import Image
+            import io as _io
+
+            img = Image.open(_io.BytesIO(image_data))
+            if img.format != "JPEG":
+                img = img.convert("RGB")
+            cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+            img.save(cover_path, "JPEG", quality=90)
+            from repository.artist_repository import update_artist
+
+            update_artist(aid, cover_path=str(cover_path))
+            results.append({"id": aid, "ok": True, "name": artist_name})
+        except Exception as exc:
+            logger.error("batch scrape cover error %d: %s", aid, exc)
+            results.append({"id": aid, "ok": False, "error": str(exc)})
+
+    ok_count = sum(1 for r in results if r["ok"])
+    return jsonify({"results": results, "total": len(results), "success": ok_count})
 
 
 # Pending files

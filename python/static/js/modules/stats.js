@@ -57,7 +57,7 @@ async function loadStats() {
             <div class="format-fill mp3-fill" style="width:${s.total_tracks > 0 ? Math.round(s.mp3_count / s.total_tracks * 100) : 0}%"></div>
           </div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" onclick="openArtistStats()">
           <div class="stat-label">艺术家</div>
           <div class="stat-value">${s.total_artists}</div>
           <div class="stat-sub">已整理 ${s.org_artists} · 未整理 ${s.total_artists - s.org_artists}</div>

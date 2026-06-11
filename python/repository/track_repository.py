@@ -210,6 +210,7 @@ def insert_track(
             track_artist,
         ),
     )
+    db.commit()
 
 
 def update_track_by_path(
@@ -275,6 +276,7 @@ def update_track_by_path(
             path,
         ),
     )
+    db.commit()
 
 
 def update_track_path_and_name(track_id: int, new_path: str, new_filename: str):
@@ -284,6 +286,7 @@ def update_track_path_and_name(track_id: int, new_path: str, new_filename: str):
         "UPDATE tracks SET path=?,filename=?,organized=1 WHERE id=?",
         (new_path, new_filename, track_id),
     )
+    db.commit()
 
 
 FORBIDDEN_UPDATE_FIELDS = {
@@ -307,6 +310,7 @@ def update_track_metadata(track_id: int, fields: dict):
     set_clause = ", ".join(f"{k}=?" for k in allowed)
     values = list(allowed.values()) + [track_id]
     db.execute(f"UPDATE tracks SET {set_clause} WHERE id=?", values)
+    db.commit()
 
 
 def recalc_pending(track_id: int):
@@ -328,12 +332,14 @@ def recalc_pending(track_id: int):
         "UPDATE tracks SET pending=?, missing_tags=? WHERE id=?",
         (pending, missing_str, track_id),
     )
+    db.commit()
 
 
 def delete_track_by_path(path: str):
     """根据路径删除 track"""
     db = get_db()
     db.execute("DELETE FROM tracks WHERE path=?", (path,))
+    db.commit()
 
 
 def delete_track_by_id(track_id: int):
@@ -350,6 +356,7 @@ def delete_track_by_id(track_id: int):
         except Exception:
             pass
     db.execute("DELETE FROM tracks WHERE id=?", (track_id,))
+    db.commit()
 
 
 def get_artist_by_track_id(track_id: int):
@@ -548,6 +555,7 @@ def set_scan_meta(key: str, value: str):
     """设置扫描元数据"""
     db = get_db()
     db.execute("INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (key, value))
+    db.commit()
 
 
 # === Scan Status 操作 ===
@@ -613,6 +621,7 @@ def add_op_log(ts: str, op_type: str, message: str):
     db.execute(
         "INSERT INTO op_log (ts,op_type,message) VALUES (?,?,?)", (ts, op_type, message)
     )
+    db.commit()
 
 
 def get_op_logs(limit: int = 200):
@@ -627,6 +636,7 @@ def clear_op_logs():
     """清空操作日志"""
     db = get_db()
     db.execute("DELETE FROM op_log")
+    db.commit()
 
 
 def commit():

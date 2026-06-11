@@ -59,6 +59,7 @@ def insert_album(
     """,
         (title, title_norm, artist_id, dir_name, cover_path, year, now, now),
     )
+    db.commit()
     return cursor.lastrowid
 
 
@@ -91,11 +92,13 @@ def update_album(album_id: int, **fields):
     set_clause = ", ".join(f"{k}=?" for k in allowed)
     values = list(allowed.values()) + [album_id]
     db.execute(f"UPDATE albums SET {set_clause} WHERE id=?", values)
+    db.commit()
 
 
 def delete_album(album_id: int):
     db = get_db()
     db.execute("DELETE FROM albums WHERE id=?", (album_id,))
+    db.commit()
 
 
 def count_total_albums():
