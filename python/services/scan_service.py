@@ -39,7 +39,7 @@ def _load_existing_tracks(library_id: int | None = None) -> dict[str, dict]:
     db = get_db()
     if library_id is not None:
         rows = db.execute(
-            "SELECT t.path, t.id, t.mtime, t.size FROM tracks t JOIN artists a ON t.artist_id = a.id WHERE a.library_id=?",
+            "SELECT path, id, mtime, size FROM tracks WHERE library_id=?",
             (library_id,),
         ).fetchall()
     else:
@@ -63,8 +63,8 @@ def _batch_insert(db, tracks_data: list):
         INSERT INTO tracks
         (path,filename,ext,size,mtime,ctime,title,artist,album,album_artist,year,
          track_num,disc_num,duration,sample_rate,bitrate,has_cover,has_lyrics,
-         pending,missing_tags,scanned_at,artist_id,album_id,track_artist)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         pending,missing_tags,scanned_at,artist_id,album_id,track_artist,library_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """,
         tracks_data,
     )
@@ -78,7 +78,7 @@ def _batch_update(db, tracks_data: list):
         UPDATE tracks SET path=?,filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
         album=?,album_artist=?,year=?,track_num=?,disc_num=?,duration=?,
         sample_rate=?,bitrate=?,has_cover=?,has_lyrics=?,pending=?,
-        missing_tags=?,scanned_at=?,artist_id=?,album_id=?,track_artist=?
+        missing_tags=?,scanned_at=?,artist_id=?,album_id=?,track_artist=?,library_id=?
         WHERE id=?
     """,
         tracks_data,
@@ -90,7 +90,6 @@ def _process_file(filepath, existing_tracks, scanned_at):
     path_str = str(filepath)
     path_normalized = _normalize_path(path_str)
     filename = filepath.name
-
     try:
         stat = filepath.stat()
     except OSError:
@@ -99,7 +98,6 @@ def _process_file(filepath, existing_tracks, scanned_at):
     mtime = stat.st_mtime
     ctime = stat.st_ctime
     size = stat.st_size
-
     existing = existing_tracks.get(path_normalized)
     if existing and int(existing["mtime"]) == int(mtime) and existing["size"] == size:
         return ("skip", None, None)
@@ -230,11 +228,16 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
                         cache_key = (artist_id, normalize_str(album_name))
                         if cache_key not in album_id_cache:
                             album_id_cache[cache_key] = ensure_album(
-                                album_name, artist_id, year=year
+                                album_name, artist_id, year=year, library_id=library_id
                             )
                         album_id = album_id_cache[cache_key]
 
-                extended_data = data + (artist_id, album_id, track_artist_name)
+                extended_data = data + (
+                    artist_id,
+                    album_id,
+                    track_artist_name,
+                    library_id,
+                )
 
                 if op_type == "insert":
                     pending_inserts.append(extended_data)
@@ -335,12 +338,12 @@ def _backfill_artist_album_ids(library_id: int | None = None):
     db = get_db()
     if library_id:
         rows = db.execute(
-            "SELECT id, artist, album, album_artist FROM tracks WHERE artist_id IS NULL AND artist IS NOT NULL AND artist != '' AND artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            "SELECT id, artist, album, album_artist FROM tracks WHERE (artist_id IS NULL OR library_id IS NULL) AND artist IS NOT NULL AND artist != '' AND library_id=?",
             (library_id,),
         ).fetchall()
     else:
         rows = db.execute(
-            "SELECT id, artist, album, album_artist FROM tracks WHERE artist_id IS NULL AND artist IS NOT NULL AND artist != ''"
+            "SELECT id, artist, album, album_artist FROM tracks WHERE (artist_id IS NULL OR library_id IS NULL) AND artist IS NOT NULL AND artist != ''"
         ).fetchall()
 
     if not rows:
@@ -366,12 +369,14 @@ def _backfill_artist_album_ids(library_id: int | None = None):
         if album_name:
             cache_key = (artist_id, normalize_str(album_name))
             if cache_key not in album_cache:
-                album_cache[cache_key] = ensure_album(album_name, artist_id)
+                album_cache[cache_key] = ensure_album(
+                    album_name, artist_id, library_id=library_id
+                )
             album_id = album_cache[cache_key]
 
         db.execute(
-            "UPDATE tracks SET artist_id=?, album_id=? WHERE id=?",
-            (artist_id, album_id, row["id"]),
+            "UPDATE tracks SET artist_id=?, album_id=?, library_id=? WHERE id=?",
+            (artist_id, album_id, library_id, row["id"]),
         )
         backfilled += 1
 

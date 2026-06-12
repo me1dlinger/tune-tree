@@ -303,7 +303,7 @@ def run_organize_task():
     library_id = get_current_library_id()
     if library_id:
         rows = db.execute(
-            "SELECT artist, id FROM tracks WHERE pending=0 AND organized=0 AND artist IS NOT NULL AND artist != '' AND artist_id IN (SELECT id FROM artists WHERE library_id=?) ORDER BY artist",
+            "SELECT artist, id FROM tracks WHERE pending=0 AND organized=0 AND artist IS NOT NULL AND artist != '' AND library_id=? ORDER BY artist",
             (library_id,),
         ).fetchall()
     else:

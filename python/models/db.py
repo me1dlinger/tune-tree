@@ -48,6 +48,7 @@ def init_db():
             dir_name          TEXT NOT NULL,
             cover_path        TEXT,
             year              TEXT,
+            library_id      INTEGER,
             created_at        REAL NOT NULL,
             updated_at        REAL NOT NULL
         );
@@ -66,6 +67,7 @@ def init_db():
             album_artist TEXT,
             artist_id   INTEGER,
             album_id    INTEGER,
+            library_id      INTEGER,
             track_artist TEXT,
             year        TEXT,
             track_num   INTEGER,
@@ -80,6 +82,7 @@ def init_db():
             missing_tags TEXT,
             scanned_at  REAL,
             scrape_failed INTEGER DEFAULT 0
+
         );
 
         CREATE TABLE IF NOT EXISTS scan_meta (
@@ -139,7 +142,9 @@ def init_db():
         "ALTER TABLE tracks ADD COLUMN artist_id INTEGER;",
         "ALTER TABLE tracks ADD COLUMN album_id INTEGER;",
         "ALTER TABLE tracks ADD COLUMN track_artist TEXT;",
+        "ALTER TABLE tracks ADD COLUMN library_id INTEGER;",
         "ALTER TABLE artists ADD COLUMN library_id INTEGER;",
+        "ALTER TABLE albums ADD COLUMN library_id INTEGER;",
         "ALTER TABLE op_log ADD COLUMN library_id INTEGER;",
     ]:
         try:
@@ -149,20 +154,18 @@ def init_db():
 
     for idx_sql in [
         "CREATE INDEX IF NOT EXISTS idx_artist ON tracks(artist);",
-        "CREATE INDEX IF NOT EXISTS idx_artists_library_id ON artists(library_id);", 
+        "CREATE INDEX IF NOT EXISTS idx_artists_library_id ON artists(library_id);",
         "CREATE INDEX IF NOT EXISTS idx_artists_dir_name_lib ON artists(dir_name, library_id);",
         "CREATE INDEX IF NOT EXISTS idx_artists_name_norm_lib ON artists(name_normalized, library_id);",
-
         "CREATE INDEX IF NOT EXISTS idx_albums_artist_id ON albums(artist_id);",
-
+        "CREATE INDEX IF NOT EXISTS idx_albums_library_id ON albums(library_id);",
         "CREATE INDEX IF NOT EXISTS idx_album  ON tracks(album);",
         "CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);",
         "CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);",
-       
+        "CREATE INDEX IF NOT EXISTS idx_tracks_library_id ON tracks(library_id);",
         "CREATE INDEX IF NOT EXISTS idx_cooldown_track ON track_cooldown(track_id);",
         "CREATE INDEX IF NOT EXISTS idx_cooldown_until ON track_cooldown(cooldown_until);",
-
-        "CREATE INDEX IF NOT EXISTS idx_log_library_id ON op_log(library_id);", 
+        "CREATE INDEX IF NOT EXISTS idx_log_library_id ON op_log(library_id);",
     ]:
         try:
             db.execute(idx_sql)
@@ -170,6 +173,7 @@ def init_db():
             pass
 
     _migrate_music_libraries(db)
+    _migrate_library_id_to_tracks_albums(db)
 
     db.commit()
     db.close()
@@ -215,3 +219,29 @@ def _migrate_music_libraries(db):
             (default_lib_id,),
         )
         logger.info(f"创建待配置音乐库 (id={default_lib_id})，需用户手动配置路径")
+
+
+def _migrate_library_id_to_tracks_albums(db):
+    has_col = db.execute(
+        "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name='library_id'"
+    ).fetchone()[0]
+    if not has_col:
+        return
+
+    unbackfilled_tracks = db.execute(
+        "SELECT COUNT(*) FROM tracks WHERE library_id IS NULL"
+    ).fetchone()[0]
+    if unbackfilled_tracks > 0:
+        db.execute(
+            "UPDATE tracks SET library_id=(SELECT a.library_id FROM artists a WHERE a.id=tracks.artist_id) WHERE library_id IS NULL AND artist_id IS NOT NULL"
+        )
+        logger.info(f"回填 tracks.library_id: {unbackfilled_tracks} 条记录")
+
+    unbackfilled_albums = db.execute(
+        "SELECT COUNT(*) FROM albums WHERE library_id IS NULL"
+    ).fetchone()[0]
+    if unbackfilled_albums > 0:
+        db.execute(
+            "UPDATE albums SET library_id=(SELECT a.library_id FROM artists a WHERE a.id=albums.artist_id) WHERE library_id IS NULL AND artist_id IS NOT NULL"
+        )
+        logger.info(f"回填 albums.library_id: {unbackfilled_albums} 条记录")

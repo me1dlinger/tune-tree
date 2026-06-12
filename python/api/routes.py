@@ -141,7 +141,12 @@ def _relink_track_artist_album(track_id: int):
     new_artist_id = ensure_artist(new_artist_name, library_id=get_current_library_id())
     new_album_id = None
     if new_album_name:
-        new_album_id = ensure_album(new_album_name, new_artist_id, year=row["year"])
+        new_album_id = ensure_album(
+            new_album_name,
+            new_artist_id,
+            year=row["year"],
+            library_id=get_current_library_id(),
+        )
 
     update_track_metadata(
         track_id,
@@ -1135,6 +1140,7 @@ def api_track_by_path():
                             album_name,
                             artist_id,
                             year=meta.get("year"),
+                            library_id=get_current_library_id(),
                         )
 
                 insert_track(
@@ -1162,6 +1168,7 @@ def api_track_by_path():
                     artist_id=artist_id,
                     album_id=album_id,
                     track_artist=artist_name,
+                    library_id=get_current_library_id(),
                 )
                 commit()
                 row = get_track_by_path(candidate)
@@ -2061,7 +2068,9 @@ def _ingest_uploaded_file(dest: Path, existing_track_id: int | None = None):
     if effective_artist:
         artist_id = ensure_artist(effective_artist, library_id=get_current_library_id())
         if album_name:
-            album_id = ensure_album(album_name, artist_id, year=year)
+            album_id = ensure_album(
+                album_name, artist_id, year=year, library_id=get_current_library_id()
+            )
 
     if existing_track_id:
         update_track_metadata(
@@ -2128,6 +2137,7 @@ def _ingest_uploaded_file(dest: Path, existing_track_id: int | None = None):
                 artist_id,
                 album_id,
                 track_artist_name,
+                library_id=get_current_library_id(),
             )
         else:
             insert_track(
@@ -2155,6 +2165,7 @@ def _ingest_uploaded_file(dest: Path, existing_track_id: int | None = None):
                 artist_id,
                 album_id,
                 track_artist_name,
+                library_id=get_current_library_id(),
             )
 
 

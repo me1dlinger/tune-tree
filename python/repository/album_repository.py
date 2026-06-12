@@ -46,6 +46,7 @@ def insert_album(
     dir_name: str | None = None,
     cover_path: str | None = None,
     year: str | None = None,
+    library_id: int | None = None,
 ) -> int:
     db = get_db()
     title_norm = normalize_str(title)
@@ -54,22 +55,36 @@ def insert_album(
     now = time.time()
     cursor = db.execute(
         """
-        INSERT INTO albums (title, title_normalized, artist_id, dir_name, cover_path, year, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO albums (title, title_normalized, artist_id, dir_name, cover_path, year, library_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
-        (title, title_norm, artist_id, dir_name, cover_path, year, now, now),
+        (
+            title,
+            title_norm,
+            artist_id,
+            dir_name,
+            cover_path,
+            year,
+            library_id,
+            now,
+            now,
+        ),
     )
     db.commit()
     return cursor.lastrowid
 
 
-def ensure_album(title: str, artist_id: int, year: str | None = None) -> int:
+def ensure_album(
+    title: str, artist_id: int, year: str | None = None, library_id: int | None = None
+) -> int:
     existing = get_album_by_title_and_artist(title, artist_id)
     if existing:
         if year and not existing["year"]:
             update_album(existing["id"], year=year)
+        if library_id and not existing["library_id"]:
+            update_album(existing["id"], library_id=library_id)
         return existing["id"]
-    return insert_album(title, artist_id, year=year)
+    return insert_album(title, artist_id, year=year, library_id=library_id)
 
 
 def update_album(album_id: int, **fields):
@@ -82,6 +97,7 @@ def update_album(album_id: int, **fields):
         "dir_name",
         "cover_path",
         "year",
+        "library_id",
         "updated_at",
     }
     allowed = {k: v for k, v in fields.items() if k in allowed_keys}
@@ -105,7 +121,7 @@ def count_total_albums(library_id: int | None = None):
     db = get_db()
     if library_id is not None:
         return db.execute(
-            "SELECT COUNT(*) FROM albums WHERE artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            "SELECT COUNT(*) FROM albums WHERE library_id=?",
             (library_id,),
         ).fetchone()[0]
     return db.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
@@ -113,11 +129,7 @@ def count_total_albums(library_id: int | None = None):
 
 def count_organized_albums(library_id: int | None = None):
     db = get_db()
-    lib_filter = (
-        "AND al.artist_id IN (SELECT id FROM artists WHERE library_id=?)"
-        if library_id is not None
-        else ""
-    )
+    lib_filter = "AND al.library_id=?" if library_id is not None else ""
     params = [library_id] if library_id is not None else []
     return db.execute(
         f"""

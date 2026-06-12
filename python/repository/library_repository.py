@@ -92,23 +92,9 @@ def update_library(library_id: int, **fields):
 
 def delete_library(library_id: int):
     db = get_db()
-    artist_ids = [
-        r["id"]
-        for r in db.execute(
-            "SELECT id FROM artists WHERE library_id=?", (library_id,)
-        ).fetchall()
-    ]
-    if artist_ids:
-        placeholders = ",".join("?" * len(artist_ids))
-        db.execute(
-            f"DELETE FROM tracks WHERE artist_id IN ({placeholders})",
-            artist_ids,
-        )
-        db.execute(
-            f"DELETE FROM albums WHERE artist_id IN ({placeholders})",
-            artist_ids,
-        )
-        db.execute("DELETE FROM artists WHERE library_id=?", (library_id,))
+    db.execute("DELETE FROM tracks WHERE library_id=?", (library_id,))
+    db.execute("DELETE FROM albums WHERE library_id=?", (library_id,))
+    db.execute("DELETE FROM artists WHERE library_id=?", (library_id,))
     db.execute("DELETE FROM music_libraries WHERE id=?", (library_id,))
     current_id = get_current_library_id()
     if current_id == library_id:

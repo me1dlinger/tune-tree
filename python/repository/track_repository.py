@@ -57,7 +57,7 @@ def get_all_track_paths(library_id: int | None = None):
     db = get_db()
     if library_id is not None:
         return db.execute(
-            "SELECT t.path FROM tracks t JOIN artists a ON t.artist_id = a.id WHERE a.library_id=?",
+            "SELECT path FROM tracks WHERE library_id=?",
             (library_id,),
         ).fetchall()
     return db.execute("SELECT path FROM tracks").fetchall()
@@ -131,7 +131,7 @@ def get_pending_tracks(library_id: int | None = None):
     db = get_db()
     if library_id is not None:
         return db.execute(
-            "SELECT t.* FROM tracks t JOIN artists a ON t.artist_id = a.id WHERE t.pending=1 AND a.library_id=? ORDER BY t.filename",
+            "SELECT * FROM tracks WHERE pending=1 AND library_id=? ORDER BY filename",
             (library_id,),
         ).fetchall()
     return db.execute(
@@ -144,17 +144,16 @@ def get_duplicate_tracks(library_id: int | None = None):
     if library_id is not None:
         return db.execute(
             """
-            SELECT t.* FROM tracks t
-            JOIN artists a ON t.artist_id = a.id
-            WHERE a.library_id=? AND (LOWER(t.title)||'|'||LOWER(COALESCE(t.artist,''))||'|'||LOWER(COALESCE(t.album,''))) IN (
+            SELECT * FROM tracks
+            WHERE library_id=? AND (LOWER(title)||'|'||LOWER(COALESCE(artist,''))||'|'||LOWER(COALESCE(album,''))) IN (
               SELECT LOWER(title)||'|'||LOWER(COALESCE(artist,''))||'|'||LOWER(COALESCE(album,''))
-              FROM tracks WHERE title IS NOT NULL AND artist IS NOT NULL AND album IS NOT NULL
+              FROM tracks WHERE library_id=? AND title IS NOT NULL AND artist IS NOT NULL AND album IS NOT NULL
               GROUP BY LOWER(title),LOWER(COALESCE(artist,'')),LOWER(COALESCE(album,''))
               HAVING COUNT(*) > 1
             )
-            ORDER BY t.artist, t.album, t.title, t.path
+            ORDER BY artist, album, title, path
         """,
-            (library_id,),
+            (library_id, library_id),
         ).fetchall()
     return db.execute("""
         SELECT * FROM tracks
@@ -193,6 +192,7 @@ def insert_track(
     artist_id: int | None = None,
     album_id: int | None = None,
     track_artist: str | None = None,
+    library_id: int | None = None,
 ):
     """插入新的 track"""
     db = get_db()
@@ -201,8 +201,8 @@ def insert_track(
         INSERT INTO tracks
         (path,filename,ext,size,mtime,ctime,title,artist,album,album_artist,year,
          track_num,disc_num,duration,sample_rate,bitrate,has_cover,has_lyrics,
-         pending,missing_tags,scanned_at,artist_id,album_id,track_artist)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         pending,missing_tags,scanned_at,artist_id,album_id,track_artist,library_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """,
         (
             path,
@@ -229,6 +229,7 @@ def insert_track(
             artist_id,
             album_id,
             track_artist,
+            library_id,
         ),
     )
     db.commit()
@@ -259,6 +260,7 @@ def update_track_by_path(
     artist_id: int | None = None,
     album_id: int | None = None,
     track_artist: str | None = None,
+    library_id: int | None = None,
 ):
     """根据路径更新 track"""
     db = get_db()
@@ -267,7 +269,8 @@ def update_track_by_path(
         UPDATE tracks SET filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
         album=?,album_artist=?,year=?,track_num=?,disc_num=?,duration=?,
         sample_rate=?,bitrate=?,has_cover=?,has_lyrics=?,pending=?,
-        missing_tags=?,scanned_at=?,artist_id=?,album_id=?,track_artist=?
+        missing_tags=?,scanned_at=?,artist_id=?,album_id=?,track_artist=?,
+        library_id=COALESCE(?,library_id)
         WHERE path=?
     """,
         (
@@ -294,6 +297,7 @@ def update_track_by_path(
             artist_id,
             album_id,
             track_artist,
+            library_id,
             path,
         ),
     )
@@ -507,7 +511,7 @@ def count_total_tracks(library_id: int | None = None):
     db = get_db()
     if library_id is not None:
         return db.execute(
-            "SELECT COUNT(*) FROM tracks WHERE artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            "SELECT COUNT(*) FROM tracks WHERE library_id=?",
             (library_id,),
         ).fetchone()[0]
     return db.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
@@ -529,7 +533,7 @@ def count_pending_tracks(library_id: int | None = None):
     db = get_db()
     if library_id is not None:
         return db.execute(
-            "SELECT COUNT(*) FROM tracks WHERE pending=1 AND artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            "SELECT COUNT(*) FROM tracks WHERE pending=1 AND library_id=?",
             (library_id,),
         ).fetchone()[0]
     return db.execute("SELECT COUNT(*) FROM tracks WHERE pending=1").fetchone()[0]
@@ -554,8 +558,7 @@ def count_duplicate_groups(library_id: int | None = None):
             """
             SELECT COUNT(*) FROM (
               SELECT title,artist FROM tracks
-              WHERE title IS NOT NULL AND artist IS NOT NULL
-              AND artist_id IN (SELECT id FROM artists WHERE library_id=?)
+              WHERE title IS NOT NULL AND artist IS NOT NULL AND library_id=?
               GROUP BY LOWER(title),LOWER(artist),LOWER(album)
               HAVING COUNT(*) > 1
             )
@@ -575,11 +578,7 @@ def count_duplicate_groups(library_id: int | None = None):
 def count_tracks_by_extension(ext: str, library_id: int | None = None):
     db = get_db()
     normalized_ext = ext.lower()
-    lib_filter = (
-        "AND artist_id IN (SELECT id FROM artists WHERE library_id=?)"
-        if library_id is not None
-        else ""
-    )
+    lib_filter = "AND library_id=?" if library_id is not None else ""
     params_base = [library_id] if library_id is not None else []
     if normalized_ext.startswith("."):
         ext_without_dot = normalized_ext[1:]

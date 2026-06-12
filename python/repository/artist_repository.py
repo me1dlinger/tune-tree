@@ -219,11 +219,11 @@ def get_artist_stats(library_id: int | None = None):
         lib_params,
     ).fetchall()
     with_lyrics = db.execute(
-        f"SELECT COUNT(DISTINCT artist_id) FROM tracks WHERE has_lyrics=1 AND artist_id IS NOT NULL AND artist_id IN (SELECT id FROM artists WHERE 1=1 {lib_filter})",
+        f"SELECT COUNT(DISTINCT artist_id) FROM tracks WHERE has_lyrics=1 AND artist_id IS NOT NULL {'AND library_id=?' if library_id is not None else ''}",
         lib_params,
     ).fetchone()[0]
     with_track_tags = db.execute(
-        f"SELECT COUNT(DISTINCT artist_id) FROM tracks WHERE (missing_tags IS NULL OR missing_tags='') AND artist_id IS NOT NULL AND artist_id IN (SELECT id FROM artists WHERE 1=1 {lib_filter})",
+        f"SELECT COUNT(DISTINCT artist_id) FROM tracks WHERE (missing_tags IS NULL OR missing_tags='') AND artist_id IS NOT NULL {'AND library_id=?' if library_id is not None else ''}",
         lib_params,
     ).fetchone()[0]
     return {
