@@ -26,6 +26,7 @@
 ## 功能特性
 
 - **目录扫描** -- 递归扫描音乐根目录，增量更新（仅处理变更文件），自动关联艺术家和专辑信息
+- **多音乐库管理** -- 支持创建多个音乐库，切换当前库，设置默认库
 - **Web 浏览** -- 按艺术家、专辑、曲目浏览，单页前端界面
 - **待定文件** -- 列出缺少完整元数据的文件，支持在线编辑元数据
 - **元数据读取** -- 通过 mutagen 提取 ID3v2 / Vorbis Comment 标签、内嵌封面和歌词
@@ -35,9 +36,11 @@
 - **歌词编辑** -- 支持在线编辑歌词，包括时间轴同步，支持网页加载音乐边听歌边快速编辑时间轴，支持快捷键和自动跳转，支持编辑进度缓存
 - **在线播放** -- 支持在浏览器中直接播放音乐，支持 Range 请求断点续传
 - **文件下载** -- 支持单曲、专辑、艺术家、批量、目录等多种下载方式（单曲直传，多曲自动打包 ZIP）
+- **文件上传** -- 支持音频文件上传，自动处理文件名冲突（跳过、替换、重命名）
 - **文件格式化** -- 预览并执行批量重命名与移动，整理为 `{艺术家}/{专辑}/` 目录结构，支持多艺术家批量操作
 - **艺术家封面** -- 支持上传、刮削、删除艺术家封面图片，自动转换为 JPEG 格式
 - **重复检测** -- 识别音乐库中的重复文件
+- **艺术家统计** -- 艺术家统计页面，包含相似艺术家检测功能
 - **访问控制** -- 基于 Token 的简单认证
 
 ## 平台预览
@@ -48,11 +51,11 @@
 
 ### 编辑元数据
 
-![编辑元数据](https://files.seeusercontent.com/2026/06/03/6nKa/image11.png)
+![编辑元数据](https://files.seeusercontent.com/2026/06/12/2bRx/image_52.png)
 
 ### 搜索元数据标签
 
-![搜索元数据标签](https://files.seeusercontent.com/2026/06/03/Tfp2/image12.png)
+![搜索元数据标签](https://files.seeusercontent.com/2026/06/12/Iyo6/image_53.png)
 
 ### 搜索歌词、编辑歌词和时间轴
 
@@ -70,6 +73,10 @@
 
 ![目录浏览](https://files.seeusercontent.com/2026/06/03/yK5w/image2.png)
 
+### 上传文件冲突检测
+
+![上传文件冲突检测](https://files.seeusercontent.com/2026/06/12/Kt7l/image_57.png)
+
 ### 批量获取标签
 
 ![批量获取标签](https://files.seeusercontent.com/2026/06/03/Ycf6/image21.png)
@@ -86,13 +93,21 @@
 
 ![统计概览](https://files.seeusercontent.com/2026/06/03/oi2B/image5.png)
 
+### 艺术家统计面板 统计概览
+
+![艺术家统计面板 统计概览](https://files.seeusercontent.com/2026/06/12/Lcz6/image_54.png)
+
+### 艺术家统计面板 相似度检测
+
+![艺术家统计面板 相似度检测](https://files.seeusercontent.com/2026/06/12/7uMt/image_55.png)
+
 ### 重复文件详情
 
 ![重复文件详情](https://files.seeusercontent.com/2026/06/03/Ud9d/image6.png)
 
-### 定时任务
+### 设置面板
 
-![定时任务](https://files.seeusercontent.com/2026/06/04/Mgi9/image_50.png)
+![定时任务](https://files.seeusercontent.com/2026/06/12/R4bo/image_56.png)
 
 ### 夜间模式
 
@@ -193,6 +208,7 @@ tune-tree/
 │   │   ├── artist_repository.py  # 艺术家数据操作
 │   │   ├── album_repository.py   # 专辑数据操作
 │   │   ├── track_repository.py   # 曲目数据操作
+│   │   ├── library_repository.py # 音乐库数据操作
 │   │   └── task_repository.py    # 定时任务数据操作
 │   ├── models/                # 数据模型层
 │   │   └── db.py              # 数据库连接与初始化（WAL 模式）
@@ -332,10 +348,13 @@ tune-tree/
 
 ### 文件浏览
 
-| 方法  | 路径                       | 说明                                                           |
-| --- | ------------------------ | ------------------------------------------------------------ |
-| GET | `/api/files?path=`       | 目录浏览（支持 `limit`、`offset`、`sort`、`search`、`folders_first` 参数） |
-| GET | `/api/files/audio-count` | 获取音频文件统计                                                     |
+| 方法   | 路径                         | 说明                                                           |
+| ---- | -------------------------- | ------------------------------------------------------------ |
+| GET  | `/api/files?path=`         | 目录浏览（支持 `limit`、`offset`、`sort`、`search`、`folders_first` 参数） |
+| GET  | `/api/files/audio-count`   | 获取音频文件统计                                                     |
+| POST | `/api/files/upload-check`  | 检查上传文件冲突                                                     |
+| POST | `/api/files/upload-commit` | 提交上传文件（含冲突处理：跳过/替换/重命名）                                      |
+| POST | `/api/files/upload-cancel` | 取消上传，清理临时文件                                                  |
 
 ### 格式化
 
@@ -348,17 +367,17 @@ tune-tree/
 
 ### 统计与日志
 
-| 方法     | 路径                | 说明   |
-| ------ | ----------------- | ---- |
-| GET    | `/api/stats`      | 统计数据 |
-| GET    | `/api/stats/artists` | 艺术家统计数据 |
-| GET    | `/api/stats/similar-artists` | 相似艺术家检测结果 |
+| 方法     | 路径                                                               | 说明        |
+| ------ | ---------------------------------------------------------------- | --------- |
+| GET    | `/api/stats`                                                     | 统计数据      |
+| GET    | `/api/stats/artists`                                             | 艺术家统计数据   |
+| GET    | `/api/stats/similar-artists`                                     | 相似艺术家检测结果 |
 | GET    | `/api/stats/similar-artists/<int:artist_a_id>/<int:artist_b_id>` | 相似艺术家详情对比 |
-| POST   | `/api/artists/batch-scrape-covers` | 批量刮削艺术家封面 |
-| GET    | `/api/pending`    | 待定文件 |
-| GET    | `/api/duplicates` | 重复文件 |
-| GET    | `/api/logs`       | 操作日志 |
-| DELETE | `/api/logs`       | 清空日志 |
+| POST   | `/api/artists/batch-scrape-covers`                               | 批量刮削艺术家封面 |
+| GET    | `/api/pending`                                                   | 待定文件      |
+| GET    | `/api/duplicates`                                                | 重复文件      |
+| GET    | `/api/logs`                                                      | 操作日志      |
+| DELETE | `/api/logs`                                                      | 清空日志      |
 
 ### 定时任务
 
@@ -369,6 +388,17 @@ tune-tree/
 | GET  | `/api/task/status`  | 获取任务状态（刮削、整理、定时任务）                                               |
 | POST | `/api/task/execute` | 手动执行任务（`{ task_type: "scrape" \| "organize" \| "both" }`）        |
 | GET  | `/api/task/running` | 检查是否有任务正在运行                                                      |
+
+### 音乐库管理
+
+| 方法     | 路径                                       | 说明                                   |
+| ------ | ---------------------------------------- | ------------------------------------ |
+| GET    | `/api/libraries`                         | 获取所有音乐库列表                            |
+| GET    | `/api/libraries/current`                 | 获取当前音乐库信息                            |
+| POST   | `/api/libraries`                         | 创建新音乐库（`{ name, path, is_default }`） |
+| PUT    | `/api/libraries/<int:library_id>`        | 更新音乐库信息                              |
+| DELETE | `/api/libraries/<int:library_id>`        | 删除音乐库（含关联数据）                         |
+| POST   | `/api/libraries/<int:library_id>/switch` | 切换到指定音乐库                             |
 
 ## 命名规则
 
