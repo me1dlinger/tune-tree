@@ -10,6 +10,14 @@ let _asSearchTimer = null;
 
 const SIMILAR_CACHE_KEY_PREFIX = 'tunetree_similar_artists';
 
+function searchArtistInSidebar(name) {
+  const searchInput = document.getElementById('artist-search');
+  if (searchInput) {
+    searchInput.value = name;
+    filterArtists(name);
+  }
+}
+
 function _similarCacheKey() {
   return currentLibrary && currentLibrary.id ? `${SIMILAR_CACHE_KEY_PREFIX}_${currentLibrary.id}` : SIMILAR_CACHE_KEY_PREFIX;
 }
@@ -20,14 +28,14 @@ function _getCachedSimilar() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && parsed.data && parsed.ts) return parsed;
-  } catch {}
+  } catch { }
   return null;
 }
 
 function _setCachedSimilar(data) {
   try {
     localStorage.setItem(_similarCacheKey(), JSON.stringify({ data, ts: Date.now() }));
-  } catch {}
+  } catch { }
 }
 
 function fmtDurationLong(sec) {
@@ -44,11 +52,11 @@ function renderDonutSVG(pct, color, size = 80) {
   const c = 2 * Math.PI * r;
   const offset = c * (1 - pct / 100);
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--bg4)" stroke-width="5"/>
-    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="5"
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--bg4)" stroke-width="5"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="5"
       stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
-      transform="rotate(-90 ${size/2} ${size/2})" style="transition:stroke-dashoffset .6s"/>
-    <text x="${size/2}" y="${size/2}" text-anchor="middle" dominant-baseline="central"
+      transform="rotate(-90 ${size / 2} ${size / 2})" style="transition:stroke-dashoffset .6s"/>
+    <text x="${size / 2}" y="${size / 2}" text-anchor="middle" dominant-baseline="central"
       fill="var(--text)" font-family="var(--font-display)" font-size="14" font-weight="700">${pct}%</text>
   </svg>`;
 }
@@ -61,7 +69,7 @@ function renderTopNBar(items, valueKey, formatFn, maxItems = 10) {
     const rankClass = idx < 3 ? `as-topn-rank as-topn-rank-${idx + 1}` : 'as-topn-rank';
     return `<div class="as-topn-item">
       <span class="${rankClass}">${idx + 1}</span>
-      <span class="as-topn-name" title="${esc(item.name)}">${esc(item.name)}</span>
+      <span class="as-topn-name" title="${esc(item.name)}" onclick="searchArtistInSidebar('${esc(item.name).replace(/'/g, "\\'")}')">${esc(item.name)}</span>
       <span class="as-topn-val">${display}</span>
     </div>`;
   }).join('')}</div>`;
@@ -218,7 +226,7 @@ function renderArtistStats(stats, similar) {
             <div class="as-nocover-item">
               <div class="as-nocover-icon"><i class="bi bi-person-circle"></i></div>
               <div class="as-nocover-info">
-                <div class="as-nocover-name" title="${esc(a.name)}">${esc(a.name)}</div>
+                <div class="as-nocover-name" title="${esc(a.name)}" onclick="searchArtistInSidebar('${esc(a.name).replace(/'/g, "\\'")}')">${esc(a.name)}</div>
                 <div class="as-nocover-count">${a.track_count} 首曲目</div>
               </div>
             </div>

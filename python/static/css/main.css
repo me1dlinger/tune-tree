@@ -4667,6 +4667,12 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--transition);
+}
+
+.as-nocover-name:hover {
+    color: var(--accent);
 }
 
 .as-nocover-count {
@@ -4762,6 +4768,12 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--transition);
+}
+
+.as-topn-name:hover {
+    color: var(--accent);
 }
 
 .as-topn-val {
