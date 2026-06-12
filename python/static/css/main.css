@@ -29,8 +29,10 @@
     --transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     --z-index-modal: 1150;
     --z-index-sidebar: 1100;
-    --z-index-toast: 1200;
-    --z-index-modal-top: 1250;
+    --z-index-toast: 1300;
+    --z-index-modal-edit: 1200;
+    --z-index-modal-lyrics-edit: 1250;
+    --z-index-modal-scrape: 1250;
 }
 
 [data-theme="light"] {
@@ -1871,8 +1873,16 @@ body {
     transform: translateY(0);
 }
 
+#scrape-results-modal.modal-overlay {
+    z-index: var(--z-index-modal-scrape) !important;
+}
+
 #metadata-edit-modal.modal-overlay {
-    z-index: var(--z-index-modal-top) !important;
+    z-index: var(--z-index-modal-edit) !important;
+}
+
+#lyrics-editor-modal.modal-overlay {
+    z-index: var(--z-index-modal-lyrics-edit) !important;
 }
 
 .modal::before {
@@ -2969,7 +2979,7 @@ body {
 }
 
 @media (max-width: 640px) {
-.edit-modal {
+    .edit-modal {
         width: 95vw;
     }
 
@@ -4801,8 +4811,13 @@ body {
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .as-similar-grid {
@@ -5096,8 +5111,13 @@ body {
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .spin {

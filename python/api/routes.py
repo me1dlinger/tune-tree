@@ -2226,6 +2226,8 @@ def api_batch_scrape():
     rows = get_tracks_by_ids(track_ids)
     row_map = {row["id"]: row for row in rows}
 
+    library_path = get_current_library_path() or ""
+
     def scrape_single_track(track_id):
         row = row_map.get(track_id)
         if not row:
@@ -2285,9 +2287,7 @@ def api_batch_scrape():
                 "track_artist": row["artist"] if row["artist"] else "",
                 "track_album": row["album"] if row["album"] else "",
                 "filename": row["filename"] if row["filename"] else "",
-                "relative_path": get_relative_path(
-                    row["path"], get_current_library_path() or ""
-                ),
+                "relative_path": get_relative_path(row["path"], library_path),
                 "_log_type": "success",
                 "_log_msg": f"批量搜索完成: {row['filename']}",
             }
