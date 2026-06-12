@@ -60,3 +60,9 @@ let scanStartTime = null;
 
 /** 扫描是否超时 */
 let scanTimedOut = false;
+
+/** 当前音乐库信息 */
+let currentLibrary = null;
+
+/** 所有音乐库列表 */
+let allLibraries = [];

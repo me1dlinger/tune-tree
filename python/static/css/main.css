@@ -5103,3 +5103,104 @@ body {
 .spin {
     animation: spin 1s linear infinite;
 }
+
+.library-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    transition: background var(--transition);
+}
+
+.library-item:hover {
+    background: var(--bg3);
+}
+
+.library-item.library-current {
+    border-color: var(--accent);
+    background: var(--bg3);
+}
+
+.library-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.library-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.library-path {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 2px;
+    word-break: break-all;
+}
+
+.library-path-warning {
+    font-size: 11px;
+    color: var(--warning, #e67e22);
+    margin-top: 2px;
+}
+
+.library-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.library-badge-default {
+    background: var(--bg3);
+    color: var(--text3);
+}
+
+.library-badge-current {
+    background: var(--accent);
+    color: #fff;
+}
+
+.library-badge-warning {
+    background: var(--warning, #e67e22);
+    color: #fff;
+}
+
+.library-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.library-btn {
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+}
+
+.library-btn-danger {
+    color: var(--danger, #e74c3c) !important;
+}
+
+.settings-input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    font-family: var(--font-mono);
+}
+
+.settings-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}

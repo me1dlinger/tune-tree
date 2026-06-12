@@ -7,7 +7,6 @@ import os
 from models.db import get_db
 from utils.metadata import normalize_str
 from utils.formatting import safe_dirname
-from config import MUSIC_ROOT
 
 # === Track CRUD 操作 ===
 
@@ -54,9 +53,13 @@ def get_track_id_and_mtime_by_path(path: str):
     return db.execute("SELECT id, mtime FROM tracks WHERE path=?", (path,)).fetchone()
 
 
-def get_all_track_paths():
-    """获取所有 track 的路径"""
+def get_all_track_paths(library_id: int | None = None):
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            "SELECT t.path FROM tracks t JOIN artists a ON t.artist_id = a.id WHERE a.library_id=?",
+            (library_id,),
+        ).fetchall()
     return db.execute("SELECT path FROM tracks").fetchall()
 
 
@@ -124,17 +127,35 @@ def get_tracks_by_album_id(album_id: int):
     ).fetchall()
 
 
-def get_pending_tracks():
-    """获取待处理的 tracks"""
+def get_pending_tracks(library_id: int | None = None):
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            "SELECT t.* FROM tracks t JOIN artists a ON t.artist_id = a.id WHERE t.pending=1 AND a.library_id=? ORDER BY t.filename",
+            (library_id,),
+        ).fetchall()
     return db.execute(
         "SELECT * FROM tracks WHERE pending=1 ORDER BY filename"
     ).fetchall()
 
 
-def get_duplicate_tracks():
-    """获取重复的 tracks"""
+def get_duplicate_tracks(library_id: int | None = None):
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            """
+            SELECT t.* FROM tracks t
+            JOIN artists a ON t.artist_id = a.id
+            WHERE a.library_id=? AND (LOWER(t.title)||'|'||LOWER(COALESCE(t.artist,''))||'|'||LOWER(COALESCE(t.album,''))) IN (
+              SELECT LOWER(title)||'|'||LOWER(COALESCE(artist,''))||'|'||LOWER(COALESCE(album,''))
+              FROM tracks WHERE title IS NOT NULL AND artist IS NOT NULL AND album IS NOT NULL
+              GROUP BY LOWER(title),LOWER(COALESCE(artist,'')),LOWER(COALESCE(album,''))
+              HAVING COUNT(*) > 1
+            )
+            ORDER BY t.artist, t.album, t.title, t.path
+        """,
+            (library_id,),
+        ).fetchall()
     return db.execute("""
         SELECT * FROM tracks
         WHERE (LOWER(title)||'|'||LOWER(COALESCE(artist,''))||'|'||LOWER(COALESCE(album,''))) IN (
@@ -391,10 +412,10 @@ def count_tracks_by_artist_id_with_status(artist_id: int, organized: int, pendin
 # === Artist 相关操作 ===
 
 
-def get_artists(query: str | None = None):
+def get_artists(query: str | None = None, library_id: int | None = None):
     from repository.artist_repository import get_all_artists
 
-    return get_all_artists(query)
+    return get_all_artists(query, library_id=library_id)
 
 
 # === Album 相关操作 ===
@@ -447,26 +468,34 @@ def get_artist_full_info_by_id(artist_id: int):
     return result
 
 
-def get_artist_directory_path(artist: str) -> str | None:
+def get_artist_directory_path(artist: str, music_root: str) -> str | None:
     from repository.artist_repository import get_artist_by_name
 
     a = get_artist_by_name(artist)
     if a:
-        artist_dir = os.path.join(MUSIC_ROOT, a["dir_name"])
+        artist_dir = os.path.join(music_root, a["dir_name"])
         os.makedirs(artist_dir, exist_ok=True)
         return artist_dir
-    artist_dir = os.path.join(MUSIC_ROOT, safe_dirname(artist))
+    artist_dir = os.path.join(music_root, safe_dirname(artist))
     os.makedirs(artist_dir, exist_ok=True)
     return artist_dir
 
 
-def get_artist_directory_path_by_id(artist_id: int) -> str | None:
+def get_artist_directory_path_by_id(
+    artist_id: int, music_root: str = None
+) -> str | None:
     from repository.artist_repository import get_artist_by_id
 
     a = get_artist_by_id(artist_id)
     if not a:
         return None
-    artist_dir = os.path.join(MUSIC_ROOT, a["dir_name"])
+    if music_root is None:
+        from repository.library_repository import get_current_library_path
+
+        music_root = get_current_library_path()
+    if not music_root:
+        return None
+    artist_dir = os.path.join(music_root, a["dir_name"])
     os.makedirs(artist_dir, exist_ok=True)
     return artist_dir
 
@@ -474,45 +503,65 @@ def get_artist_directory_path_by_id(artist_id: int) -> str | None:
 # === 统计操作 ===
 
 
-def count_total_tracks():
-    """统计总 track 数"""
+def count_total_tracks(library_id: int | None = None):
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            "SELECT COUNT(*) FROM tracks WHERE artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            (library_id,),
+        ).fetchone()[0]
     return db.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
 
 
-def count_total_artists():
+def count_total_artists(library_id: int | None = None):
     from repository.artist_repository import count_total_artists as _count
 
-    return _count()
+    return _count(library_id)
 
 
-def count_total_albums():
+def count_total_albums(library_id: int | None = None):
     from repository.album_repository import count_total_albums as _count
 
-    return _count()
+    return _count(library_id)
 
 
-def count_pending_tracks():
-    """统计待处理 track 数"""
+def count_pending_tracks(library_id: int | None = None):
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            "SELECT COUNT(*) FROM tracks WHERE pending=1 AND artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            (library_id,),
+        ).fetchone()[0]
     return db.execute("SELECT COUNT(*) FROM tracks WHERE pending=1").fetchone()[0]
 
 
-def count_organized_artists():
+def count_organized_artists(library_id: int | None = None):
     from repository.artist_repository import count_organized_artists as _count
 
-    return _count()
+    return _count(library_id)
 
 
-def count_organized_albums():
+def count_organized_albums(library_id: int | None = None):
     from repository.album_repository import count_organized_albums as _count
 
-    return _count()
+    return _count(library_id)
 
 
-def count_duplicate_groups():
-    """统计重复分组数"""
+def count_duplicate_groups(library_id: int | None = None):
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            """
+            SELECT COUNT(*) FROM (
+              SELECT title,artist FROM tracks
+              WHERE title IS NOT NULL AND artist IS NOT NULL
+              AND artist_id IN (SELECT id FROM artists WHERE library_id=?)
+              GROUP BY LOWER(title),LOWER(artist),LOWER(album)
+              HAVING COUNT(*) > 1
+            )
+        """,
+            (library_id,),
+        ).fetchone()[0]
     return db.execute("""
         SELECT COUNT(*) FROM (
           SELECT title,artist FROM tracks
@@ -523,21 +572,26 @@ def count_duplicate_groups():
     """).fetchone()[0]
 
 
-def count_tracks_by_extension(ext: str):
-    """按扩展名统计 track 数"""
+def count_tracks_by_extension(ext: str, library_id: int | None = None):
     db = get_db()
     normalized_ext = ext.lower()
+    lib_filter = (
+        "AND artist_id IN (SELECT id FROM artists WHERE library_id=?)"
+        if library_id is not None
+        else ""
+    )
+    params_base = [library_id] if library_id is not None else []
     if normalized_ext.startswith("."):
         ext_without_dot = normalized_ext[1:]
         return db.execute(
-            "SELECT COUNT(*) FROM tracks WHERE ext=? OR ext=?",
-            (normalized_ext, ext_without_dot),
+            f"SELECT COUNT(*) FROM tracks WHERE (ext=? OR ext=?) {lib_filter}",
+            [normalized_ext, ext_without_dot] + params_base,
         ).fetchone()[0]
     else:
         ext_with_dot = "." + normalized_ext
         return db.execute(
-            "SELECT COUNT(*) FROM tracks WHERE ext=? OR ext=?",
-            (normalized_ext, ext_with_dot),
+            f"SELECT COUNT(*) FROM tracks WHERE (ext=? OR ext=?) {lib_filter}",
+            [normalized_ext, ext_with_dot] + params_base,
         ).fetchone()[0]
 
 
@@ -615,27 +669,36 @@ def set_scan_finished():
 # === Operation Log 操作 ===
 
 
-def add_op_log(ts: str, op_type: str, message: str):
+def add_op_log(ts: str, op_type: str, message: str, library_id: int | None = None):
     """添加操作日志"""
     db = get_db()
     db.execute(
-        "INSERT INTO op_log (ts,op_type,message) VALUES (?,?,?)", (ts, op_type, message)
+        "INSERT INTO op_log (ts,op_type,message,library_id) VALUES (?,?,?,?)",
+        (ts, op_type, message, library_id),
     )
     db.commit()
 
 
-def get_op_logs(limit: int = 200):
+def get_op_logs(limit: int = 200, library_id: int | None = None):
     """获取操作日志"""
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            "SELECT * FROM op_log WHERE library_id=? OR library_id IS NULL ORDER BY id DESC LIMIT ?",
+            (library_id, limit),
+        ).fetchall()
     return db.execute(
         "SELECT * FROM op_log ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
 
 
-def clear_op_logs():
+def clear_op_logs(library_id: int | None = None):
     """清空操作日志"""
     db = get_db()
-    db.execute("DELETE FROM op_log")
+    if library_id is not None:
+        db.execute("DELETE FROM op_log WHERE library_id=?", (library_id,))
+    else:
+        db.execute("DELETE FROM op_log")
     db.commit()
 
 

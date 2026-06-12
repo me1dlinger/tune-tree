@@ -156,8 +156,8 @@ def _adaptive_threshold(name_a: str, name_b: str) -> float:
         return 0.75
 
 
-def find_similar_artists(max_groups=10):
-    artists = get_all_artist_names()
+def find_similar_artists(max_groups=10, library_id=None):
+    artists = get_all_artist_names(library_id=library_id)
     groups = []
     seen = set()
 

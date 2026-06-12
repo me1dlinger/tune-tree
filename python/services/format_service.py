@@ -7,7 +7,6 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from config import MUSIC_ROOT
 from utils.formatting import safe_dirname
 from repository.track_repository import (
     get_tracks_by_ids,
@@ -21,6 +20,10 @@ from repository.track_repository import (
 )
 from repository.artist_repository import get_artist_by_name, get_artist_by_id
 from repository.album_repository import get_album_by_id, get_albums_by_artist_id
+from repository.library_repository import (
+    get_current_library_path,
+    get_current_library_id,
+)
 from models.db import get_db
 
 logger = logging.getLogger("tunetree")
@@ -48,6 +51,7 @@ def build_target_filename(track) -> str:
 def preview_format(
     artist: str, album_ids: list[int] | None = None, track_ids: list[int] | None = None
 ) -> dict:
+    music_root = get_current_library_path() or ""
     previews = []
     conflict_count = 0
     skip_count = 0
@@ -127,7 +131,7 @@ def preview_format(
         else:
             seen_albums[album_key] = actual_album_dir
 
-        target_base = str(Path(MUSIC_ROOT) / actual_artist_dir / actual_album_dir)
+        target_base = str(Path(music_root) / actual_artist_dir / actual_album_dir)
 
         new_name = build_target_filename(row)
         stem = Path(new_name).stem
@@ -247,7 +251,12 @@ def execute_format(
             moved += 1
         except Exception as exc:
             logger.error("move failed %s -> %s: %s", src, dst, exc)
-            add_op_log(now, "error", f"移动失败：{src} → {dst}: {exc}")
+            add_op_log(
+                now,
+                "error",
+                f"移动失败：{src} → {dst}: {exc}",
+                library_id=get_current_library_id(),
+            )
             errors += 1
 
     # 删除空目录（从子目录到父目录递归删除）
@@ -264,7 +273,7 @@ def execute_format(
     msg = (
         f"格式化完成：{artist} 移动 {moved} 个文件，跳过 {skipped} 个，{errors} 个失败"
     )
-    add_op_log(now, "move", msg)
+    add_op_log(now, "move", msg, library_id=get_current_library_id())
     commit()
     logger.info(msg)
     return {"moved": moved, "skipped": skipped, "errors": errors, "organized": all_org}

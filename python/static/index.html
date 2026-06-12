@@ -424,10 +424,32 @@
   <div class="modal-overlay" id="settings-modal">
     <div class="modal settings-modal">
       <div class="modal-header">
-        <div class="modal-title">定时任务设置</div>
+        <div class="modal-title">设置</div>
         <button class="modal-close" onclick="closeModal('settings-modal')">✕</button>
       </div>
       <div class="modal-body settings-modal-body">
+        <div class="settings-section">
+          <h3>音乐库管理</h3>
+          <div id="library-list"></div>
+          <div id="library-add-form" style="display:none; flex-direction:column; gap:8px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius);">
+            <input type="text" id="library-add-name" placeholder="音乐库名称" class="settings-input">
+            <input type="text" id="library-add-path" placeholder="音乐库路径（如 /music 或 D:\\Music）" class="settings-input">
+            <div style="display:flex; gap:8px;">
+              <button class="toolbar-btn" onclick="saveAddLibrary()">保存</button>
+              <button class="toolbar-btn" onclick="cancelAddLibrary()">取消</button>
+            </div>
+          </div>
+          <div id="library-edit-form" style="display:none; flex-direction:column; gap:8px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius);">
+            <input type="hidden" id="library-edit-id">
+            <input type="text" id="library-edit-name" placeholder="音乐库名称" class="settings-input">
+            <input type="text" id="library-edit-path" placeholder="音乐库路径" class="settings-input">
+            <div style="display:flex; gap:8px;">
+              <button class="toolbar-btn" onclick="saveEditLibrary()">保存</button>
+              <button class="toolbar-btn" onclick="cancelEditLibrary()">取消</button>
+            </div>
+          </div>
+          <button class="toolbar-btn" onclick="showAddLibraryForm()"><i class="bi bi-plus-circle"></i> 添加音乐库</button>
+        </div>
         <div class="settings-section">
           <h3>任务开关</h3>
           <div class="settings-row">

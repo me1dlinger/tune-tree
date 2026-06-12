@@ -181,12 +181,170 @@ async function executeManualTask(taskType) {
 function openSettingsModal() {
     document.getElementById('settings-modal').classList.add('open');
 
-    // 加载配置和状态（只在打开时请求一次）
     loadTaskConfig();
     loadTaskStatus();
     checkRunningTask();
+    loadLibrarySettings();
 }
 
 function closeSettingsModal() {
     document.getElementById('settings-modal').classList.remove('open');
+}
+
+async function loadLibrarySettings() {
+    try {
+        allLibraries = await GET('/libraries');
+        currentLibrary = await GET('/libraries/current');
+        renderLibraryList();
+    } catch (error) {
+        console.error('加载音乐库设置失败:', error);
+    }
+}
+
+function renderLibraryList() {
+    const container = document.getElementById('library-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!allLibraries || allLibraries.length === 0) {
+        container.innerHTML = '<div class="settings-hint">暂无音乐库，请添加一个音乐库路径</div>';
+        return;
+    }
+
+    allLibraries.forEach(lib => {
+        const row = document.createElement('div');
+        row.className = 'library-item' + (lib.is_current ? ' library-current' : '');
+
+        const needsConfigBadge = lib.needs_config
+            ? '<span class="library-badge library-badge-warning" title="需要配置路径">待配置</span>'
+            : '';
+        const defaultBadge = lib.is_default
+            ? '<span class="library-badge library-badge-default">默认</span>'
+            : '';
+        const currentBadge = lib.is_current
+            ? '<span class="library-badge library-badge-current">当前</span>'
+            : '';
+
+        const pathExists = lib.path && !lib.needs_config;
+        const pathWarning = !pathExists
+            ? '<div class="library-path-warning">路径未配置，请编辑设置路径</div>'
+            : '';
+
+        row.innerHTML = `
+            <div class="library-info">
+                <div class="library-name">${escapeHtml(lib.name)} ${defaultBadge} ${currentBadge} ${needsConfigBadge}</div>
+                <div class="library-path">${escapeHtml(lib.path || '未配置')}</div>
+                ${pathWarning}
+            </div>
+            <div class="library-actions">
+                ${!lib.is_current ? `<button class="toolbar-btn library-btn" onclick="switchLibrary(${lib.id})" title="切换为当前音乐库"><i class="bi bi-arrow-right-circle"></i></button>` : ''}
+                <button class="toolbar-btn library-btn" onclick="editLibrary(${lib.id})" title="编辑"><i class="bi bi-pencil"></i></button>
+                ${!lib.is_default ? `<button class="toolbar-btn library-btn library-btn-danger" onclick="deleteLibraryConfirm(${lib.id}, '${escapeHtml(lib.name)}')" title="删除"><i class="bi bi-trash"></i></button>` : ''}
+            </div>
+        `;
+        container.appendChild(row);
+    });
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+async function switchLibrary(libraryId) {
+    try {
+        await POST('/libraries/' + libraryId + '/switch', {});
+        showToast('已切换音乐库', 'success');
+        await loadLibrarySettings();
+        clearArtistCache();
+        await loadArtistTree();
+        loadStats();
+        loadPending();
+    } catch (error) {
+        showToast('切换失败: ' + error.message, 'error');
+    }
+}
+
+function editLibrary(libraryId) {
+    const lib = allLibraries.find(l => l.id === libraryId);
+    if (!lib) return;
+
+    document.getElementById('library-edit-id').value = lib.id;
+    document.getElementById('library-edit-name').value = lib.name;
+    document.getElementById('library-edit-path').value = lib.path || '';
+    document.getElementById('library-edit-form').style.display = 'flex';
+}
+
+function cancelEditLibrary() {
+    document.getElementById('library-edit-form').style.display = 'none';
+}
+
+async function saveEditLibrary() {
+    const id = parseInt(document.getElementById('library-edit-id').value);
+    const name = document.getElementById('library-edit-name').value.trim();
+    const path = document.getElementById('library-edit-path').value.trim();
+
+    if (!name) {
+        showToast('名称不能为空', 'error');
+        return;
+    }
+
+    try {
+        await PUT('/libraries/' + id, { name, path });
+        showToast('已保存', 'success');
+        cancelEditLibrary();
+        await loadLibrarySettings();
+    } catch (error) {
+        showToast('保存失败: ' + error.message, 'error');
+    }
+}
+
+function showAddLibraryForm() {
+    document.getElementById('library-add-form').style.display = 'flex';
+    document.getElementById('library-add-name').value = '';
+    document.getElementById('library-add-path').value = '';
+}
+
+function cancelAddLibrary() {
+    document.getElementById('library-add-form').style.display = 'none';
+}
+
+async function saveAddLibrary() {
+    const name = document.getElementById('library-add-name').value.trim();
+    const path = document.getElementById('library-add-path').value.trim();
+
+    if (!name || !path) {
+        showToast('名称和路径不能为空', 'error');
+        return;
+    }
+
+    try {
+        await POST('/libraries', { name, path });
+        showToast('音乐库已添加', 'success');
+        cancelAddLibrary();
+        await loadLibrarySettings();
+    } catch (error) {
+        showToast('添加失败: ' + error.message, 'error');
+    }
+}
+
+function deleteLibraryConfirm(libraryId, libraryName) {
+    if (confirm(`确定要删除音乐库"${libraryName}"吗？\n将同时删除该音乐库下的所有艺术家、专辑和曲目数据。`)) {
+        doDeleteLibrary(libraryId);
+    }
+}
+
+async function doDeleteLibrary(libraryId) {
+    try {
+        await DELETE('/libraries/' + libraryId);
+        showToast('音乐库已删除', 'success');
+        await loadLibrarySettings();
+        clearArtistCache();
+        await loadArtistTree();
+        loadStats();
+        loadPending();
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    }
 }

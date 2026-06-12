@@ -18,7 +18,6 @@ def _normalize_path(path: str) -> str:
 
 from utils.metadata import read_metadata, normalize_str, extract_cover_to_file
 from models.db import get_db
-from config import MUSIC_ROOT
 from repository.track_repository import (
     get_all_track_paths,
     delete_track_by_path,
@@ -36,9 +35,15 @@ BATCH_SIZE = 500
 MAX_WORKERS = 8  # 线程池大小，根据CPU核心数调整
 
 
-def _load_existing_tracks() -> dict[str, dict]:
+def _load_existing_tracks(library_id: int | None = None) -> dict[str, dict]:
     db = get_db()
-    rows = db.execute("SELECT path, id, mtime, size FROM tracks").fetchall()
+    if library_id is not None:
+        rows = db.execute(
+            "SELECT t.path, t.id, t.mtime, t.size FROM tracks t JOIN artists a ON t.artist_id = a.id WHERE a.library_id=?",
+            (library_id,),
+        ).fetchall()
+    else:
+        rows = db.execute("SELECT path, id, mtime, size FROM tracks").fetchall()
     return {
         _normalize_path(row["path"]): {
             "id": row["id"],
@@ -147,10 +152,10 @@ def _process_file(filepath, existing_tracks, scanned_at):
         return ("insert", track_data, meta_info)
 
 
-def scan_library(root: str) -> dict:
+def scan_library(root: str, library_id: int | None = None) -> dict:
     root_path = Path(root)
     found_paths: set[str] = set()
-    existing_tracks = _load_existing_tracks()
+    existing_tracks = _load_existing_tracks(library_id)
     existing_paths = set(existing_tracks.keys())
 
     pending_inserts = []
@@ -177,7 +182,7 @@ def scan_library(root: str) -> dict:
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_path = {}
         for filepath in audio_files:
-            print(f"处理文件: {filepath}")
+            logger.debug(f"处理文件: {filepath}")
             future = executor.submit(
                 _process_file, filepath, existing_tracks, scanned_at
             )
@@ -217,7 +222,7 @@ def scan_library(root: str) -> dict:
                 if effective_artist:
                     if effective_artist not in artist_id_cache:
                         artist_id_cache[effective_artist] = ensure_artist(
-                            effective_artist
+                            effective_artist, library_id=library_id
                         )
                     artist_id = artist_id_cache[effective_artist]
 
@@ -287,8 +292,8 @@ def scan_library(root: str) -> dict:
     else:
         removed = 0
 
-    _backfill_artist_album_ids()
-    _ensure_covers()
+    _backfill_artist_album_ids(library_id)
+    _ensure_covers(root)
     _cleanup_orphaned_artists_albums()
 
     scan_duration = time.time() - scan_start_time
@@ -308,6 +313,7 @@ def scan_library(root: str) -> dict:
         now,
         "scan",
         f"扫描完成：新增 {added} 更新 {updated} 跳过 {skipped} 移除 {removed} · 耗时 {duration_str}",
+        library_id=library_id,
     )
     logger.info(
         f"扫描完成：新增 {added} 更新 {updated} 跳过 {skipped} 移除 {removed} · 耗时 {duration_str}"
@@ -324,12 +330,18 @@ def scan_library(root: str) -> dict:
     }
 
 
-def _backfill_artist_album_ids():
+def _backfill_artist_album_ids(library_id: int | None = None):
     """为已有但缺少 artist_id/album_id 的 tracks 回填关联ID"""
     db = get_db()
-    rows = db.execute(
-        "SELECT id, artist, album, album_artist FROM tracks WHERE artist_id IS NULL AND artist IS NOT NULL AND artist != ''"
-    ).fetchall()
+    if library_id:
+        rows = db.execute(
+            "SELECT id, artist, album, album_artist FROM tracks WHERE artist_id IS NULL AND artist IS NOT NULL AND artist != '' AND artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            (library_id,),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT id, artist, album, album_artist FROM tracks WHERE artist_id IS NULL AND artist IS NOT NULL AND artist != ''"
+        ).fetchall()
 
     if not rows:
         return
@@ -345,7 +357,9 @@ def _backfill_artist_album_ids():
 
         effective_artist = album_artist_name or artist_name
         if effective_artist not in artist_cache:
-            artist_cache[effective_artist] = ensure_artist(effective_artist)
+            artist_cache[effective_artist] = ensure_artist(
+                effective_artist, library_id=library_id
+            )
         artist_id = artist_cache[effective_artist]
 
         album_id = None
@@ -369,14 +383,13 @@ ALBUM_COVER_FILENAME = "cover.jpg"
 ARTIST_COVER_FILENAME = "cover.jpg"
 
 
-def _ensure_covers():
-    """检查每个专辑和艺术家目录是否有 cover.jpg，没有则尝试提取"""
+def _ensure_covers(music_root: str):
     db = get_db()
 
     artists = db.execute("SELECT id, dir_name, cover_path FROM artists").fetchall()
     artist_cover_updated = 0
     for artist in artists:
-        artist_dir = os.path.join(MUSIC_ROOT, artist["dir_name"])
+        artist_dir = os.path.join(music_root, artist["dir_name"])
         cover_path = os.path.join(artist_dir, ARTIST_COVER_FILENAME)
         if os.path.exists(cover_path):
             if not artist["cover_path"]:
@@ -410,7 +423,7 @@ def _ensure_covers():
         if not artist_dir_name:
             continue
 
-        album_dir = os.path.join(MUSIC_ROOT, artist_dir_name, album_dir_name)
+        album_dir = os.path.join(music_root, artist_dir_name, album_dir_name)
         cover_path = os.path.join(album_dir, ALBUM_COVER_FILENAME)
 
         if os.path.exists(cover_path):

@@ -8,6 +8,14 @@
    INIT
 ═══════════════════════════════════════════════════════════ */
 
+async function loadCurrentLibrary() {
+  try {
+    currentLibrary = await GET('/libraries/current');
+  } catch (e) {
+    currentLibrary = null;
+  }
+}
+
 async function checkScanStatus() {
   try {
     const r = await GET('/scan/status');
@@ -25,6 +33,7 @@ async function checkScanStatus() {
  * 由 auth.js 的 showApp() 调用
  */
 async function initApp() {
+  await loadCurrentLibrary();
   await checkScanStatus();
   await loadArtistTree();
 

@@ -101,16 +101,30 @@ def delete_album(album_id: int):
     db.commit()
 
 
-def count_total_albums():
+def count_total_albums(library_id: int | None = None):
     db = get_db()
+    if library_id is not None:
+        return db.execute(
+            "SELECT COUNT(*) FROM albums WHERE artist_id IN (SELECT id FROM artists WHERE library_id=?)",
+            (library_id,),
+        ).fetchone()[0]
     return db.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
 
 
-def count_organized_albums():
+def count_organized_albums(library_id: int | None = None):
     db = get_db()
-    return db.execute("""
+    lib_filter = (
+        "AND al.artist_id IN (SELECT id FROM artists WHERE library_id=?)"
+        if library_id is not None
+        else ""
+    )
+    params = [library_id] if library_id is not None else []
+    return db.execute(
+        f"""
         SELECT COUNT(*) FROM albums al
         WHERE NOT EXISTS (
             SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.organized=0 AND t.pending=0
-        )
-    """).fetchone()[0]
+        ) {lib_filter}
+    """,
+        params,
+    ).fetchone()[0]

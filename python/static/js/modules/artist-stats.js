@@ -8,11 +8,15 @@ let _similarArtistsData = null;
 let _similarDetailTracks = [];
 let _asSearchTimer = null;
 
-const SIMILAR_CACHE_KEY = 'tunetree_similar_artists';
+const SIMILAR_CACHE_KEY_PREFIX = 'tunetree_similar_artists';
+
+function _similarCacheKey() {
+  return currentLibrary && currentLibrary.id ? `${SIMILAR_CACHE_KEY_PREFIX}_${currentLibrary.id}` : SIMILAR_CACHE_KEY_PREFIX;
+}
 
 function _getCachedSimilar() {
   try {
-    const raw = localStorage.getItem(SIMILAR_CACHE_KEY);
+    const raw = localStorage.getItem(_similarCacheKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && parsed.data && parsed.ts) return parsed;
@@ -22,7 +26,7 @@ function _getCachedSimilar() {
 
 function _setCachedSimilar(data) {
   try {
-    localStorage.setItem(SIMILAR_CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
+    localStorage.setItem(_similarCacheKey(), JSON.stringify({ data, ts: Date.now() }));
   } catch {}
 }
 

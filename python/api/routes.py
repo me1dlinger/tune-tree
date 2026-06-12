@@ -26,7 +26,18 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import ACCESS_KEY, MUSIC_ROOT
+from config import ACCESS_KEY
+from repository.library_repository import (
+    get_current_library_id,
+    get_current_library_path,
+    get_current_library,
+    get_all_libraries,
+    get_library_by_id,
+    insert_library,
+    update_library,
+    delete_library as delete_library_repo,
+    set_current_library_id,
+)
 from utils.metadata import (
     get_cover_b64,
     get_lyrics,
@@ -127,7 +138,7 @@ def _relink_track_artist_album(track_id: int):
     old_album = get_album_by_id(old_album_id) if old_album_id else None
     old_artist = get_artist_by_id(old_artist_id) if old_artist_id else None
 
-    new_artist_id = ensure_artist(new_artist_name)
+    new_artist_id = ensure_artist(new_artist_name, library_id=get_current_library_id())
     new_album_id = None
     if new_album_name:
         new_album_id = ensure_album(new_album_name, new_artist_id, year=row["year"])
@@ -216,12 +227,14 @@ def api_scan():
             {"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}
         ), 409
 
-    if not Path(MUSIC_ROOT).exists():
-        return jsonify({"error": f"MUSIC_ROOT '{MUSIC_ROOT}' not found"}), 400
+    music_root = get_current_library_path()
+    if not music_root or not Path(music_root).exists():
+        return jsonify({"error": f"Music library path not found"}), 400
 
     try:
         set_scan_running(datetime.now().timestamp())
-        result = scan_library(MUSIC_ROOT)
+        library_id = get_current_library_id()
+        result = scan_library(music_root, library_id=library_id)
         return jsonify(result)
     finally:
         set_scan_finished()
@@ -246,7 +259,8 @@ def api_scan_status():
 @require_auth
 def api_artists():
     q = request.args.get("q", "").strip()
-    rows = get_artists(q)
+    library_id = get_current_library_id()
+    rows = get_artists(q, library_id=library_id)
     return jsonify([dict(r) for r in rows])
 
 
@@ -407,7 +421,7 @@ def api_files_download():
     if not path:
         abort(400)
 
-    base = Path(MUSIC_ROOT)
+    base = Path(get_current_library_path() or "")
     file_path = (base / path).resolve()
     if not str(file_path).startswith(str(base.resolve())):
         abort(403)
@@ -593,7 +607,11 @@ def api_album_cover_get(album_id: int):
     if not artist_row:
         abort(404)
 
-    album_dir = Path(MUSIC_ROOT) / artist_row["dir_name"] / album["dir_name"]
+    album_dir = (
+        Path(get_current_library_path() or "")
+        / artist_row["dir_name"]
+        / album["dir_name"]
+    )
     cover_path = album_dir / ALBUM_COVER_FILENAME
 
     if not cover_path.exists():
@@ -649,7 +667,7 @@ def api_album_cover_exists(album_id: int):
         return jsonify({"exists": False})
 
     cover_path = (
-        Path(MUSIC_ROOT)
+        Path(get_current_library_path() or "")
         / artist_row["dir_name"]
         / album["dir_name"]
         / ALBUM_COVER_FILENAME
@@ -691,7 +709,11 @@ def api_album_cover_upload(album_id: int):
         if img.format != "JPEG":
             img = img.convert("RGB")
 
-        album_dir = Path(MUSIC_ROOT) / artist_row["dir_name"] / album["dir_name"]
+        album_dir = (
+            Path(get_current_library_path() or "")
+            / artist_row["dir_name"]
+            / album["dir_name"]
+        )
         album_dir.mkdir(parents=True, exist_ok=True)
         cover_path = album_dir / ALBUM_COVER_FILENAME
         img.save(cover_path, "JPEG", quality=90)
@@ -900,7 +922,9 @@ def api_track(track_id: int):
         abort(404)
     d = dict(row)
     d["lyrics"] = get_lyrics(row["path"]) if row["has_lyrics"] else None
-    d["relative_path"] = get_relative_path(row["path"], MUSIC_ROOT)
+    d["relative_path"] = get_relative_path(
+        row["path"], get_current_library_path() or ""
+    )
     return jsonify(d)
 
 
@@ -1033,11 +1057,10 @@ def api_track_by_path():
         return jsonify({"error": "path required"}), 400
 
     # Normalize path separators for Windows
-    rel_path_normalized = (
-        rel_path.replace("/", "\\") if "\\" in MUSIC_ROOT else rel_path
-    )
-    full_path = str(Path(MUSIC_ROOT) / rel_path.lstrip("/"))
-    full_path_normalized = str(Path(MUSIC_ROOT) / rel_path_normalized.lstrip("/"))
+    _lib_path = get_current_library_path() or ""
+    rel_path_normalized = rel_path.replace("/", "\\") if "\\" in _lib_path else rel_path
+    full_path = str(Path(_lib_path) / rel_path.lstrip("/"))
+    full_path_normalized = str(Path(_lib_path) / rel_path_normalized.lstrip("/"))
 
     # Try exact match first
     row = get_track_by_path(full_path)
@@ -1104,7 +1127,9 @@ def api_track_by_path():
                     from repository.album_repository import ensure_album
 
                     effective_artist = album_artist_name or artist_name
-                    artist_id = ensure_artist(effective_artist)
+                    artist_id = ensure_artist(
+                        effective_artist, library_id=get_current_library_id()
+                    )
                     if album_name:
                         album_id = ensure_album(
                             album_name,
@@ -1157,7 +1182,7 @@ def api_track_by_path():
 @require_auth
 def api_files():
     rel = request.args.get("path", "").lstrip("/")
-    base = Path(MUSIC_ROOT)
+    base = Path(get_current_library_path() or "")
     cur = (base / rel).resolve()
     if not str(cur).startswith(str(base.resolve())):
         abort(403)
@@ -1301,15 +1326,16 @@ def api_files():
 @api_bp.route("/api/stats")
 @require_auth
 def api_stats():
-    total_tracks = count_total_tracks()
-    total_artists = count_total_artists()
-    total_albums = count_total_albums()
-    pending_count = count_pending_tracks()
-    org_artists = count_organized_artists()
-    org_albums = count_organized_albums()
-    dupes = count_duplicate_groups()
-    flac_count = count_tracks_by_extension(".flac")
-    mp3_count = count_tracks_by_extension(".mp3")
+    library_id = get_current_library_id()
+    total_tracks = count_total_tracks(library_id=library_id)
+    total_artists = count_total_artists(library_id=library_id)
+    total_albums = count_total_albums(library_id=library_id)
+    pending_count = count_pending_tracks(library_id=library_id)
+    org_artists = count_organized_artists(library_id=library_id)
+    org_albums = count_organized_albums(library_id=library_id)
+    dupes = count_duplicate_groups(library_id=library_id)
+    flac_count = count_tracks_by_extension(".flac", library_id=library_id)
+    mp3_count = count_tracks_by_extension(".mp3", library_id=library_id)
     last_scan = get_scan_meta("last_scan") or "—"
 
     # 获取扫描状态
@@ -1348,14 +1374,16 @@ def api_stats():
 @api_bp.route("/api/stats/artists")
 @require_auth
 def api_artist_stats():
-    stats = repo_get_artist_stats()
+    library_id = get_current_library_id()
+    stats = repo_get_artist_stats(library_id=library_id)
     return jsonify(stats)
 
 
 @api_bp.route("/api/stats/similar-artists")
 @require_auth
 def api_similar_artists():
-    groups = find_similar_artists()
+    library_id = get_current_library_id()
+    groups = find_similar_artists(library_id=library_id)
     from repository.album_repository import get_albums_by_artist_id
     from repository.track_repository import get_tracks_by_artist_id
 
@@ -1470,11 +1498,14 @@ def api_batch_scrape_covers():
 @api_bp.route("/api/pending")
 @require_auth
 def api_pending():
-    rows = get_pending_tracks()
+    library_id = get_current_library_id()
+    rows = get_pending_tracks(library_id=library_id)
     result = []
     for row in rows:
         d = dict(row)
-        d["relative_path"] = get_relative_path(row["path"], MUSIC_ROOT)
+        d["relative_path"] = get_relative_path(
+            row["path"], get_current_library_path() or ""
+        )
         result.append(d)
     return jsonify(result)
 
@@ -1483,7 +1514,8 @@ def api_pending():
 @api_bp.route("/api/duplicates")
 @require_auth
 def api_duplicates():
-    rows = get_duplicate_tracks()
+    library_id = get_current_library_id()
+    rows = get_duplicate_tracks(library_id=library_id)
     return jsonify([dict(r) for r in rows])
 
 
@@ -1554,14 +1586,14 @@ def api_format_batch_execute():
 @api_bp.route("/api/logs")
 @require_auth
 def api_logs():
-    rows = get_op_logs(200)
+    rows = get_op_logs(200, library_id=get_current_library_id())
     return jsonify([dict(r) for r in rows])
 
 
 @api_bp.route("/api/logs", methods=["DELETE"])
 @require_auth
 def api_logs_clear():
-    clear_op_logs()
+    clear_op_logs(library_id=get_current_library_id())
     commit()
     return jsonify({"ok": True})
 
@@ -1592,18 +1624,29 @@ def api_scrape_metadata(track_id: int):
                 now,
                 "scrape_success",
                 f"成功从 {scraped_data['_source']} 获取元数据: {row['filename']}",
+                library_id=get_current_library_id(),
             )
             commit()
             return jsonify(
                 {"ok": True, "original": current_meta, "scraped": scraped_data}
             )
         else:
-            add_op_log(now, "scrape_fail", f"未能找到匹配的元数据: {row['filename']}")
+            add_op_log(
+                now,
+                "scrape_fail",
+                f"未能找到匹配的元数据: {row['filename']}",
+                library_id=get_current_library_id(),
+            )
             commit()
             return jsonify({"ok": False, "error": "未找到匹配的元数据"})
     except Exception as e:
         logger.error(f"刮削元数据失败: {e}")
-        add_op_log(now, "scrape_error", f"刮削元数据出错: {row['filename']} - {str(e)}")
+        add_op_log(
+            now,
+            "scrape_error",
+            f"刮削元数据出错: {row['filename']} - {str(e)}",
+            library_id=get_current_library_id(),
+        )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1653,7 +1696,9 @@ def api_apply_scraped_metadata(track_id: int):
                     )
                     if artist_row:
                         album_dir = os.path.join(
-                            MUSIC_ROOT, artist_row["dir_name"], album["dir_name"]
+                            get_current_library_path() or "",
+                            artist_row["dir_name"],
+                            album["dir_name"],
                         )
                         cover_file_path = os.path.join(album_dir, ALBUM_COVER_FILENAME)
                         file_exists = os.path.exists(cover_file_path)
@@ -1673,7 +1718,12 @@ def api_apply_scraped_metadata(track_id: int):
             has_lyrics = 1 if data["lyrics"] else 0
             update_track_metadata(track_id, {"has_lyrics": has_lyrics})
             lyrics_updated = True
-        add_op_log(now, "apply_scrape_success", f"成功应用元数据: {row['filename']}")
+        add_op_log(
+            now,
+            "apply_scrape_success",
+            f"成功应用元数据: {row['filename']}",
+            library_id=get_current_library_id(),
+        )
         recalc_pending(track_id)
         commit()
         return jsonify(
@@ -1687,7 +1737,10 @@ def api_apply_scraped_metadata(track_id: int):
     except Exception as e:
         logger.error(f"应用刮削的元数据失败: {e}")
         add_op_log(
-            now, "apply_scrape_error", f"应用元数据出错: {row['filename']} - {str(e)}"
+            now,
+            "apply_scrape_error",
+            f"应用元数据出错: {row['filename']} - {str(e)}",
+            library_id=get_current_library_id(),
         )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -1739,14 +1792,20 @@ def api_scrape_all(track_id: int):
     except Exception as e:
         logger.error(f"批量搜索失败: {e}")
         add_op_log(
-            now, "scrape_all_error", f"批量搜索出错: {row['filename']} - {str(e)}"
+            now,
+            "scrape_all_error",
+            f"批量搜索出错: {row['filename']} - {str(e)}",
+            library_id=get_current_library_id(),
         )
         commit()
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
 ALLOWED_UPLOAD_EXTS = {"flac", "mp3"}
-_upload_temp_dir = Path(MUSIC_ROOT) / ".upload_temp"
+
+
+def _get_upload_temp_dir():
+    return Path(get_current_library_path() or "") / ".upload_temp"
 
 
 def _find_matching_track(artist: str | None, album: str | None, title: str | None):
@@ -1793,7 +1852,7 @@ def api_files_upload_check():
     if not files:
         return jsonify({"ok": False, "error": "未选择文件"}), 400
 
-    _upload_temp_dir.mkdir(parents=True, exist_ok=True)
+    _get_upload_temp_dir().mkdir(parents=True, exist_ok=True)
 
     conflicts = []
     new_files = []
@@ -1813,7 +1872,7 @@ def api_files_upload_check():
             continue
 
         temp_id = f"{int(time.time() * 1000)}_{filename}"
-        temp_path = _upload_temp_dir / temp_id
+        temp_path = _get_upload_temp_dir() / temp_id
 
         try:
             f.save(str(temp_path))
@@ -1845,7 +1904,11 @@ def api_files_upload_check():
 
         if existing:
             rel_path = (
-                str(Path(existing["path"]).relative_to(Path(MUSIC_ROOT)))
+                str(
+                    Path(existing["path"]).relative_to(
+                        Path(get_current_library_path() or "")
+                    )
+                )
                 if existing["path"]
                 else ""
             )
@@ -1879,7 +1942,7 @@ def api_files_upload_commit():
     target = data.get("path", "").lstrip("/")
     resolve = data.get("resolve", {})
 
-    base = Path(MUSIC_ROOT)
+    base = Path(get_current_library_path() or "")
     cur = (base / target).resolve()
     if not str(cur).startswith(str(base.resolve())):
         abort(403)
@@ -1891,7 +1954,7 @@ def api_files_upload_commit():
     errors = []
 
     for temp_id, action in resolve.items():
-        temp_path = _upload_temp_dir / temp_id
+        temp_path = _get_upload_temp_dir() / temp_id
         if not temp_path.exists():
             errors.append({"name": temp_id, "error": "临时文件不存在"})
             continue
@@ -1950,7 +2013,7 @@ def api_files_upload_commit():
             temp_path.unlink(missing_ok=True)
             errors.append({"name": temp_id, "error": str(e)})
 
-    for leftover in _upload_temp_dir.iterdir():
+    for leftover in _get_upload_temp_dir().iterdir():
         try:
             if leftover.is_file():
                 age = time.time() - leftover.stat().st_mtime
@@ -1996,7 +2059,7 @@ def _ingest_uploaded_file(dest: Path, existing_track_id: int | None = None):
     artist_id = None
     album_id = None
     if effective_artist:
-        artist_id = ensure_artist(effective_artist)
+        artist_id = ensure_artist(effective_artist, library_id=get_current_library_id())
         if album_name:
             album_id = ensure_album(album_name, artist_id, year=year)
 
@@ -2102,7 +2165,7 @@ def api_files_upload_cancel():
     temp_ids = data.get("temp_ids", [])
     removed = 0
     for temp_id in temp_ids:
-        temp_path = _upload_temp_dir / temp_id
+        temp_path = _get_upload_temp_dir() / temp_id
         if temp_path.exists():
             try:
                 temp_path.unlink()
@@ -2119,11 +2182,12 @@ def api_files_audio_count():
     if not paths:
         return jsonify({"counts": {}})
     path_list = [p.strip().lstrip("/") for p in paths.split("|") if p.strip()]
-    base = Path(MUSIC_ROOT)
+    _lib_path = get_current_library_path() or ""
+    base = Path(_lib_path)
     counts = {}
 
     for rel in path_list:
-        rel_normalized = rel.replace("/", "\\") if "\\" in MUSIC_ROOT else rel
+        rel_normalized = rel.replace("/", "\\") if "\\" in _lib_path else rel
         cur = (base / rel_normalized).resolve()
         base_resolved = str(base.resolve())
         cur_str = str(cur)
@@ -2221,7 +2285,9 @@ def api_batch_scrape():
                 "track_artist": row["artist"] if row["artist"] else "",
                 "track_album": row["album"] if row["album"] else "",
                 "filename": row["filename"] if row["filename"] else "",
-                "relative_path": get_relative_path(row["path"], MUSIC_ROOT),
+                "relative_path": get_relative_path(
+                    row["path"], get_current_library_path() or ""
+                ),
                 "_log_type": "success",
                 "_log_msg": f"批量搜索完成: {row['filename']}",
             }
@@ -2374,3 +2440,94 @@ def api_get_running_task():
             "scheduled_running": is_task_running("scheduled"),
         }
     )
+
+
+# Library management
+@api_bp.route("/api/libraries", methods=["GET"])
+@require_auth
+def api_libraries_list():
+    libraries = get_all_libraries()
+    current_id = get_current_library_id()
+    result = []
+    for lib in libraries:
+        d = dict(lib)
+        d["is_current"] = lib["id"] == current_id
+        result.append(d)
+    return jsonify(result)
+
+
+@api_bp.route("/api/libraries/current", methods=["GET"])
+@require_auth
+def api_libraries_current():
+    lib = get_current_library()
+    if not lib:
+        return jsonify(None)
+    return jsonify(dict(lib))
+
+
+@api_bp.route("/api/libraries", methods=["POST"])
+@require_auth
+def api_libraries_create():
+    data = request.get_json(force=True)
+    name = data.get("name", "").strip()
+    path = data.get("path", "").strip()
+    if not name or not path:
+        return jsonify({"ok": False, "error": "name and path required"}), 400
+    is_default = 1 if data.get("is_default") else 0
+    needs_config = 0
+    if not os.path.isdir(path):
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError:
+            return jsonify({"ok": False, "error": f"无法创建路径: {path}"}), 400
+    new_id = insert_library(
+        name, path, is_default=is_default, needs_config=needs_config
+    )
+    return jsonify({"ok": True, "id": new_id})
+
+
+@api_bp.route("/api/libraries/<int:library_id>", methods=["PUT"])
+@require_auth
+def api_libraries_update(library_id: int):
+    lib = get_library_by_id(library_id)
+    if not lib:
+        abort(404)
+    data = request.get_json(force=True)
+    fields = {}
+    if "name" in data:
+        fields["name"] = data["name"].strip()
+    if "path" in data:
+        path = data["path"].strip()
+        if not os.path.isdir(path):
+            try:
+                os.makedirs(path, exist_ok=True)
+            except OSError:
+                return jsonify({"ok": False, "error": f"无法创建路径: {path}"}), 400
+        fields["path"] = path
+        fields["needs_config"] = 0
+    if "needs_config" in data:
+        fields["needs_config"] = 1 if data["needs_config"] else 0
+    update_library(library_id, **fields)
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/api/libraries/<int:library_id>", methods=["DELETE"])
+@require_auth
+def api_libraries_delete(library_id: int):
+    lib = get_library_by_id(library_id)
+    if not lib:
+        abort(404)
+    if lib["is_default"]:
+        return jsonify({"ok": False, "error": "默认音乐库不可删除"}), 400
+    delete_library_repo(library_id)
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/api/libraries/<int:library_id>/switch", methods=["POST"])
+@require_auth
+def api_libraries_switch(library_id: int):
+    lib = get_library_by_id(library_id)
+    if not lib:
+        abort(404)
+    set_current_library_id(library_id)
+    return jsonify({"ok": True})
