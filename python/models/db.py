@@ -136,8 +136,8 @@ def init_db():
     """)
     for alter_sql in [
         "ALTER TABLE tracks ADD COLUMN scrape_failed INTEGER DEFAULT 0;",
-        "ALTER TABLE tracks ADD COLUMN artist_id INTEGER REFERENCES artists(id);",
-        "ALTER TABLE tracks ADD COLUMN album_id INTEGER REFERENCES albums(id);",
+        "ALTER TABLE tracks ADD COLUMN artist_id INTEGER;",
+        "ALTER TABLE tracks ADD COLUMN album_id INTEGER;",
         "ALTER TABLE tracks ADD COLUMN track_artist TEXT;",
         "ALTER TABLE artists ADD COLUMN library_id INTEGER;",
         "ALTER TABLE op_log ADD COLUMN library_id INTEGER;",
@@ -161,6 +161,8 @@ def init_db():
        
         "CREATE INDEX IF NOT EXISTS idx_cooldown_track ON track_cooldown(track_id);",
         "CREATE INDEX IF NOT EXISTS idx_cooldown_until ON track_cooldown(cooldown_until);",
+
+        "CREATE INDEX IF NOT EXISTS idx_log_library_id ON op_log(library_id);", 
     ]:
         try:
             db.execute(idx_sql)
