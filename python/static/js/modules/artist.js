@@ -762,11 +762,11 @@ function albumCoverUrl(albumId) {
 
 async function scrapeArtistCover(artistId) {
   try {
-    showToast('正在从网易云获取歌手头像...', 'info');
+    showToast('正在获取歌手头像...', 'info');
     const result = await POST(`/artists/${artistId}/scrape-cover`, {});
 
     if (result.error) {
-      showToast('获取失败: ' + result.error, 'error');
+      showToast('歌手头像获取失败', 'error');
       return;
     }
 
@@ -774,7 +774,7 @@ async function scrapeArtistCover(artistId) {
     await loadArtistCover(artistId);
     showToast('歌手头像获取成功', 'success');
   } catch (err) {
-    showToast('获取失败: ' + err.message, 'error');
+    showToast('歌手头像获取失败: ', 'error');
   }
 }
 
