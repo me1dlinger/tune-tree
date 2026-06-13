@@ -162,10 +162,10 @@ def count_organized_artists(library_id: int | None = None):
 def get_artist_stats(library_id: int | None = None):
     db = get_db()
     total = count_total_artists(library_id)
-    lib_filter = "AND library_id=?" if library_id is not None else ""
+    lib_filter = "AND a.library_id=?" if library_id is not None else ""
     lib_params = [library_id] if library_id is not None else []
     with_cover = db.execute(
-        f"SELECT COUNT(*) FROM artists WHERE cover_path IS NOT NULL AND cover_path != '' {lib_filter}",
+        f"SELECT COUNT(*) FROM artists a WHERE a.cover_path IS NOT NULL AND a.cover_path != '' {lib_filter}",
         lib_params,
     ).fetchone()[0]
     without_cover = total - with_cover

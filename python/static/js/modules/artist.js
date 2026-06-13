@@ -762,19 +762,19 @@ function albumCoverUrl(albumId) {
 
 async function scrapeArtistCover(artistId) {
   try {
-    showToast('正在获取歌手头像...', 'info');
+    showToast('正在搜索歌手头像...', 'info');
     const result = await POST(`/artists/${artistId}/scrape-cover`, {});
 
     if (result.error) {
-      showToast('歌手头像获取失败', 'error');
+      showToast('搜索不到该歌手头像', 'error');
       return;
     }
 
     artistCoverCache[artistId] = true;
     await loadArtistCover(artistId);
-    showToast('歌手头像获取成功', 'success');
+    showToast('歌手头像搜索成功', 'success');
   } catch (err) {
-    showToast('歌手头像获取失败: ', 'error');
+    showToast('搜索不到该歌手头像', 'error');
   }
 }
 
