@@ -40,7 +40,7 @@
 - **文件格式化** -- 预览并执行批量重命名与移动，整理为 `{艺术家}/{专辑}/` 目录结构，支持多艺术家批量操作
 - **艺术家封面** -- 支持上传、刮削、删除艺术家封面图片，自动转换为 JPEG 格式
 - **重复检测** -- 识别音乐库中的重复文件
-- **艺术家统计** -- 艺术家统计页面，包含相似艺术家检测功能
+- **统计分析** -- 艺术家/专辑统计页面，包含相似艺术家检测、歌曲时间轴树展示
 - **访问控制** -- 基于 Token 的简单认证
 
 ## 平台预览
@@ -100,6 +100,15 @@
 ### 艺术家统计面板 相似度检测
 
 ![艺术家统计面板 相似度检测](https://files.seeusercontent.com/2026/06/12/7uMt/image_55.png)
+
+
+### 专辑统计面板 统计概览
+
+![专辑统计面板 统计概览](https://files.seeusercontent.com/2026/06/13/maQ8/image_58.png)
+
+### 专辑统计面板 时间轴
+
+![专辑统计面板 时间轴](https://files.seeusercontent.com/2026/06/13/Eon2/image_59.png)
 
 ### 重复文件详情
 
@@ -224,6 +233,7 @@ tune-tree/
 │   │       ├── auth.js           # 认证模块
 │   │       ├── artist.js         # 艺术家视图
 │   │       ├── artist-stats.js   # 艺术家统计面板
+│   │       ├── album-stats.js    # 专辑统计面板
 │   │       ├── batch-scrape.js         # 批量刮削
 │   │       ├── detail.js         # 曲目详情
 │   │       ├── files.js          # 目录浏览
@@ -371,6 +381,7 @@ tune-tree/
 | ------ | ---------------------------------------------------------------- | --------- |
 | GET    | `/api/stats`                                                     | 统计数据      |
 | GET    | `/api/stats/artists`                                             | 艺术家统计数据   |
+| GET    | `/api/stats/albums`                                              | 专辑统计数据    |
 | GET    | `/api/stats/similar-artists`                                     | 相似艺术家检测结果 |
 | GET    | `/api/stats/similar-artists/<int:artist_a_id>/<int:artist_b_id>` | 相似艺术家详情对比 |
 | POST   | `/api/artists/batch-scrape-covers`                               | 批量刮削艺术家封面 |
