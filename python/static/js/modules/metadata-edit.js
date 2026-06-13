@@ -88,7 +88,7 @@ function renderEditModal(track) {
   }
 
   const coverImg = coverPreview
-    ? `<img src="${coverPreview}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" onclick="openCoverImageViewer('${coverPreview}', '${coverFilename}')">`
+    ? `<img src="${coverPreview}" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in;" onclick="openCoverImageViewer('${coverPreview}', '${coverFilename}')" onerror="this.outerHTML='<i class=&quot;bi bi-disc&quot; style=&quot;font-size:48px;&quot;></i>'">`
     : `<i class="bi bi-disc" style="font-size: 48px;"></i>`;
 
   const relativePath = track.relative_path || track.path || '';

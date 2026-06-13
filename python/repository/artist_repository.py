@@ -48,7 +48,8 @@ def get_all_artists(query: str | None = None, library_id: int | None = None):
                    (SELECT COUNT(*) FROM tracks t WHERE t.artist_id = a.id) AS track_count,
                    CASE WHEN EXISTS (
                        SELECT 1 FROM tracks t WHERE t.artist_id = a.id AND t.organized=0 AND t.pending=0
-                   ) THEN 0 ELSE 1 END AS all_organized
+                   ) THEN 0 ELSE 1 END AS all_organized,
+                   (SELECT MAX(t2.ctime) FROM tracks t2 WHERE t2.artist_id = a.id) AS last_created_at
             FROM artists a
             LEFT JOIN albums al ON al.artist_id = a.id
             WHERE (a.name_normalized LIKE ? OR a.name LIKE ?) {lib_filter}
@@ -65,7 +66,8 @@ def get_all_artists(query: str | None = None, library_id: int | None = None):
                    (SELECT COUNT(*) FROM tracks t WHERE t.artist_id = a.id) AS track_count,
                    CASE WHEN EXISTS (
                        SELECT 1 FROM tracks t WHERE t.artist_id = a.id AND t.organized=0 AND t.pending=0
-                   ) THEN 0 ELSE 1 END AS all_organized
+                   ) THEN 0 ELSE 1 END AS all_organized,
+                   (SELECT MAX(t2.ctime) FROM tracks t2 WHERE t2.artist_id = a.id) AS last_created_at
             FROM artists a
             LEFT JOIN albums al ON al.artist_id = a.id
             WHERE 1=1 {lib_filter}

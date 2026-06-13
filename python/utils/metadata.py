@@ -288,7 +288,8 @@ def write_cover(path: str, image_data: bytes, mime_type: str) -> None:
         from mutagen.id3 import APIC, ID3
 
         tags = ID3(actual_path)
-        del tags["APIC"]
+        for k in [k for k in tags if k.startswith("APIC")]:
+            del tags[k]
         tags.add(
             APIC(
                 encoding=3,

@@ -469,6 +469,9 @@ def get_artist_full_info_by_id(artist_id: int):
         albums_with_tracks.append(album_dict)
     result = dict(a)
     result["albums"] = albums_with_tracks
+    ctimes = [t["ctime"] for t in tracks if t["ctime"]]
+    if ctimes:
+        result["last_created_at"] = max(ctimes)
     return result
 
 

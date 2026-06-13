@@ -4413,10 +4413,16 @@ body {
 ═══════════════════════════════════════════════════════════ */
 
 .artist-stats-view {
-    flex: 1;
-    overflow-y: auto;
     padding: 24px;
-    display: flex;
+    overflow-y: auto;
+    flex: 1;
+    flex-direction: column;
+}
+
+.album-stats-view {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
     flex-direction: column;
 }
 
@@ -5243,4 +5249,583 @@ body {
 .settings-input:focus {
     outline: none;
     border-color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ALBUM STATS — Year Distribution Bar Chart
+═══════════════════════════════════════════════════════════ */
+
+.abs-year-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.abs-year-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg2);
+    color: var(--text2);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.abs-year-filter-btn:hover {
+    border-color: var(--border2);
+    color: var(--text);
+}
+
+.abs-year-filter-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+}
+
+.abs-year-filter-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.abs-chart-container {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius2);
+    padding: 20px;
+}
+
+.abs-bar-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    height: 200px;
+    padding-bottom: 0;
+}
+
+.abs-bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    position: relative;
+    cursor: pointer;
+}
+
+.abs-bar-col:hover .abs-bar-tooltip {
+    display: block;
+}
+
+.abs-bar-col:hover .abs-bar-fill {
+    filter: brightness(1.2);
+}
+
+.abs-bar-tooltip {
+    display: none;
+    position: absolute;
+    top: -32px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg4);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    white-space: nowrap;
+    z-index: 10;
+    border: 1px solid var(--border2);
+}
+
+.abs-bar-track {
+    flex: 1;
+    width: 100%;
+    max-width: 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+.abs-bar-fill {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1), filter var(--transition);
+    min-height: 2px;
+}
+
+.abs-bar-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 8px;
+    text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ALBUM STATS — Format + Size Stacked Bar Chart
+═══════════════════════════════════════════════════════════ */
+
+.abs-stacked-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.abs-stacked-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+}
+
+.abs-stacked-row:hover .abs-stacked-tooltip {
+    display: block;
+}
+
+.abs-stacked-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text2);
+    min-width: 48px;
+    text-align: right;
+}
+
+.abs-stacked-bar-area {
+    flex: 1;
+    position: relative;
+}
+
+.abs-stacked-bar-track {
+    height: 24px;
+    background: var(--bg4);
+    border-radius: var(--radius);
+    display: flex;
+    overflow: hidden;
+}
+
+.abs-stacked-segment {
+    height: 100%;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    position: relative;
+}
+
+.abs-stacked-segment:hover {
+    filter: brightness(1.3);
+}
+
+.abs-stacked-segment:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg4);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    white-space: nowrap;
+    z-index: 10;
+    border: 1px solid var(--border2);
+    margin-bottom: 4px;
+}
+
+.abs-stacked-tooltip {
+    display: none;
+}
+
+.abs-stacked-total {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text3);
+    min-width: 32px;
+    text-align: right;
+}
+
+.abs-stacked-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.abs-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+}
+
+.abs-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ALBUM STATS — Timeline
+═══════════════════════════════════════════════════════════ */
+
+.abs-timeline-controls {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.abs-timeline-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text3);
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.abs-timeline-btn:hover {
+    color: var(--text);
+    border-color: var(--border2);
+}
+
+.abs-timeline-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+
+.abs-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+}
+
+.abs-timeline-month {
+    position: relative;
+    min-height: 40px;
+}
+
+.abs-timeline-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    text-align: center;
+    padding: 4px 0 8px;
+}
+
+.abs-timeline-count {
+    color: var(--accent);
+    margin-left: 4px;
+}
+
+.abs-timeline-line {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.abs-timeline-line::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+    transform: translateX(-50%);
+}
+
+.abs-timeline-node {
+    position: absolute;
+    left: 50%;
+    top: 4px;
+    width: 12px;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    border-radius: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+}
+
+.abs-timeline-branches {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 2px 0 16px;
+}
+
+.abs-timeline-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+}
+
+.abs-timeline-item.abs-timeline-left {
+    justify-content: flex-start;
+    padding-right: calc(50% + 20px);
+}
+
+.abs-timeline-item.abs-timeline-right {
+    justify-content: flex-end;
+    padding-left: calc(50% + 20px);
+}
+
+.abs-timeline-connector {
+    position: absolute;
+    top: 14px;
+    height: 1px;
+    background: var(--border2);
+}
+
+.abs-timeline-left .abs-timeline-connector {
+    right: calc(50% + 2px);
+    left: auto;
+    width: 18px;
+}
+
+.abs-timeline-right .abs-timeline-connector {
+    left: calc(50% + 2px);
+    right: auto;
+    width: 18px;
+}
+
+.abs-timeline-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius2);
+    cursor: default;
+    transition: border-color var(--transition);
+    max-width: 360px;
+}
+
+.abs-timeline-left .abs-timeline-card {
+    margin-left: auto;
+}
+
+.abs-timeline-right .abs-timeline-card {
+    margin-right: auto;
+}
+
+.abs-timeline-item .abs-timeline-card {
+    transition: border-color var(--transition);
+}
+
+.abs-timeline-card-cover {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius);
+    background: var(--bg4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text3);
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.abs-timeline-card-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.abs-timeline-card-info {
+    min-width: 0;
+}
+
+.abs-timeline-card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+}
+
+.abs-timeline-card-artist {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 2px;
+}
+
+.abs-timeline-card-meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 1px;
+}
+
+.abs-hover-float {
+    display: none;
+    position: absolute;
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius2);
+    padding: 12px;
+    gap: 12px;
+    z-index: 30;
+    min-width: 220px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+}
+
+.abs-hover-float.visible {
+    display: flex;
+    pointer-events: auto;
+}
+
+.abs-hover-cover {
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius2);
+    background: var(--bg4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text3);
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.abs-hover-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.abs-hover-info {
+    min-width: 0;
+}
+
+.abs-hover-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 160px;
+}
+
+.abs-hover-artist {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.abs-hover-artist i {
+    font-size: 11px;
+    color: var(--text3);
+}
+
+.abs-hover-meta {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+}
+
+.abs-hover-meta span {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.abs-hover-meta i {
+    font-size: 10px;
+}
+
+.abs-timeline-hover-card {
+    flex-direction: column;
+}
+
+#abs-timeline-container {
+    position: relative;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.abs-hover-top {
+    display: flex;
+    gap: 12px;
+}
+
+.abs-hover-album {
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.abs-hover-album i {
+    font-size: 10px;
+    color: var(--text3);
+}
+
+.abs-hover-tracks {
+    margin-top: 8px;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.abs-hover-track-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11px;
+}
+
+.abs-hover-track-name {
+    color: var(--text2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.abs-hover-track-meta {
+    color: var(--text3);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }

@@ -140,3 +140,198 @@ def count_organized_albums(library_id: int | None = None):
     """,
         params,
     ).fetchone()[0]
+
+
+def get_album_stats(library_id: int | None = None):
+    db = get_db()
+    total = count_total_albums(library_id)
+    organized = count_organized_albums(library_id)
+    lib_filter = "AND al.library_id=?" if library_id is not None else ""
+    lib_params = [library_id] if library_id is not None else []
+    tlib_filter = "AND t.library_id=?" if library_id is not None else ""
+
+    with_cover = db.execute(
+        f"SELECT COUNT(*) FROM albums al WHERE al.cover_path IS NOT NULL AND al.cover_path != '' {lib_filter}",
+        lib_params,
+    ).fetchone()[0]
+    without_cover = total - with_cover
+
+    with_year = db.execute(
+        f"SELECT COUNT(*) FROM albums al WHERE al.year IS NOT NULL AND al.year != '' {lib_filter}",
+        lib_params,
+    ).fetchone()[0]
+
+    with_track_tags = db.execute(
+        f"""
+        SELECT COUNT(*) FROM albums al
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tracks t WHERE t.album_id = al.id
+            AND (t.missing_tags IS NOT NULL AND t.missing_tags != '')
+        ) {lib_filter}
+        """,
+        lib_params,
+    ).fetchone()[0]
+
+    top_by_tracks = db.execute(
+        f"""
+        SELECT al.id, al.title, al.cover_path, al.year, al.artist_id, ar.name AS artist_name,
+               COUNT(t.id) AS track_count
+        FROM albums al
+        LEFT JOIN tracks t ON t.album_id = al.id
+        LEFT JOIN artists ar ON ar.id = al.artist_id
+        WHERE 1=1 {lib_filter}
+        GROUP BY al.id
+        ORDER BY track_count DESC
+        LIMIT 10
+    """,
+        lib_params,
+    ).fetchall()
+
+    top_by_duration = db.execute(
+        f"""
+        SELECT al.id, al.title, al.cover_path, al.year, al.artist_id, ar.name AS artist_name,
+               COALESCE(SUM(t.duration), 0) AS total_duration
+        FROM albums al
+        LEFT JOIN tracks t ON t.album_id = al.id
+        LEFT JOIN artists ar ON ar.id = al.artist_id
+        WHERE 1=1 {lib_filter}
+        GROUP BY al.id
+        ORDER BY total_duration DESC
+        LIMIT 10
+    """,
+        lib_params,
+    ).fetchall()
+
+    top_by_size = db.execute(
+        f"""
+        SELECT al.id, al.title, al.cover_path, al.year, al.artist_id, ar.name AS artist_name,
+               COALESCE(SUM(t.size), 0) AS total_size
+        FROM albums al
+        LEFT JOIN tracks t ON t.album_id = al.id
+        LEFT JOIN artists ar ON ar.id = al.artist_id
+        WHERE 1=1 {lib_filter}
+        GROUP BY al.id
+        ORDER BY total_size DESC
+        LIMIT 10
+    """,
+        lib_params,
+    ).fetchall()
+
+    no_cover_top = db.execute(
+        f"""
+        SELECT al.id, al.title, al.year, al.artist_id, ar.name AS artist_name, COUNT(t.id) AS track_count
+        FROM albums al
+        LEFT JOIN tracks t ON t.album_id = al.id
+        LEFT JOIN artists ar ON ar.id = al.artist_id
+        WHERE (al.cover_path IS NULL OR al.cover_path = '') {lib_filter}
+        GROUP BY al.id
+        ORDER BY track_count DESC
+        LIMIT 10
+    """,
+        lib_params,
+    ).fetchall()
+
+    year_distribution = db.execute(
+        f"""
+        SELECT
+            CASE
+                WHEN al.year IS NULL OR al.year = '' THEN 'unknown'
+                WHEN CAST(al.year AS INTEGER) < 1970 THEN 'before_1970'
+                WHEN CAST(al.year AS INTEGER) < 1980 THEN '1970s'
+                WHEN CAST(al.year AS INTEGER) < 1990 THEN '1980s'
+                WHEN CAST(al.year AS INTEGER) < 2000 THEN '1990s'
+                WHEN CAST(al.year AS INTEGER) < 2010 THEN '2000s'
+                WHEN CAST(al.year AS INTEGER) < 2020 THEN '2010s'
+                ELSE '2020s'
+            END AS year_range,
+            COUNT(*) AS album_count
+        FROM albums al
+        WHERE 1=1 {lib_filter}
+        GROUP BY year_range
+        ORDER BY year_range
+    """,
+        lib_params,
+    ).fetchall()
+
+    format_size = db.execute(
+        f"""
+        SELECT sub.format, sub.track_range,
+               COUNT(*) AS album_count,
+               AVG(sub.avg_size) AS avg_file_size
+        FROM (
+            SELECT al.id, t.ext AS format,
+                   CASE
+                       WHEN (SELECT COUNT(*) FROM tracks t2 WHERE t2.album_id = al.id) <= 5 THEN '1-5'
+                       WHEN (SELECT COUNT(*) FROM tracks t2 WHERE t2.album_id = al.id) <= 10 THEN '6-10'
+                       WHEN (SELECT COUNT(*) FROM tracks t2 WHERE t2.album_id = al.id) <= 15 THEN '11-15'
+                       ELSE '16+'
+                   END AS track_range,
+                   AVG(t.size) AS avg_size
+            FROM albums al
+            JOIN tracks t ON t.album_id = al.id
+            WHERE 1=1 {lib_filter}
+            GROUP BY al.id, t.ext
+        ) sub
+        GROUP BY sub.format, sub.track_range
+        ORDER BY sub.format, sub.track_range
+    """,
+        lib_params,
+    ).fetchall()
+
+    year_distribution_by_format = db.execute(
+        f"""
+        SELECT
+            CASE
+                WHEN al.year IS NULL OR al.year = '' THEN 'unknown'
+                WHEN CAST(al.year AS INTEGER) < 1970 THEN 'before_1970'
+                WHEN CAST(al.year AS INTEGER) < 1980 THEN '1970s'
+                WHEN CAST(al.year AS INTEGER) < 1990 THEN '1980s'
+                WHEN CAST(al.year AS INTEGER) < 2000 THEN '1990s'
+                WHEN CAST(al.year AS INTEGER) < 2010 THEN '2000s'
+                WHEN CAST(al.year AS INTEGER) < 2020 THEN '2010s'
+                ELSE '2020s'
+            END AS year_range,
+            t.ext AS format,
+            COUNT(DISTINCT al.id) AS album_count
+        FROM albums al
+        JOIN tracks t ON t.album_id = al.id
+        WHERE 1=1 {lib_filter}
+        GROUP BY year_range, t.ext
+        ORDER BY year_range, t.ext
+    """,
+        lib_params,
+    ).fetchall()
+
+    recent_tracks = db.execute(
+        f"""
+        SELECT t.id AS track_id, t.title AS track_title, t.ext, t.duration, t.size,
+               t.ctime, t.track_num,
+               al.id AS album_id, al.title AS album_title, al.cover_path, al.year,
+               al.artist_id, ar.name AS artist_name
+        FROM tracks t
+        LEFT JOIN albums al ON al.id = t.album_id
+        LEFT JOIN artists ar ON ar.id = al.artist_id
+        WHERE t.ctime IS NOT NULL {tlib_filter}
+        ORDER BY t.ctime DESC
+        LIMIT 500
+    """,
+        lib_params,
+    ).fetchall()
+
+    return {
+        "total": total,
+        "with_cover": with_cover,
+        "without_cover": without_cover,
+        "organized": organized,
+        "unorganized": total - organized,
+        "with_year": with_year,
+        "with_track_tags": with_track_tags,
+        "top_by_tracks": [dict(r) for r in top_by_tracks],
+        "top_by_duration": [dict(r) for r in top_by_duration],
+        "top_by_size": [dict(r) for r in top_by_size],
+        "no_cover_top": [dict(r) for r in no_cover_top],
+        "year_distribution": [dict(r) for r in year_distribution],
+        "year_distribution_by_format": [dict(r) for r in year_distribution_by_format],
+        "format_size": [dict(r) for r in format_size],
+        "recent_tracks": [dict(r) for r in recent_tracks],
+    }

@@ -3,6 +3,18 @@
  */
 
 /**
+ * HTML 实体解码（如 &amp; → &）
+ * @param {*} s
+ * @returns {string}
+ */
+function decodeEntities(s) {
+  if (s == null) return '';
+  var el = document.createElement('textarea');
+  el.innerHTML = String(s);
+  return el.value;
+}
+
+/**
  * HTML 转义，防止 XSS
  * @param {*} s
  * @returns {string}

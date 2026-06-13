@@ -101,6 +101,7 @@ from repository.artist_repository import (
 )
 from repository.album_repository import (
     ensure_album,
+    get_album_stats as repo_get_album_stats,
 )
 from services.similarity_service import find_similar_artists
 
@@ -1383,6 +1384,14 @@ def api_stats():
 def api_artist_stats():
     library_id = get_current_library_id()
     stats = repo_get_artist_stats(library_id=library_id)
+    return jsonify(stats)
+
+
+@api_bp.route("/api/stats/albums")
+@require_auth
+def api_album_stats():
+    library_id = get_current_library_id()
+    stats = repo_get_album_stats(library_id=library_id)
     return jsonify(stats)
 
 

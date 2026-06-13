@@ -63,7 +63,7 @@ async function loadStats() {
           <div class="stat-sub">已整理 ${s.org_artists} · 未整理 ${s.total_artists - s.org_artists}</div>
           <div class="progress-bar"><div class="progress-fill" style="width:${artistOrg}%"></div></div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" onclick="openAlbumStats()">
           <div class="stat-label">专辑</div>
           <div class="stat-value">${s.total_albums}</div>
           <div class="stat-sub">已整理 ${s.org_albums} · 未整理 ${s.total_albums - s.org_albums}</div>
