@@ -4,6 +4,7 @@
 
 import logging
 import os
+import re
 import time
 import unicodedata
 import concurrent.futures
@@ -25,14 +26,35 @@ from repository.track_repository import (
     add_op_log,
     commit,
 )
-from repository.artist_repository import ensure_artist, delete_artist
-from repository.album_repository import ensure_album, update_album, delete_album
+from repository.artist_repository import (
+    ensure_artist,
+    delete_artist,
+)
+from repository.album_repository import (
+    ensure_album,
+    update_album,
+    delete_album,
+)
 
 AUDIO_EXTS = {".mp3", ".flac"}
+_ORGANIZED_FILENAME_RE = re.compile(r"^\d{2}\.\s+.+\.(?:mp3|flac)$", re.IGNORECASE)
 logger = logging.getLogger("tunetree")
 
 BATCH_SIZE = 500
-MAX_WORKERS = 8  # 线程池大小，根据CPU核心数调整
+MAX_WORKERS = 8
+
+
+def _is_organized_path(filepath: Path, music_root: str) -> bool:
+    """判断文件路径是否匹配 organized 目录结构: music_root/artist_dir/album_dir/NN. Title.ext"""
+    try:
+        rel = filepath.relative_to(music_root)
+    except ValueError:
+        return False
+    parts = rel.parts
+    if len(parts) != 3:
+        return False
+    filename = parts[2]
+    return bool(_ORGANIZED_FILENAME_RE.match(filename))
 
 
 def _load_existing_tracks(library_id: int | None = None) -> dict[str, dict]:
@@ -63,8 +85,8 @@ def _batch_insert(db, tracks_data: list):
         INSERT INTO tracks
         (path,filename,ext,size,mtime,ctime,title,artist,album,album_artist,year,
          track_num,disc_num,duration,sample_rate,bitrate,has_cover,has_lyrics,
-         pending,missing_tags,scanned_at,artist_id,album_id,track_artist,library_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         pending,missing_tags,scanned_at,organized,artist_id,album_id,track_artist,library_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """,
         tracks_data,
     )
@@ -78,14 +100,14 @@ def _batch_update(db, tracks_data: list):
         UPDATE tracks SET path=?,filename=?,ext=?,size=?,mtime=?,ctime=?,title=?,artist=?,
         album=?,album_artist=?,year=?,track_num=?,disc_num=?,duration=?,
         sample_rate=?,bitrate=?,has_cover=?,has_lyrics=?,pending=?,
-        missing_tags=?,scanned_at=?,artist_id=?,album_id=?,track_artist=?,library_id=?
+        missing_tags=?,scanned_at=?,organized=?,artist_id=?,album_id=?,track_artist=?,library_id=?
         WHERE id=?
     """,
         tracks_data,
     )
 
 
-def _process_file(filepath, existing_tracks, scanned_at):
+def _process_file(filepath, existing_tracks, scanned_at, music_root):
     """处理单个音频文件，返回（操作类型，数据，元信息dict）"""
     path_str = str(filepath)
     path_normalized = _normalize_path(path_str)
@@ -113,6 +135,8 @@ def _process_file(filepath, existing_tracks, scanned_at):
     track_artist_name = artist_name
     year = meta.get("year")
 
+    organized = 1 if (not pending and _is_organized_path(filepath, music_root)) else 0
+
     track_data = (
         path_str,
         filename,
@@ -135,6 +159,7 @@ def _process_file(filepath, existing_tracks, scanned_at):
         pending,
         missing_str,
         scanned_at,
+        organized,
     )
     meta_info = {
         "artist_name": artist_name,
@@ -182,7 +207,7 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
         for filepath in audio_files:
             logger.debug(f"处理文件: {filepath}")
             future = executor.submit(
-                _process_file, filepath, existing_tracks, scanned_at
+                _process_file, filepath, existing_tracks, scanned_at, root
             )
             future_to_path[future] = _normalize_path(str(filepath))
 
