@@ -1055,13 +1055,25 @@ function _handleLyricsKeydown(e) {
         if (inInput) {
             const input = e.target;
             if (input.selectionStart !== 0 || input.selectionEnd !== 0) return;
+            e.preventDefault();
+            const isSecondary = input.classList.contains('secondary-text');
+            if (isSecondary) {
+                const primaryInput = input.closest('.lyrics-group-content').querySelector('.primary-text');
+                if (primaryInput) {
+                    primaryInput.focus();
+                    primaryInput.setSelectionRange(primaryInput.value.length, primaryInput.value.length);
+                }
+                return;
+            }
+        } else {
+            e.preventDefault();
         }
-        e.preventDefault();
         const data = lyricsState.parsedData;
         if (data && lyricsState.activeGroupIndex > 0) {
-            setActiveGroup(lyricsState.activeGroupIndex - 1);
+            const newIdx = lyricsState.activeGroupIndex - 1;
+            setActiveGroup(newIdx);
             _scrollToActiveGroup();
-            _focusActiveGroupInput();
+            _focusGroupInput(newIdx, 'tail');
         }
         return;
     }
@@ -1071,13 +1083,26 @@ function _handleLyricsKeydown(e) {
             const input = e.target;
             const len = input.value.length;
             if (input.selectionStart !== len || input.selectionEnd !== len) return;
+            e.preventDefault();
+            const isPrimary = input.classList.contains('primary-text');
+            if (isPrimary) {
+                const group = input.closest('.lyrics-group-content');
+                const secondaryInput = group ? group.querySelector('.secondary-text') : null;
+                if (secondaryInput) {
+                    secondaryInput.focus();
+                    secondaryInput.setSelectionRange(0, 0);
+                    return;
+                }
+            }
+        } else {
+            e.preventDefault();
         }
-        e.preventDefault();
         const data = lyricsState.parsedData;
         if (data && lyricsState.activeGroupIndex < data.groups.length - 1) {
-            setActiveGroup(lyricsState.activeGroupIndex + 1);
+            const newIdx = lyricsState.activeGroupIndex + 1;
+            setActiveGroup(newIdx);
             _scrollToActiveGroup();
-            _focusActiveGroupInput();
+            _focusGroupInput(newIdx, 'head');
         }
         return;
     }
@@ -1090,4 +1115,20 @@ function _focusActiveGroupInput() {
     if (!activeEl) return;
     const textInput = activeEl.querySelector('.lyrics-text-input');
     if (textInput) textInput.focus();
+}
+
+function _focusGroupInput(groupIdx, position) {
+    const container = document.getElementById('lyrics-editor-lines');
+    if (!container) return;
+    const groupEl = container.querySelector(`.lyrics-group[data-group-idx="${groupIdx}"]`);
+    if (!groupEl) return;
+    const textInput = groupEl.querySelector('.lyrics-text-input');
+    if (!textInput) return;
+    textInput.focus();
+    if (position === 'head') {
+        textInput.setSelectionRange(0, 0);
+    } else {
+        const len = textInput.value.length;
+        textInput.setSelectionRange(len, len);
+    }
 }
