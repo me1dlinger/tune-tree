@@ -191,7 +191,6 @@ docker-compose up -d
 | ------------ | ------------ | -------------------------------- | ---------- |
 | `ACCESS_KEY` | `ACCESS_KEY` | `tunetree-2026`                  | 登录密钥       |
 | `SECRET_KEY` | --           | `change-me-in-production-please` | Flask 会话密钥 |
-| `MUSIC_ROOT` | `MUSIC_ROOT` | `/music`                         | 音乐根目录      |
 | `DB_ROOT`    | `DB_ROOT`    | `instance/`                      | 数据库目录      |
 | `DB_PATH`    | --           | `{DB_ROOT}/library.db`           | 数据库路径      |
 
