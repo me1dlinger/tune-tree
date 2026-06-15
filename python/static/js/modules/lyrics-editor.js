@@ -196,7 +196,7 @@ function _renderLines(container) {
         html += `<div class="lyrics-group-timestamp">`;
         html += `<input type="text" class="lyrics-timestamp-input" value="${esc(group.timestampStr)}" 
             onchange="updateGroupTimestamp(${idx}, this.value)" 
-            onclick="event.stopPropagation()">`;
+            onclick="setActiveGroup(${idx})">`;
         html += `</div>`;
 
         html += `<div class="lyrics-group-content">`;
@@ -205,7 +205,7 @@ function _renderLines(container) {
         html += `<span class="lyrics-role-badge primary"></span>`;
         html += `<input type="text" class="lyrics-text-input primary-text" value="${esc(group.primary.text)}" 
             onchange="updateGroupPrimaryText(${idx}, this.value)"
-            onclick="event.stopPropagation()">`;
+            onclick="setActiveGroup(${idx})">`;
         if (hasSecondary) {
             html += `<button class="lyrics-line-action-btn lyrics-delete-inline-btn" onclick="removeLineFromGroup(${idx}, 'primary')" title="删除主行">
                 <i class="bi bi-x"></i>
@@ -218,7 +218,7 @@ function _renderLines(container) {
             html += `<span class="lyrics-role-badge secondary"></span>`;
             html += `<input type="text" class="lyrics-text-input secondary-text" value="${esc(group.secondary.text)}" 
                 onchange="updateGroupSecondaryText(${idx}, this.value)"
-                onclick="event.stopPropagation()">`;
+                onclick="setActiveGroup(${idx})">`;
             html += `<button class="lyrics-line-action-btn lyrics-delete-inline-btn" onclick="removeLineFromGroup(${idx}, 'secondary')" title="删除附行">
                 <i class="bi bi-x"></i>
             </button>`;
@@ -1026,32 +1026,32 @@ function _handleLyricsKeydown(e) {
     const tag = e.target.tagName.toLowerCase();
     const inInput = (tag === 'input' || tag === 'textarea');
 
-    if (e.ctrlKey && e.key === 'Enter') {
+    if (e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
         stampTimestamp();
         return;
     }
 
-    if (e.ctrlKey && e.key === 'ArrowRight') {
+    if (e.shiftKey && e.key === 'ArrowRight') {
         e.preventDefault();
         seekForward();
         return;
     }
 
-    if (e.ctrlKey && e.key === 'ArrowLeft') {
+    if (e.shiftKey && e.key === 'ArrowLeft') {
         e.preventDefault();
         seekBackward();
         return;
     }
 
-    if (e.ctrlKey && e.code === 'Space') {
+    if (e.shiftKey && e.code === 'Space') {
         e.preventDefault();
         e.stopPropagation();
         togglePlay();
         return;
     }
 
-    if (!e.ctrlKey && !e.altKey && e.key === 'ArrowUp') {
+    if (!e.shiftKey && !e.altKey && !e.ctrlKey && e.key === 'ArrowUp') {
         if (inInput) {
             const input = e.target;
             if (input.selectionStart !== 0 || input.selectionEnd !== 0) return;
@@ -1066,7 +1066,7 @@ function _handleLyricsKeydown(e) {
         return;
     }
 
-    if (!e.ctrlKey && !e.altKey && e.key === 'ArrowDown') {
+    if (!e.shiftKey && !e.altKey && !e.ctrlKey && e.key === 'ArrowDown') {
         if (inInput) {
             const input = e.target;
             const len = input.value.length;
