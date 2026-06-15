@@ -278,7 +278,7 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
     ? `<img src="${coverSrc}" style="width:100%;height:100%;object-fit:cover;">`
     : `<i class="bi bi-disc" style="font-size: 48px;"></i>`;
 
-  const apiLabel = best._api === 'cloud' ? '网易云' : best._api === 'kugou' ? '酷狗' : best._source || '';
+  const apiLabel = best._api === 'cloud' ? '网易云' : best._api === 'kugou' ? '酷狗' : best._api === 'qq' ? 'QQ音乐' : best._source || '';
   const apiClass = best._api || '';
 
   function fieldRow(label, fieldKey) {
@@ -348,8 +348,12 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
          ${coverHtml}
        </div>` : ''}
       <div class="batch-card-info">
-        <div class="batch-card-source ${apiClass}">
-          <i class="bi bi-tag"></i> ${apiLabel}
+        <div class="batch-card-source">
+          <span class="lyrics-source-capsule ${apiClass === 'cloud' ? 'netease' : apiClass}">
+            <span class="capsule-primary"></span>
+            <span class="capsule-secondary"></span>
+            <span class="capsule-text">${apiLabel}</span>
+          </span>
         </div>
         ${fieldRow('歌名', 'title')}
         ${fieldRow('艺术家', 'artist')}

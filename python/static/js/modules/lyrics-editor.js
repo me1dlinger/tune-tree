@@ -571,8 +571,10 @@ function showLyricsSearchInEditor() {
 async function searchLyricsInEditor() {
     if (!lyricsState.track) return;
 
-    const keyword = `${lyricsState.track.title || ''} ${lyricsState.track.artist || ''}`.trim();
-    if (!keyword) {
+    const title = lyricsState.track.title || '';
+    const artist = lyricsState.track.artist || '';
+    const album = lyricsState.track.album || '';
+    if (!title && !artist && !album) {
         document.getElementById('lyrics-editor-search-results').innerHTML = `
             <div class="scrape-empty-state"><div>无法获取歌曲信息</div></div>`;
         return;
@@ -582,11 +584,11 @@ async function searchLyricsInEditor() {
     resultsEl.innerHTML = `<div class="scrape-loading"><div class="loading-spinner"></div><div>正在搜索...</div></div>`;
 
     try {
-        const cacheKey = keyword.toLowerCase();
+        const cacheKey = `${title}|${artist}|${album}`.toLowerCase();
         let results = lyricsState.searchCache[cacheKey];
 
         if (!results) {
-            const data = await POST('/lyrics/search', { keyword });
+            const data = await POST('/lyrics/search', { title, artist, album });
             if (data.ok) {
                 results = data.results;
                 lyricsState.searchCache[cacheKey] = results;
@@ -609,12 +611,18 @@ function renderLyricsSearchResultsInEditor(results) {
         return;
     }
 
-    const sourceNames = { 'netease': '网易云' };
+    const sourceLabels = { 'netease': '网易云', 'qq': 'QQ音乐' };
     let html = '';
-    for (const result of results) {
-        html += `<div class="lyrics-result-item" ondblclick="applyLyricsFromSearch('${result.id}')" title="双击应用歌词">
+    for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const src = result.source || 'netease';
+        html += `<div class="lyrics-result-item" ondblclick="applyLyricsFromSearch(${i})" title="双击应用歌词">
             <div class="lyrics-result-item-header">
-                <span class="lyrics-result-source">${sourceNames[result.source] || result.source}</span>
+                <span class="lyrics-source-capsule ${src}">
+                    <span class="capsule-primary"></span>
+                    <span class="capsule-secondary"></span>
+                    <span class="capsule-text">${sourceLabels[src] || src}</span>
+                </span>
             </div>
             <div class="lyrics-result-title">${esc(result.title || '未知歌曲')}</div>
             <div class="lyrics-result-artist">${esc(result.artist || '未知艺术家')}</div>
@@ -624,24 +632,48 @@ function renderLyricsSearchResultsInEditor(results) {
     container.innerHTML = html;
 }
 
-async function applyLyricsFromSearch(songId) {
+async function applyLyricsFromSearch(listIdx) {
+    const result = lyricsState.searchResults[listIdx];
+    if (!result) return;
+
     const resultsEl = document.getElementById('lyrics-editor-search-results');
     resultsEl.innerHTML = `<div class="scrape-loading"><div class="loading-spinner"></div><div>正在获取歌词...</div></div>`;
 
     try {
-        const data = await GET(`/lyrics/${songId}`);
-        if (data.ok) {
-            lyricsState.currentLyrics = data.lyrics;
-            lyricsState.parsedData = LrcParser.parse(data.lyrics);
-            lyricsState.activeGroupIndex = -1;
-
-            document.getElementById('lyrics-editor-search-panel').style.display = 'none';
-            _renderEditor();
-            _saveToCache();
-            showToast('歌词已应用', 'success');
+        let lyrics = '';
+        if (result.source === 'qq') {
+            const params = new URLSearchParams({
+                source: 'qq',
+                song_mid: result._song_mid || result.id,
+                song_id: String(result._song_id || ''),
+                song_name: result.title || '',
+                singers: result.artist || '',
+                album_name: result.album || '',
+                duration: '0',
+            });
+            const data = await GET(`/lyrics/${result.id}?${params}`);
+            if (data.ok) {
+                lyrics = data.lyrics;
+            } else {
+                throw new Error(data.error || '获取歌词失败');
+            }
         } else {
-            throw new Error(data.error || '获取歌词失败');
+            const data = await GET(`/lyrics/${result.id}?source=netease`);
+            if (data.ok) {
+                lyrics = data.lyrics;
+            } else {
+                throw new Error(data.error || '获取歌词失败');
+            }
         }
+
+        lyricsState.currentLyrics = lyrics;
+        lyricsState.parsedData = LrcParser.parse(lyrics);
+        lyricsState.activeGroupIndex = -1;
+
+        document.getElementById('lyrics-editor-search-panel').style.display = 'none';
+        _renderEditor();
+        _saveToCache();
+        showToast('歌词已应用', 'success');
     } catch (e) {
         resultsEl.innerHTML = `<div class="scrape-empty-state"><div>获取歌词失败: ${e.message}</div></div>`;
     }

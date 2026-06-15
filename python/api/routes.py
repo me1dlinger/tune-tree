@@ -57,6 +57,7 @@ from services.format_service import (
 )
 from services.metadata_scraper import MetadataScraper
 from services.netease_api import NeteaseApi
+from services.qqmusic_api import QQMusicApi
 from repository.track_repository import (
     get_track_by_id,
     get_track_by_path,
@@ -786,15 +787,66 @@ def api_artist_scrape_cover(artist_id: int):
 @require_auth
 def api_lyrics_search():
     data = request.get_json(force=True) or {}
-    keyword = data.get("keyword", "")
+    title = data.get("title", "")
+    artist = data.get("artist", "")
+    album = data.get("album", "")
+
+    keyword_parts = [p for p in [title, artist, album] if p]
+    keyword = "|".join(keyword_parts)
     if not keyword:
-        return jsonify({"error": "keyword is required"}), 400
+        return jsonify({"error": "at least one of title/artist/album is required"}), 400
+
+    def _score_result(r, ref_title, ref_artist, ref_album):
+        from services.metadata_scraper import normalize_str
+
+        score = 0.0
+        if ref_title:
+            rn = normalize_str(r.get("songName", ""))
+            tn = normalize_str(ref_title)
+            if rn == tn:
+                score += 10
+            elif tn in rn or rn in tn:
+                score += 5
+        if ref_artist:
+            rn = normalize_str(r.get("singer", ""))
+            an = normalize_str(ref_artist)
+            if rn == an:
+                score += 8
+            elif an in rn or rn in an:
+                score += 4
+        if ref_album:
+            rn = normalize_str(r.get("album", ""))
+            bn = normalize_str(ref_album)
+            if rn == bn:
+                score += 6
+            elif bn in rn or rn in bn:
+                score += 3
+        return score
 
     try:
-        results = NeteaseApi.search_song(keyword)
-        formatted = []
-        for r in results:
-            formatted.append(
+        all_results = []
+
+        def _search_netease():
+            try:
+                return NeteaseApi.search_song(keyword)
+            except Exception:
+                return []
+
+        def _search_qq():
+            try:
+                return QQMusicApi.search_song(keyword)
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            netease_future = executor.submit(_search_netease)
+            qq_future = executor.submit(_search_qq)
+            netease_raw = netease_future.result()
+            qq_raw = qq_future.result()
+
+        for r in netease_raw:
+            score = _score_result(r, title, artist, album)
+            all_results.append(
                 {
                     "id": r["idOrMd5"],
                     "title": r["songName"],
@@ -802,9 +854,30 @@ def api_lyrics_search():
                     "album": r.get("album", ""),
                     "duration": r["duration"],
                     "source": "netease",
+                    "_score": score,
                 }
             )
-        return jsonify({"ok": True, "results": formatted})
+
+        for r in qq_raw:
+            score = _score_result(r, title, artist, album)
+            all_results.append(
+                {
+                    "id": r["idOrMd5"],
+                    "title": r["songName"],
+                    "artist": r["singer"],
+                    "album": r.get("album", ""),
+                    "duration": r["duration"],
+                    "source": "qq",
+                    "_song_id": r.get("_song_id", ""),
+                    "_song_mid": r.get("_song_mid", ""),
+                    "_score": score,
+                }
+            )
+
+        all_results.sort(key=lambda x: x["_score"], reverse=True)
+        all_results = all_results[:10]
+
+        return jsonify({"ok": True, "results": all_results})
     except Exception as e:
         logger.error(f"搜索歌词失败: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -813,8 +886,25 @@ def api_lyrics_search():
 @api_bp.route("/api/lyrics/<song_id>", methods=["GET"])
 @require_auth
 def api_lyrics_fetch(song_id: str):
+    source = request.args.get("source", "netease")
     try:
-        lyrics = NeteaseApi.get_lyrics_by_song_id(song_id)
+        if source == "qq":
+            song_mid = request.args.get("song_mid", song_id)
+            song_id_int = int(request.args.get("song_id", "0") or "0")
+            song_name = request.args.get("song_name", "")
+            singers_str = request.args.get("singers", "")
+            singers = (
+                [s.strip() for s in singers_str.split(",") if s.strip()]
+                if singers_str
+                else []
+            )
+            album_name = request.args.get("album_name", "")
+            duration = int(request.args.get("duration", "0") or "0")
+            lyrics = QQMusicApi.get_lyrics_by_song_mid(
+                song_mid, song_id_int, song_name, singers, album_name, duration
+            )
+        else:
+            lyrics = NeteaseApi.get_lyrics_by_song_id(song_id)
         return jsonify({"ok": True, "lyrics": lyrics})
     except Exception as e:
         logger.error(f"获取歌词失败: {e}")

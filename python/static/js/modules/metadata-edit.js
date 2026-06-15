@@ -408,8 +408,11 @@ function renderScrapeResults(results) {
     html += `
         <div class="scrape-api-section" data-api="${api}">
           <div class="scrape-api-title ${api}">
-            <span class="api-dot ${api}"></span>
-            <span class="api-label">${apiNames[api]}</span>
+            <span class="lyrics-source-capsule ${api === 'cloud' ? 'netease' : api}">
+              <span class="capsule-primary"></span>
+              <span class="capsule-secondary"></span>
+              <span class="capsule-text">${apiNames[api]}</span>
+            </span>
             <span class="api-count ${api}">${items.length}</span>
             <button class="refresh-api-btn" onclick="refreshApiResults('${api}')" title="换一批">
               <i class="bi bi-arrow-clockwise"></i>
@@ -535,7 +538,7 @@ async function refreshApiResults(api) {
       document.getElementById('scrape-confirm-btn').disabled = true;
       selectedScrapeResult = null;
 
-      showToast(`已加载新的 ${{cloud:'网易云音乐',kugou:'酷狗音乐',qq:'QQ音乐'}[api]} 结果`, 'success');
+      showToast(`已加载新的 ${{ cloud: '网易云音乐', kugou: '酷狗音乐', qq: 'QQ音乐' }[api]} 结果`, 'success');
     }
   } catch (e) {
     showToast(`刷新失败: ${e.message}`, 'error');
