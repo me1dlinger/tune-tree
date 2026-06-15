@@ -389,22 +389,28 @@
           </div>
         </div>
         <div class="lyrics-editor-toolbar">
-          <button class="toolbar-btn" onclick="showLyricsSearchInEditor()">
-            <i class="bi bi-search"></i>
-            搜索歌词
-          </button>
-          <button class="toolbar-btn" onclick="resetLyricsEdit()">
-            <i class="bi bi-arrow-counterclockwise"></i>
-            重置
-          </button>
-          <button class="toolbar-btn" onclick="copyLyricsToClipboard()">
-            <i class="bi bi-clipboard"></i>
-            复制
-          </button>
-          <button class="toolbar-btn" onclick="exportLrcFile()">
-            <i class="bi bi-download"></i>
-            导出LRC
-          </button>
+          <div class="lyrics-editor-toolbar-buttons">
+            <button class="toolbar-btn" onclick="showLyricsSearchInEditor()">
+              <i class="bi bi-search"></i>
+              搜索歌词
+            </button>
+            <button class="toolbar-btn" onclick="showLyricsImportPanel()">
+              <i class="bi bi-box-arrow-in-down"></i>
+              导入歌词
+            </button>
+            <button class="toolbar-btn" onclick="resetLyricsEdit()">
+              <i class="bi bi-arrow-counterclockwise"></i>
+              重置
+            </button>
+            <button class="toolbar-btn" onclick="copyLyricsToClipboard()">
+              <i class="bi bi-clipboard"></i>
+              复制
+            </button>
+            <button class="toolbar-btn" onclick="exportLrcFile()">
+              <i class="bi bi-download"></i>
+              导出LRC
+            </button>
+          </div>
           <div class="lyrics-shortcuts-hint">
             <span>Ctrl+Enter 嵌入时轴</span>
             <span>Ctrl+Space 播放/暂停</span>
@@ -414,6 +420,32 @@
         </div>
         <div class="lyrics-editor-search-panel" id="lyrics-editor-search-panel" style="display:none;">
           <div class="lyrics-search-results" id="lyrics-editor-search-results"></div>
+        </div>
+        <div class="lyrics-editor-import-panel" id="lyrics-editor-import-panel" style="display:none;">
+          <div class="lyrics-import-tabs">
+            <button class="lyrics-import-tab active" id="lyrics-import-tab-text" onclick="switchImportTab('text')">粘贴文本</button>
+            <button class="lyrics-import-tab" id="lyrics-import-tab-file" onclick="switchImportTab('file')">上传文件</button>
+          </div>
+          <div class="lyrics-import-content" id="lyrics-import-text-content">
+            <textarea class="lyrics-import-textarea" id="lyrics-import-textarea" placeholder="粘贴歌词文本（支持LRC格式或纯文本歌词）"></textarea>
+            <div class="lyrics-import-actions">
+              <button class="toolbar-btn primary" onclick="applyImportedText()">应用</button>
+              <button class="toolbar-btn" onclick="hideLyricsImportPanel()">取消</button>
+            </div>
+          </div>
+          <div class="lyrics-import-content" id="lyrics-import-file-content" style="display:none;">
+            <div class="lyrics-import-dropzone" id="lyrics-import-dropzone" onclick="document.getElementById('lyrics-import-file-input').click()">
+              <i class="bi bi-file-earmark-text"></i>
+              <div>点击选择或拖拽LRC/TXT文件</div>
+              <div class="lyrics-import-dropzone-hint">支持 .lrc 和 .txt 格式</div>
+            </div>
+            <input type="file" id="lyrics-import-file-input" accept=".lrc,.txt" style="display:none" onchange="handleImportFileSelect(event)">
+            <div class="lyrics-import-file-name" id="lyrics-import-file-name"></div>
+            <div class="lyrics-import-actions">
+              <button class="toolbar-btn primary" id="lyrics-import-file-apply-btn" onclick="applyImportedFile()" disabled>应用</button>
+              <button class="toolbar-btn" onclick="hideLyricsImportPanel()">取消</button>
+            </div>
+          </div>
         </div>
         <div class="lyrics-editor-metadata" id="lyrics-editor-metadata" style="display:none;"></div>
         <div class="lyrics-editor-content">

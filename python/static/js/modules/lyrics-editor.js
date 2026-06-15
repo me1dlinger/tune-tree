@@ -648,6 +648,141 @@ async function applyLyricsFromSearch(songId) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   LYRICS IMPORT
+   ═══════════════════════════════════════════════════════════ */
+
+let _importFileContent = null;
+
+function showLyricsImportPanel() {
+    const importPanel = document.getElementById('lyrics-editor-import-panel');
+    const searchPanel = document.getElementById('lyrics-editor-search-panel');
+    searchPanel.style.display = 'none';
+    if (importPanel.style.display === 'none') {
+        importPanel.style.display = 'block';
+        _importFileContent = null;
+        const textarea = document.getElementById('lyrics-import-textarea');
+        if (textarea) textarea.value = '';
+        const fileName = document.getElementById('lyrics-import-file-name');
+        if (fileName) fileName.textContent = '';
+        const applyBtn = document.getElementById('lyrics-import-file-apply-btn');
+        if (applyBtn) applyBtn.disabled = true;
+        switchImportTab('text');
+        _setupImportDropzone();
+    } else {
+        importPanel.style.display = 'none';
+    }
+}
+
+function hideLyricsImportPanel() {
+    const importPanel = document.getElementById('lyrics-editor-import-panel');
+    importPanel.style.display = 'none';
+    _importFileContent = null;
+}
+
+function switchImportTab(tab) {
+    const textTab = document.getElementById('lyrics-import-tab-text');
+    const fileTab = document.getElementById('lyrics-import-tab-file');
+    const textContent = document.getElementById('lyrics-import-text-content');
+    const fileContent = document.getElementById('lyrics-import-file-content');
+
+    if (tab === 'text') {
+        textTab.classList.add('active');
+        fileTab.classList.remove('active');
+        textContent.style.display = '';
+        fileContent.style.display = 'none';
+    } else {
+        textTab.classList.remove('active');
+        fileTab.classList.add('active');
+        textContent.style.display = 'none';
+        fileContent.style.display = '';
+    }
+}
+
+function applyImportedText() {
+    const textarea = document.getElementById('lyrics-import-textarea');
+    if (!textarea) return;
+    const text = textarea.value.trim();
+    if (!text) {
+        showToast('请输入歌词文本', 'warn');
+        return;
+    }
+    _applyImportedLyrics(text);
+}
+
+function handleImportFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    _readImportFile(file);
+}
+
+function _readImportFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'lrc' && ext !== 'txt') {
+        showToast('仅支持 .lrc 和 .txt 格式', 'warn');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        _importFileContent = e.target.result;
+        const fileName = document.getElementById('lyrics-import-file-name');
+        if (fileName) fileName.textContent = file.name;
+        const applyBtn = document.getElementById('lyrics-import-file-apply-btn');
+        if (applyBtn) applyBtn.disabled = false;
+    };
+    reader.onerror = () => {
+        showToast('文件读取失败', 'error');
+    };
+    reader.readAsText(file, 'utf-8');
+}
+
+function applyImportedFile() {
+    if (!_importFileContent) {
+        showToast('请先选择文件', 'warn');
+        return;
+    }
+    _applyImportedLyrics(_importFileContent);
+}
+
+function _applyImportedLyrics(text) {
+    lyricsState.currentLyrics = text;
+    lyricsState.parsedData = LrcParser.parse(text);
+    lyricsState.activeGroupIndex = -1;
+
+    document.getElementById('lyrics-editor-import-panel').style.display = 'none';
+    _importFileContent = null;
+    _renderEditor();
+    _saveToCache();
+    showToast('歌词已导入', 'success');
+}
+
+function _setupImportDropzone() {
+    const dropzone = document.getElementById('lyrics-import-dropzone');
+    if (!dropzone || dropzone._dropzoneSetup) return;
+    dropzone._dropzoneSetup = true;
+
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) _readImportFile(file);
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════
    AUDIO PLAYER
    ═══════════════════════════════════════════════════════════ */
 

@@ -37,157 +37,83 @@ class MetadataScraper:
     TITLE_WEIGHT = 10
     ARTIST_WEIGHT = 8
     ALBUM_WEIGHT = 6
+    TRACK_WEIGHT = 5
+    YEAR_WEIGHT = 4
 
     def __init__(self):
         self.api_order = ["cloud", "qq", "kugou"]
         self._kugou_rate_limited = False
 
-    def _calculate_match_score(
-        self,
-        result: Dict,
-        keywords: List[str],
-        current_meta: Dict = None,
-        user_input: Dict = None,
-    ) -> float:
+    def _calculate_match_score(self, result: Dict, keywords: Dict) -> float:
         """
         计算搜索结果与关键词的匹配分数
 
-        评分规则：
-        - 相同加分，不同扣分，让分数差距更大
-        - 音轨号匹配单独评分（优先级：用户输入 > 元数据标签 > 文件名提取）
-        - 年份匹配单独评分（优先级：用户输入 > 元数据标签）
+        keywords 由 _build_search_keywords 构建，所有参考值已解析完毕，
+        本方法只需按字段取值评分，无需再解析 current_meta / user_input。
 
         加分规则：
-        - 歌名精确匹配：+10分
-        - 歌名部分匹配：+5分
-        - 艺术家精确匹配：+8分
-        - 艺术家部分匹配：+4分
-        - 专辑精确匹配：+6分
-        - 专辑部分匹配：+3分
-        - 音轨号匹配：+5分（处理数字格式差异，如"04"和"4"视为相同）
+        - 歌名精确匹配：+10分 / 部分匹配：+5分
+        - 艺术家精确匹配：+8分 / 部分匹配：+4分
+        - 专辑精确匹配：+6分 / 部分匹配：+3分
+        - 音轨号匹配：+5分
         - 年份匹配：+4分
 
         扣分规则：
-        - 歌名不匹配：-10分
-        - 艺术家不匹配：-8分
-        - 专辑不匹配：-6分
+        - 歌名不匹配：-8分
+        - 艺术家不匹配：-6.4分
+        - 专辑不匹配：-4.8分
         - 音轨号不匹配：-4分
         - 年份不匹配：-3分
+        - 在排除列表中：-1000分（确保沉底）
         """
         score = 0.0
-        current_meta = current_meta or {}
-        user_input = user_input or {}
 
-        title_keyword = keywords[0] if keywords else ""
-        artist_keyword = keywords[1] if len(keywords) > 1 else ""
-        album_keyword = keywords[2] if len(keywords) > 2 else ""
-        result_title = normalize_str(result.get("title", ""))
-        result_artist = normalize_str(result.get("artist", ""))
-        result_album = normalize_str(result.get("album", ""))
+        # 排除列表：在排除列表中的结果扣大分，排序后自然沉底
+        exclude_ids = keywords.get("exclude_ids", [])
+        if exclude_ids and result.get("_id") in exclude_ids:
+            score -= 1000
 
-        # 歌名评分
-        if title_keyword:
-            title_kw_norm = normalize_str(title_keyword)
-            if result_title == title_kw_norm:
-                score += self.TITLE_WEIGHT
-            elif title_kw_norm in result_title or result_title in title_kw_norm:
-                score += self.TITLE_WEIGHT * 0.5
-            elif result_title:
-                score -= self.TITLE_WEIGHT * 0.8
+        # 文本类字段评分：精确 / 部分匹配 / 不匹配
+        text_fields = [
+            ("title", self.TITLE_WEIGHT),
+            ("artist", self.ARTIST_WEIGHT),
+            ("album", self.ALBUM_WEIGHT),
+        ]
+        for field, weight in text_fields:
+            kw_val = keywords.get(field, "")
+            if not kw_val:
+                continue
+            kw_norm = normalize_str(kw_val)
+            res_norm = normalize_str(result.get(field, ""))
+            if res_norm == kw_norm:
+                score += weight
+            elif kw_norm in res_norm or res_norm in kw_norm:
+                score += weight * 0.5
+            elif res_norm:
+                score -= weight * 0.8
 
-        # 艺术家评分
-        if artist_keyword:
-            artist_kw_norm = normalize_str(artist_keyword)
-            if result_artist == artist_kw_norm:
-                score += self.ARTIST_WEIGHT
-            elif artist_kw_norm in result_artist or result_artist in artist_kw_norm:
-                score += self.ARTIST_WEIGHT * 0.5
-            elif result_artist:
-                score -= self.ARTIST_WEIGHT * 0.8
+        # 音轨号评分
+        ref_track = keywords.get("track_num")
+        if ref_track is not None:
+            result_track = self._parse_track_number(result.get("track_num"))
+            if result_track is not None:
+                if result_track == ref_track:
+                    score += self.TRACK_WEIGHT
+                else:
+                    score -= self.TRACK_WEIGHT * 0.8
 
-        # 专辑评分
-        if album_keyword:
-            album_kw_norm = normalize_str(album_keyword)
-            if result_album == album_kw_norm:
-                score += self.ALBUM_WEIGHT
-            elif album_kw_norm in result_album or result_album in album_kw_norm:
-                score += self.ALBUM_WEIGHT * 0.5
-            elif result_album:
-                score -= self.ALBUM_WEIGHT * 0.8
-
-        # 音轨号评分（优先级：用户输入 > 元数据标签 > 文件名提取）
-        score += self._calculate_track_score(result, current_meta, user_input)
-
-        # 年份评分（优先级：用户输入 > 元数据标签）
-        score += self._calculate_year_score(result, current_meta, user_input)
+        # 年份评分
+        ref_year = keywords.get("year")
+        if ref_year is not None:
+            result_year = self._parse_year(result.get("year"))
+            if result_year is not None:
+                if result_year == ref_year:
+                    score += self.YEAR_WEIGHT
+                else:
+                    score -= self.YEAR_WEIGHT * 0.75
 
         result["_match_score"] = score
         return score
-
-    def _calculate_track_score(
-        self, result: Dict, current_meta: Dict, user_input: Dict = None
-    ) -> float:
-        """
-        计算音轨号匹配分数
-        优先级：用户输入 > 元数据标签 > 文件名提取
-        处理数字格式差异（如"04"和"4"视为相同）
-        """
-        TRACK_WEIGHT = 5
-        user_input = user_input or {}
-
-        # 获取搜索结果中的音轨号
-        result_track = result.get("track_num")
-        result_track_num = self._parse_track_number(result_track)
-
-        # 优先级1：用户输入的音轨号
-        ref_track_num = None
-        if user_input.get("track_num"):
-            ref_track_num = self._parse_track_number(user_input["track_num"])
-
-        # 优先级2：元数据标签中的音轨号
-        if ref_track_num is None:
-            meta_track = current_meta.get("track_num") or current_meta.get("track")
-            ref_track_num = self._parse_track_number(meta_track)
-
-        # 优先级3：从文件名提取
-        if ref_track_num is None and current_meta.get("filename"):
-            ref_track_num = self._extract_track_from_filename(current_meta["filename"])
-        # 比较音轨号
-        if result_track_num is not None and ref_track_num is not None:
-            if result_track_num == ref_track_num:
-                return TRACK_WEIGHT
-            else:
-                return -TRACK_WEIGHT * 0.8
-
-        return 0.0
-
-    def _calculate_year_score(
-        self, result: Dict, current_meta: Dict, user_input: Dict = None
-    ) -> float:
-        """
-        计算年份匹配分数
-        优先级：用户输入 > 元数据标签
-        没有年份参考值则不纳入评分
-        """
-        YEAR_WEIGHT = 4
-        user_input = user_input or {}
-
-        result_year = result.get("year")
-        result_year_num = self._parse_year(result_year)
-
-        ref_year_num = None
-        if user_input.get("year"):
-            ref_year_num = self._parse_year(user_input["year"])
-
-        if ref_year_num is None:
-            ref_year_num = self._parse_year(current_meta.get("year"))
-        if result_year_num is not None and ref_year_num is not None:
-            if result_year_num == ref_year_num:
-                return YEAR_WEIGHT
-            else:
-                return -YEAR_WEIGHT * 0.75
-
-        return 0.0
 
     def _parse_year(self, year_value) -> int:
         """
@@ -246,10 +172,26 @@ class MetadataScraper:
         return None
 
     def _build_search_keywords(
-        self, filename: str, current_meta: Dict, user_input: Dict = None
-    ) -> List[str]:
+        self,
+        filename: str,
+        current_meta: Dict,
+        user_input: Dict = None,
+        exclude_ids: List[str] = None,
+    ) -> Dict:
         """
-        构建搜索关键词列表
+        构建搜索关键词字典
+
+        返回格式：
+        {
+            "title": "歌名",
+            "artist": "艺术家",
+            "album": "专辑",
+            "track_num": 1,        # 已解析为int或None
+            "year": 2026,          # 已解析为int或None
+            "keyword": "歌名|艺术家|专辑"  (直接用于搜索接口的关键词字符串)
+            "exclude_ids": ["aa", "bb"]
+        }
+        各文本字段可能为空字符串。
 
         优先级：
         1. 用户输入（user_input）- 最高优先级
@@ -257,7 +199,6 @@ class MetadataScraper:
         3. 文件名解析
         4. 目录路径解析
         """
-        keywords = []
         user_input = user_input or {}
 
         import os
@@ -283,19 +224,17 @@ class MetadataScraper:
             and not has_meta_title
             and not has_meta_artist
         ):
-            # 匹配 "artist - title" 格式（中间有空格-空格）
             match = re.match(r"^\s*([^-]+?)\s*-\s*(.+?)\s*$", filename_no_ext)
             if match:
                 parsed_artist = match.group(1).strip()
                 parsed_title = match.group(2).strip()
-                # 确保解析出来的内容不为空
                 if parsed_artist and parsed_title:
                     logger.info(
                         f"从文件名解析: artist='{parsed_artist}', title='{parsed_title}'"
                     )
 
         # 确定歌名：优先用户输入，其次元数据，然后解析结果，最后文件名
-        title = None
+        title = ""
         if has_user_title:
             title = user_input["title"]
         elif has_meta_title:
@@ -303,10 +242,8 @@ class MetadataScraper:
         elif parsed_title:
             title = parsed_title
         else:
-            # 去除音轨号前缀（如 "06. " 或 "06 - "）
             cleaned_title = re.sub(r"^\d+\s*[.-]\s*", "", filename_no_ext)
             title = cleaned_title if cleaned_title else filename_no_ext
-        keywords.append(title)
 
         # 确定艺术家：优先用户输入，其次元数据，然后解析结果，最后从目录路径提取
         artist_from_path = None
@@ -319,15 +256,11 @@ class MetadataScraper:
             and not has_meta_album
             and not parsed_artist
         ):
-            # 从目录路径提取艺术家和专辑（仅当没有用户输入和元数据时）
             try:
                 relative_path = os.path.dirname(filename)
-                # 获取路径组件
                 path_parts = relative_path.replace("\\", "/").strip("/").split("/")
-                # 过滤空组件
                 path_parts = [p for p in path_parts if p and p.strip()]
 
-                # 如果有至少2个目录层级，认为第一个是艺术家，第二个是专辑
                 if len(path_parts) >= 2:
                     artist_from_path = path_parts[-2]
                     album_from_path = path_parts[-1]
@@ -335,43 +268,59 @@ class MetadataScraper:
                         f"从目录路径解析: artist='{artist_from_path}', album='{album_from_path}'"
                     )
                 elif len(path_parts) == 1:
-                    # 只有一个目录层级，作为艺术家
                     artist_from_path = path_parts[0]
                     logger.info(f"从目录路径解析: artist='{artist_from_path}'")
             except Exception as e:
                 logger.debug(f"从路径解析艺术家失败: {e}")
 
-        # 添加艺术家关键词
-        selected_artist = None
+        artist = ""
         if has_user_artist:
-            selected_artist = user_input["artist"]
+            artist = user_input["artist"]
         elif has_meta_artist:
-            selected_artist = current_meta["artist"]
+            artist = current_meta["artist"]
         elif parsed_artist:
-            selected_artist = parsed_artist
+            artist = parsed_artist
         elif artist_from_path:
-            selected_artist = artist_from_path
+            artist = artist_from_path
 
-        if selected_artist and selected_artist != title:
-            keywords.append(selected_artist)
-
-        # 添加专辑关键词：优先用户输入，其次元数据，然后路径提取
-        selected_album = None
+        # 确定专辑：优先用户输入，其次元数据，然后路径提取
+        album = ""
         if has_user_album:
-            selected_album = user_input["album"]
+            album = user_input["album"]
         elif has_meta_album:
-            selected_album = current_meta["album"]
+            album = current_meta["album"]
         elif album_from_path:
-            selected_album = album_from_path
+            album = album_from_path
 
-        if (
-            selected_album
-            and selected_album != title
-            and selected_album != selected_artist
-        ):
-            keywords.append(selected_album)
+        # 确定音轨号：优先级 user_input > meta > 文件名提取
+        track_num = None
+        if user_input.get("track_num"):
+            track_num = self._parse_track_number(user_input["track_num"])
+        if track_num is None and current_meta.get("track_num"):
+            track_num = self._parse_track_number(current_meta["track_num"])
+        if track_num is None:
+            track_num = self._extract_track_from_filename(filename)
 
-        return keywords
+        # 确定年份：优先级 user_input > meta
+        year = None
+        if user_input.get("year"):
+            year = self._parse_year(user_input["year"])
+        if year is None and current_meta.get("year"):
+            year = self._parse_year(current_meta["year"])
+
+        # 构建搜索关键词字符串：歌名|艺术家|专辑（跳过空值）
+        keyword_parts = [p for p in [title, artist, album] if p]
+        keyword = "|".join(keyword_parts)
+
+        return {
+            "title": title,
+            "artist": artist,
+            "album": album,
+            "track_num": track_num,
+            "year": year,
+            "keyword": keyword,
+            "exclude_ids": exclude_ids or [],
+        }
 
     def scrape(
         self, filename: str, current_meta: Dict, preferred_api: Optional[str] = None
@@ -381,7 +330,7 @@ class MetadataScraper:
         """
         self._kugou_rate_limited = False
         keywords = self._build_search_keywords(filename, current_meta)
-        logger.info(f"开始刮削元数据，关键词: {keywords}")
+        logger.info(f"开始刮削元数据，关键词: {keywords.get('keyword', '')}")
 
         api_list = (
             [preferred_api]
@@ -406,11 +355,11 @@ class MetadataScraper:
         logger.warning("所有API均未找到匹配的元数据")
         return None
 
-    def _scrape_by_api(self, api_name: str, keywords: List[str]) -> Optional[Dict]:
+    def _scrape_by_api(self, api_name: str, keywords: Dict) -> Optional[Dict]:
         """
         使用指定的 API 刮削
         """
-        keyword = ",".join(keywords)
+        keyword = keywords.get("keyword", "")
         try:
             search_results = []
             if api_name == "cloud":
@@ -482,16 +431,16 @@ class MetadataScraper:
         :param user_input: 用户输入的关键词（来自前端输入框），优先级最高
         """
         self._kugou_rate_limited = False
-        keywords = self._build_search_keywords(filename, current_meta, user_input)
-        logger.info(f"批量搜索开始，关键词: {keywords}")
+        keywords = self._build_search_keywords(
+            filename, current_meta, user_input, exclude_ids
+        )
+        logger.info(f"批量搜索开始，关键词: {keywords.get('keyword', '')}")
 
         results = {"cloud": [], "qq": [], "kugou": []}
 
         # 优先使用 cloud API
         try:
-            cloud_results = self._search_api_with_multiple_results(
-                "cloud", keywords, current_meta, exclude_ids, user_input
-            )
+            cloud_results = self._search_api_with_multiple_results("cloud", keywords)
             results["cloud"] = cloud_results
             logger.info(f"cloud API 返回 {len(cloud_results)} 条结果")
         except Exception as e:
@@ -502,9 +451,7 @@ class MetadataScraper:
         if len(results["cloud"]) == 0:
             logger.info("cloud API 返回 0 条结果，尝试使用 qq API")
             try:
-                qq_results = self._search_api_with_multiple_results(
-                    "qq", keywords, current_meta, exclude_ids, user_input
-                )
+                qq_results = self._search_api_with_multiple_results("qq", keywords)
                 results["qq"] = qq_results
                 logger.info(f"qq API 返回 {len(qq_results)} 条结果")
             except Exception as e:
@@ -518,7 +465,7 @@ class MetadataScraper:
             logger.info("cloud 和 qq API 均返回 0 条结果，尝试使用 kugou API")
             try:
                 kugou_results = self._search_api_with_multiple_results(
-                    "kugou", keywords, current_meta, exclude_ids, user_input
+                    "kugou", keywords
                 )
                 results["kugou"] = kugou_results
                 logger.info(f"kugou API 返回 {len(kugou_results)} 条结果")
@@ -536,9 +483,7 @@ class MetadataScraper:
         self,
         api_name: str,
         search_result: Dict,
-        keywords: List[str],
-        current_meta: Dict = None,
-        user_input: Dict = None,
+        keywords: Dict,
     ) -> Optional[Dict]:
         """
         获取单条歌曲详情（供多线程调用）
@@ -557,9 +502,7 @@ class MetadataScraper:
             if song_info:
                 result_dict = self._song_info_to_dict(song_info, api_name)
                 result_dict["_id"] = search_result["idOrMd5"]
-                self._calculate_match_score(
-                    result_dict, keywords, current_meta, user_input
-                )
+                self._calculate_match_score(result_dict, keywords)
                 return result_dict
         except Exception as e:
             logger.warning(f"获取 {api_name} 歌曲详情失败: {e}")
@@ -568,20 +511,17 @@ class MetadataScraper:
     def _search_api_with_multiple_results(
         self,
         api_name: str,
-        keywords: List[str],
-        current_meta: Dict = None,
-        exclude_ids: List[str] = None,
-        user_input: Dict = None,
+        keywords: Dict,
     ) -> List[Dict]:
         """
         搜索并返回最多5条结果，按匹配度排序
         先收集所有关键词的搜索结果，然后统一评分排序取前5
         获取歌曲详情使用多线程并行
-        如果指定了 exclude_ids，则会排除这些歌曲ID后返回最多5条结果
+        exclude_ids 从 keywords 字典中获取
         """
         all_results = []
-        keyword = ",".join(keywords)
-        exclude_set = set(exclude_ids or [])
+        keyword = keywords.get("keyword", "")
+        exclude_ids = keywords.get("exclude_ids", [])
         # 如果有排除列表，需要获取更多结果以便排除后仍有足够的选择
         fetch_limit = 20 if exclude_ids else 10
 
@@ -603,8 +543,6 @@ class MetadataScraper:
                         api_name,
                         sr,
                         keywords,
-                        current_meta,
-                        user_input,
                     )
                     for sr in search_results[:fetch_limit]
                 ]
@@ -625,13 +563,8 @@ class MetadataScraper:
             all_results, key=lambda x: x.get("_match_score", 0), reverse=True
         )
 
-        # 如果有排除列表，先排除已显示的结果（使用 idOrMd5）
-        if exclude_set:
-            original_count = len(all_results)
-            all_results = [r for r in all_results if r.get("_id") not in exclude_set]
-            logger.info(
-                f"{api_name} API 排除 {original_count - len(all_results)} 条结果后剩余 {len(all_results)} 条"
-            )
+        # 排除列表：已在 _calculate_match_score 中通过扣分处理，
+        # 排除项分数极低，排序后自然沉底，取前5条时会被淘汰
 
         # 返回最多5条
         return_limit = 5

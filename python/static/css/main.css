@@ -3169,14 +3169,20 @@ body {
 
 .lyrics-editor-toolbar {
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.lyrics-editor-toolbar-buttons {
+    display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 10px;
     flex-wrap: wrap;
 }
 
 .lyrics-shortcuts-hint {
-    margin-left: auto;
     display: flex;
     gap: 10px;
     font-family: var(--font-mono);
@@ -3696,6 +3702,113 @@ body {
 .lyrics-editor-search-panel .lyrics-result-album::before {
     content: "专辑: ";
     color: var(--text3);
+}
+
+/* LYRICS IMPORT PANEL */
+.lyrics-editor-import-panel {
+    margin-bottom: 10px;
+    padding: 10px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.lyrics-import-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.lyrics-import-tab {
+    padding: 6px 16px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text2);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.lyrics-import-tab:hover {
+    color: var(--text);
+}
+
+.lyrics-import-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.lyrics-import-textarea {
+    width: 100%;
+    min-height: 120px;
+    max-height: 200px;
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    resize: vertical;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.lyrics-import-textarea:focus {
+    border-color: var(--accent);
+}
+
+.lyrics-import-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.lyrics-import-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 24px 16px;
+    border: 2px dashed var(--border2);
+    border-radius: var(--radius);
+    background: var(--bg);
+    cursor: pointer;
+    transition: all var(--transition);
+    color: var(--text2);
+    font-size: 12px;
+}
+
+.lyrics-import-dropzone:hover,
+.lyrics-import-dropzone.dragover {
+    border-color: var(--accent);
+    background: var(--bg2);
+    color: var(--text);
+}
+
+.lyrics-import-dropzone i {
+    font-size: 24px;
+    color: var(--text3);
+}
+
+.lyrics-import-dropzone.dragover i {
+    color: var(--accent);
+}
+
+.lyrics-import-dropzone-hint {
+    font-size: 10px;
+    color: var(--text3);
+}
+
+.lyrics-import-file-name {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text2);
+    font-family: var(--font-mono);
 }
 
 /* INFO */
@@ -5144,10 +5257,6 @@ body {
     to {
         transform: rotate(360deg);
     }
-}
-
-.spin {
-    animation: spin 1s linear infinite;
 }
 
 .library-item {

@@ -535,7 +535,7 @@ async function refreshApiResults(api) {
       document.getElementById('scrape-confirm-btn').disabled = true;
       selectedScrapeResult = null;
 
-      showToast(`已加载新的 ${apiNames[api]} 结果`, 'success');
+      showToast(`已加载新的 ${{cloud:'网易云音乐',kugou:'酷狗音乐',qq:'QQ音乐'}[api]} 结果`, 'success');
     }
   } catch (e) {
     showToast(`刷新失败: ${e.message}`, 'error');
