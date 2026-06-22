@@ -969,8 +969,8 @@ body {
 }
 
 .avatar-search-item-img {
-    width: 80px;
-    height: 80px;
+    width: 120px;
+    height: 120px;
     border-radius: 50%;
     object-fit: cover;
     border: 2px solid var(--border2);
@@ -979,8 +979,8 @@ body {
 }
 
 .avatar-search-item-placeholder {
-    width: 80px;
-    height: 80px;
+    width: 120px;
+    height: 120px;
     border-radius: 50%;
     border: 2px solid var(--border2);
     background: var(--bg3);
