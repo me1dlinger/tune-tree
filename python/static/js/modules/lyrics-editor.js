@@ -453,6 +453,25 @@ function resetLyricsEdit() {
     showToast('歌词已还原', 'info');
 }
 
+function stripWordTimestamps() {
+    const raw = lyricsState.currentLyrics;
+    if (!raw) {
+        showToast('歌词内容为空', 'warn');
+        return;
+    }
+    const cleaned = LrcParser.stripWordTimestamps(raw);
+    if (cleaned === raw) {
+        showToast('未检测到逐字时间戳', 'info');
+        return;
+    }
+    lyricsState.currentLyrics = cleaned;
+    lyricsState.parsedData = LrcParser.parse(cleaned);
+    lyricsState.activeGroupIndex = -1;
+    _saveToCache();
+    _renderEditor();
+    showToast('逐字时间戳已移除', 'success');
+}
+
 function _getCurrentLyricsText() {
     const data = lyricsState.parsedData;
     if (!data) return '';

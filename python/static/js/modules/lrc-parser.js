@@ -123,6 +123,11 @@ const LrcParser = {
         return min * 60 + sec + ms / 1000;
     },
 
+    stripWordTimestamps(rawText) {
+        if (!rawText || !rawText.trim()) return rawText || '';
+        return rawText.replace(/<\d{2}:\d{2}\.\d{2,3}>/g, '');
+    },
+
     addOffset(timestamp, offsetSeconds) {
         if (timestamp === null) return null;
         return Math.max(0, timestamp + offsetSeconds);
