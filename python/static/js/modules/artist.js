@@ -778,6 +778,160 @@ async function scrapeArtistCover(artistId) {
   }
 }
 
+let _avatarSearchArtistId = null;
+
+function openAvatarSearchModal(artistId) {
+  _avatarSearchArtistId = artistId;
+  const input = document.getElementById('avatar-search-input');
+  const results = document.getElementById('avatar-search-results');
+  if (input && currentArtist) {
+    input.value = currentArtist.name;
+  }
+  if (results) {
+    results.innerHTML = '';
+  }
+  openModal('avatar-search-modal');
+  if (input) {
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        searchAvatars();
+      }
+    };
+    input.focus();
+    input.select();
+  }
+}
+
+function closeAvatarSearchModal() {
+  _avatarSearchArtistId = null;
+  closeModal('avatar-search-modal');
+}
+
+async function searchAvatars() {
+  const input = document.getElementById('avatar-search-input');
+  const resultsEl = document.getElementById('avatar-search-results');
+  if (!input || !resultsEl) return;
+
+  const keyword = input.value.trim();
+  if (!keyword) {
+    showToast('请输入搜索关键词', 'error');
+    return;
+  }
+
+  resultsEl.innerHTML = `<div class="avatar-search-loading"><div class="loading-spinner"></div>正在搜索...</div>`;
+
+  try {
+    const result = await POST('/artists/search-avatars', { keyword });
+    resultsEl.innerHTML = '';
+
+    const neteaseResults = result.netease || [];
+    const qqResults = result.qq || [];
+
+    if (neteaseResults.length === 0 && qqResults.length === 0) {
+      resultsEl.innerHTML = '<div class="avatar-search-empty">未找到相关艺术家头像</div>';
+      return;
+    }
+
+    if (neteaseResults.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'avatar-search-section';
+      section.innerHTML = `
+        <div class="avatar-search-section-title">
+          <span class="lyrics-source-capsule netease">
+            <span class="capsule-primary"></span>
+            <span class="capsule-secondary"></span>
+            <span class="capsule-text">网易云</span>
+          </span>
+        </div>
+        <div class="avatar-search-grid" id="avatar-netease-grid"></div>
+      `;
+      resultsEl.appendChild(section);
+      const grid = section.querySelector('#avatar-netease-grid');
+      for (const item of neteaseResults) {
+        grid.appendChild(_createAvatarItem(item, 'netease'));
+      }
+    }
+
+    if (qqResults.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'avatar-search-section';
+      section.innerHTML = `
+        <div class="avatar-search-section-title">
+          <span class="lyrics-source-capsule qq">
+            <span class="capsule-primary"></span>
+            <span class="capsule-secondary"></span>
+            <span class="capsule-text">QQ音乐</span>
+          </span>
+        </div>
+        <div class="avatar-search-grid" id="avatar-qq-grid"></div>
+      `;
+      resultsEl.appendChild(section);
+      const grid = section.querySelector('#avatar-qq-grid');
+      for (const item of qqResults) {
+        grid.appendChild(_createAvatarItem(item, 'qq'));
+      }
+    }
+  } catch (err) {
+    resultsEl.innerHTML = `<div class="avatar-search-empty">搜索失败: ${esc(err.message)}</div>`;
+  }
+}
+
+function _createAvatarItem(item, platform) {
+  const el = document.createElement('div');
+  el.className = 'avatar-search-item';
+
+  const img = document.createElement('img');
+  img.className = 'avatar-search-item-img';
+  img.src = item.picUrl || '';
+  img.alt = item.name || '';
+  img.onerror = () => {
+    img.style.display = 'none';
+    const placeholder = img.parentElement.querySelector('.avatar-search-item-placeholder');
+    if (placeholder) placeholder.style.display = 'flex';
+  };
+
+  const placeholder = document.createElement('div');
+  placeholder.className = 'avatar-search-item-placeholder';
+  placeholder.innerHTML = '<i class="bi bi-person"></i>';
+  placeholder.style.display = 'none';
+
+  const name = document.createElement('div');
+  name.className = 'avatar-search-item-name';
+  name.textContent = item.name || '';
+  name.title = item.name || '';
+
+  el.appendChild(img);
+  el.appendChild(placeholder);
+  el.appendChild(name);
+
+  el.addEventListener('dblclick', () => {
+    if (!item.picUrl || !_avatarSearchArtistId) return;
+    applyAvatarFromUrl(_avatarSearchArtistId, item.picUrl);
+  });
+
+  return el;
+}
+
+async function applyAvatarFromUrl(artistId, picUrl) {
+  try {
+    showToast('正在应用艺术家头像...', 'info');
+    const result = await POST(`/artists/${artistId}/apply-avatar`, { picUrl });
+
+    if (result.error) {
+      showToast('应用头像失败: ' + result.error, 'error');
+      return;
+    }
+
+    artistCoverCache[artistId] = true;
+    closeAvatarSearchModal();
+    await loadArtistCover(artistId);
+    showToast('艺术家头像已应用', 'success');
+  } catch (err) {
+    showToast('应用头像失败: ' + err.message, 'error');
+  }
+}
+
 async function deleteArtistCover(artistId) {
   try {
     showToast('正在删除歌手头像...', 'info');
@@ -831,6 +985,9 @@ async function loadArtistCover(artistId) {
         <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
           <i class="bi bi-cloud-download"></i>
         </button>
+        <button class="artist-cover-btn" id="more-cover-btn" title="更多头像">
+          <i class="bi bi-three-dots"></i>
+        </button>
         <button class="artist-cover-btn" id="delete-cover-btn" title="删除头像">
           <i class="bi bi-trash"></i>
         </button>
@@ -842,6 +999,10 @@ async function loadArtistCover(artistId) {
       actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
         e.stopPropagation();
         scrapeArtistCover(artistId);
+      };
+      actionsDiv.querySelector('#more-cover-btn').onclick = (e) => {
+        e.stopPropagation();
+        openAvatarSearchModal(artistId);
       };
       actionsDiv.querySelector('#delete-cover-btn').onclick = (e) => {
         e.stopPropagation();
@@ -861,6 +1022,9 @@ async function loadArtistCover(artistId) {
         <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
           <i class="bi bi-cloud-download"></i>
         </button>
+        <button class="artist-cover-btn" id="more-cover-btn" title="更多头像">
+          <i class="bi bi-three-dots"></i>
+        </button>
       `;
       actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
         e.stopPropagation();
@@ -869,6 +1033,10 @@ async function loadArtistCover(artistId) {
       actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
         e.stopPropagation();
         scrapeArtistCover(artistId);
+      };
+      actionsDiv.querySelector('#more-cover-btn').onclick = (e) => {
+        e.stopPropagation();
+        openAvatarSearchModal(artistId);
       };
       coverEl.appendChild(actionsDiv);
     }

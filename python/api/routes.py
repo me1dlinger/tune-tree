@@ -782,6 +782,116 @@ def api_artist_scrape_cover(artist_id: int):
     )
 
 
+@api_bp.route("/api/artists/search-avatars", methods=["POST"])
+@require_auth
+def api_artists_search_avatars():
+    data = request.get_json(force=True) or {}
+    keyword = data.get("keyword", "").strip()
+    if not keyword:
+        return jsonify({"error": "keyword is required"}), 400
+
+    netease_results = []
+    qq_results = []
+
+    try:
+        raw = NeteaseApi.search_artist(keyword, limit=5)
+        for r in raw:
+            pic_url = r.get("picUrl", "")
+            if pic_url:
+                pic_url = pic_url.replace("http://", "https://")
+                if "?" not in pic_url:
+                    pic_url += "?param=300y300"
+            netease_results.append(
+                {
+                    "id": r.get("id"),
+                    "name": r.get("name", ""),
+                    "picUrl": pic_url,
+                }
+            )
+    except Exception as e:
+        logger.warning("网易云搜索歌手头像失败: %s", e)
+
+    try:
+        raw = QQMusicApi.search_artist(keyword, limit=5)
+        for r in raw:
+            qq_results.append(
+                {
+                    "id": r.get("id"),
+                    "mid": r.get("mid", ""),
+                    "name": r.get("name", ""),
+                    "picUrl": r.get("picUrl", ""),
+                }
+            )
+    except Exception as e:
+        logger.warning("QQ音乐搜索歌手头像失败: %s", e)
+
+    return jsonify({"netease": netease_results, "qq": qq_results})
+
+
+@api_bp.route("/api/artists/<int:artist_id>/apply-avatar", methods=["POST"])
+@require_auth
+def api_artists_apply_avatar(artist_id: int):
+    data = request.get_json(force=True) or {}
+    pic_url = data.get("picUrl", "").strip()
+    if not pic_url:
+        return jsonify({"error": "picUrl is required"}), 400
+
+    artist_row = get_artist_by_id(artist_id)
+    if not artist_row:
+        abort(404)
+    artist_dir = get_artist_directory_path_by_id(artist_id)
+    if not artist_dir:
+        return jsonify({"error": "artist directory not found"}), 404
+
+    try:
+        import requests as _req
+
+        if "y.gtimg.cn" in pic_url:
+            resp = _req.get(pic_url, headers=QQMusicApi._HEADERS, timeout=15)
+        else:
+            from services.netease_api import APIConstants
+
+            resp = _req.get(
+                pic_url,
+                headers={
+                    "User-Agent": APIConstants.USER_AGENT,
+                    "Referer": APIConstants.REFERER,
+                },
+                timeout=15,
+            )
+        resp.raise_for_status()
+        image_data = resp.content
+    except Exception as e:
+        logger.error("下载头像失败 %s: %s", pic_url, e)
+        return jsonify({"error": f"failed to download avatar: {e}"}), 502
+
+    if not image_data or len(image_data) < 1000:
+        return jsonify({"error": "downloaded image too small or empty"}), 502
+
+    if len(image_data) > MAX_ARTIST_COVER_SIZE:
+        return jsonify({"error": "cover file too large (max 5MB)"}), 400
+
+    try:
+        from PIL import Image
+        import io as _io
+
+        img = Image.open(_io.BytesIO(image_data))
+        if img.format != "JPEG":
+            img = img.convert("RGB")
+
+        cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
+        img.save(cover_path, "JPEG", quality=90)
+        if not artist_row["cover_path"]:
+            from repository.artist_repository import update_artist
+
+            update_artist(artist_id, cover_path=str(cover_path))
+    except Exception as exc:
+        logger.error("artist avatar save error %d: %s", artist_id, exc)
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"ok": True, "path": str(cover_path)})
+
+
 # Lyrics search and fetch
 @api_bp.route("/api/lyrics/search", methods=["POST"])
 @require_auth

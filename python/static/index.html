@@ -630,6 +630,29 @@
     </div>
   </div>
 
+  <!-- AVATAR SEARCH MODAL -->
+  <div class="modal-overlay" id="avatar-search-modal">
+    <div class="modal avatar-search-modal">
+      <div class="modal-header">
+        <div class="modal-title">搜索艺术家头像</div>
+        <button class="modal-close" onclick="closeAvatarSearchModal()">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="avatar-search-bar">
+          <input type="text" id="avatar-search-input" placeholder="输入关键词搜索艺术家..." />
+          <button class="toolbar-btn primary" id="avatar-search-btn" onclick="searchAvatars()">
+            <i class="bi bi-search"></i> 搜索
+          </button>
+        </div>
+        <div id="avatar-search-results"></div>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-info">双击图片应用头像</span>
+        <button class="toolbar-btn" onclick="closeAvatarSearchModal()">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- JavaScript Modules (load order matters) -->
   <script defer src="static/js/modules/utils.js"></script>
   <script defer src="static/js/modules/api.js"></script>

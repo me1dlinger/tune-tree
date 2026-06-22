@@ -906,6 +906,126 @@ body {
     background: #eceaea;
 }
 
+.avatar-search-modal {
+    width: 560px;
+}
+
+.avatar-search-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.avatar-search-bar input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    outline: none;
+    transition: border-color var(--transition);
+}
+
+.avatar-search-bar input:focus {
+    border-color: var(--accent);
+}
+
+.avatar-search-section {
+    margin-bottom: 16px;
+}
+
+.avatar-search-section-title {
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.avatar-search-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+}
+
+.avatar-search-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+
+.avatar-search-item:hover {
+    transform: scale(1.05);
+}
+
+.avatar-search-item-img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border2);
+    transition: border-color 0.15s;
+    background: var(--bg3);
+}
+
+.avatar-search-item-placeholder {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 2px solid var(--border2);
+    background: var(--bg3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text3);
+    font-size: 28px;
+}
+
+.avatar-search-item:hover .avatar-search-item-img {
+    border-color: var(--accent);
+}
+
+.avatar-search-item-name {
+    font-size: 11px;
+    color: var(--text2);
+    text-align: center;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.avatar-search-item .lyrics-source-capsule {
+    margin-top: -2px;
+}
+
+.avatar-search-empty {
+    text-align: center;
+    color: var(--text3);
+    font-size: 13px;
+    padding: 24px 0;
+}
+
+.avatar-search-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 32px 0;
+    color: var(--text3);
+    font-size: 13px;
+}
+
 .album-cover-actions {
     position: absolute;
     bottom: 4px;

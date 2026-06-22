@@ -461,7 +461,7 @@ class QQMusicApi:
             "search_id": "",
             "remoteplace": "search.android.keyboard",
             "query": keyword,
-            "search_type": 9,
+            "search_type": 1,
             "num_per_page": limit,
             "page_num": 1,
             "highlight": 0,
@@ -480,15 +480,23 @@ class QQMusicApi:
         singer_list = data.get("body", {}).get("singer", {}).get("list", [])
         results = []
         for item in singer_list:
-            singer_mid = item.get("mid", "") or item.get("singermid", "")
+            singer_mid = item.get("mid", "") or item.get("singerMID", "") or item.get("singermid", "")
             pic_url = ""
+            singer_pic = item.get("singerPic", "")
+            # if singer_mid:
+            #     pic_url = f"https://y.gtimg.cn/music/photo_new/T001R300x300M000{singer_mid}.jpg"
+            singer_mid = item.get("mid", "") or item.get("singerMID", "") or item.get("singermid", "")
+            pic_url = ""
+            singer_pic = item.get("singerPic", "")
+            if singer_pic:
+                pic_url = f"{singer_pic}"
             if singer_mid:
                 pic_url = f"https://y.gtimg.cn/music/photo_new/T001R300x300M000{singer_mid}.jpg"
             results.append(
                 {
                     "id": item.get("id", "") or item.get("singerid", ""),
                     "mid": singer_mid,
-                    "name": item.get("name", "") or item.get("singername", ""),
+                    "name": item.get("name", "") or item.get("singername", "") or item.get("singerName", ""),
                     "picUrl": pic_url,
                 }
             )
