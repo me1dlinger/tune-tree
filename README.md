@@ -49,6 +49,10 @@
 
 ![艺术家列表及详情](https://files.seeusercontent.com/2026/06/03/ak1H/image1.png)
 
+### 搜索艺术家头像
+
+![搜索艺术家头像](https://files.seeusercontent.com/2026/06/22/lmG5/image_97.png)
+
 ### 编辑元数据
 
 ![编辑元数据](https://files.seeusercontent.com/2026/06/12/2bRx/image_52.png)
