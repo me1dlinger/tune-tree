@@ -38,7 +38,7 @@
 - **文件下载** -- 支持单曲、专辑、艺术家、批量、目录等多种下载方式（单曲直传，多曲自动打包 ZIP）
 - **文件上传** -- 支持音频文件上传，自动处理文件名冲突（跳过、替换、重命名）
 - **文件格式化** -- 预览并执行批量重命名与移动，整理为 `{艺术家}/{专辑}/` 目录结构，支持多艺术家批量操作
-- **艺术家封面** -- 支持上传、刮削、删除艺术家封面图片，自动转换为 JPEG 格式
+- **艺术家封面** -- 支持上传、刮削、删除艺术家封面图片，自动转换为 JPEG 格式；支持自定义关键词搜索艺术家头像（网易云+QQ音乐双平台，最多各5条结果），双击应用
 - **重复检测** -- 识别音乐库中的重复文件
 - **统计分析** -- 艺术家/专辑统计页面，包含相似艺术家检测、歌曲时间轴树展示
 - **访问控制** -- 基于 Token 的简单认证
@@ -293,13 +293,15 @@ tune-tree/
 
 ### 艺术家封面
 
-| 方法     | 路径                                          | 说明          |
-| ------ | ------------------------------------------- | ----------- |
-| GET    | `/api/artists/<int:artist_id>/cover`        | 获取艺术家封面     |
-| POST   | `/api/artists/<int:artist_id>/cover`        | 上传艺术家封面     |
-| DELETE | `/api/artists/<int:artist_id>/cover`        | 删除艺术家封面     |
-| GET    | `/api/artists/<int:artist_id>/cover/exists` | 检查艺术家封面是否存在 |
-| POST   | `/api/artists/<int:artist_id>/scrape-cover` | 从网易云刮削艺术家头像 |
+| 方法     | 路径                                          | 说明                          |
+| ------ | ------------------------------------------- | --------------------------- |
+| GET    | `/api/artists/<int:artist_id>/cover`        | 获取艺术家封面                     |
+| POST   | `/api/artists/<int:artist_id>/cover`        | 上传艺术家封面                     |
+| DELETE | `/api/artists/<int:artist_id>/cover`        | 删除艺术家封面                     |
+| GET    | `/api/artists/<int:artist_id>/cover/exists` | 检查艺术家封面是否存在                  |
+| POST   | `/api/artists/<int:artist_id>/scrape-cover` | 从网易云刮削艺术家头像                  |
+| POST   | `/api/artists/search-avatars`               | 搜索艺术家头像（`{ keyword }`，返回网易云和QQ音乐各最多5条结果） |
+| POST   | `/api/artists/<int:artist_id>/apply-avatar` | 应用头像URL为艺术家封面（`{ picUrl }`）              |
 
 ### 专辑封面
 
