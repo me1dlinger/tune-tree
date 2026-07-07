@@ -2959,10 +2959,6 @@ body {
 }
 
 @media (max-width:768px) {
-    .sidebar {
-        display: none;
-    }
-
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -6068,4 +6064,567 @@ body {
     font-size: 10px;
     white-space: nowrap;
     flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — max-width: 768px
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+
+    /* ── Mobile sidebar toggle button (hidden on desktop) ── */
+    .mobile-sidebar-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        background: transparent;
+        border: none;
+        color: var(--text);
+        font-size: 22px;
+        cursor: pointer;
+        flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── Header ── */
+    .header {
+        padding: 0;
+    }
+
+    .header-logo {
+        width: auto;
+        padding: 0 12px;
+        border-right: none;
+        font-size: 14px;
+    }
+
+    .header-nav {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding: 0 4px;
+        gap: 0;
+    }
+
+    .header-nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nav-btn {
+        padding: 0 8px;
+        font-size: 10px;
+        flex-shrink: 0;
+    }
+
+    .header-actions {
+        padding: 0 8px;
+        gap: 2px;
+        border-left: none;
+    }
+
+    .theme-indicator {
+        display: none;
+    }
+
+    .icon-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+
+    /* ── Sidebar: slide-in overlay ── */
+    .sidebar {
+        position: fixed;
+        top: var(--header-h);
+        left: 0;
+        bottom: 0;
+        width: 280px;
+        z-index: var(--z-index-sidebar);
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: none;
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .mobile-sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        top: var(--header-h);
+        background: rgba(0, 0, 0, 0.5);
+        z-index: calc(var(--z-index-sidebar) - 1);
+    }
+
+    .mobile-sidebar-overlay.active {
+        display: block;
+    }
+
+    /* ── Main content ── */
+    .main {
+        width: 100%;
+    }
+
+    /* ── Toolbars ── */
+    .main-toolbar {
+        height: auto;
+        min-height: 44px;
+        flex-wrap: wrap;
+        padding: 6px 10px;
+        gap: 6px;
+    }
+
+    .toolbar-path {
+        width: 100%;
+        flex: 0 0 100%;
+        font-size: 10px;
+    }
+
+    .toolbar-btn {
+        height: 32px;
+        padding: 0 8px;
+        font-size: 10px;
+    }
+
+    /* ── File list: card layout on mobile ── */
+    .file-header-row {
+        display: none;
+    }
+
+    .file-row {
+        display: flex;
+        flex-wrap: wrap;
+        height: auto;
+        padding: 8px 12px;
+        gap: 4px 12px;
+        align-items: center;
+    }
+
+    .file-row .fr-icon {
+        flex-shrink: 0;
+    }
+
+    .file-row .fr-name {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .file-row .fr-dir,
+    .file-row .fr-type,
+    .file-row .fr-size,
+    .file-row .fr-date {
+        display: none;
+    }
+
+    .file-row .fr-action {
+        flex-shrink: 0;
+    }
+
+    /* ── Track list: simplified on mobile ── */
+    .track-header-row {
+        display: none;
+    }
+
+    .track-row {
+        display: flex;
+        flex-wrap: wrap;
+        height: auto;
+        padding: 6px 10px;
+        gap: 2px 8px;
+        align-items: center;
+    }
+
+    .track-row .tc-checkbox,
+    .track-row .tc-download {
+        flex-shrink: 0;
+    }
+
+    .track-row .tc-num {
+        flex-shrink: 0;
+        min-width: 24px;
+    }
+
+    .track-row .tc-title {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .track-row .tc-artist,
+    .track-row .tc-album,
+    .track-row .tc-genre,
+    .track-row .tc-year,
+    .track-row .tc-duration {
+        display: none;
+    }
+
+    .track-row .tc-action {
+        flex-shrink: 0;
+    }
+
+    /* ── Albums grid ── */
+    .albums-grid {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    }
+
+    /* ── Artist view ── */
+    .artist-view {
+        padding: 8px;
+    }
+
+    /* ── Stats grid ── */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* ── Detail panel ── */
+    .detail-panel {
+        display: flex !important;
+        width: 100%;
+        height: 50vh;
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        border-left: none;
+        border-top: 1px solid var(--border);
+        border-radius: 12px 12px 0 0;
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+        position: fixed;
+        z-index: var(--z-index-sidebar);
+    }
+
+    .detail-panel.hidden {
+        display: none !important;
+    }
+
+    .detail-header {
+        border-radius: 12px 12px 0 0;
+        position: relative;
+    }
+
+    .detail-header::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 40px;
+        height: 4px;
+        background: var(--border2);
+        border-radius: 2px;
+    }
+
+    .detail-collapse-btn {
+        margin-top: 8px;
+    }
+
+    .detail-cover-wrapper {
+        display: none;
+    }
+
+    .detail-body {
+        padding: 8px 12px;
+    }
+
+    /* ── Modals ── */
+    .modal {
+        width: 100vw;
+        max-width: 100vw;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .modal-header {
+        padding: 12px 14px;
+    }
+
+    .modal-body {
+        padding: 12px 14px;
+    }
+
+    .modal-footer {
+        padding: 10px 14px;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .modal-footer .btn {
+        flex: 1;
+        min-width: 0;
+        justify-content: center;
+    }
+
+    .edit-modal {
+        width: 100vw;
+    }
+
+    .edit-layout {
+        flex-direction: column;
+    }
+
+    .edit-left {
+        width: 100%;
+        align-items: center;
+    }
+
+    .edit-left .edit-cover-preview {
+        width: 160px;
+        height: 160px;
+    }
+
+    .edit-left .edit-cover-actions {
+        width: auto;
+    }
+
+    .edit-right .edit-path-info {
+        width: 100%;
+    }
+
+    .lyrics-editor-modal {
+        width: 100vw;
+        max-width: 100vw;
+        max-height: 100vh;
+    }
+
+    .lyrics-shortcuts-hint {
+        display: none;
+    }
+
+    .lyrics-editor-toolbar-buttons {
+        gap: 4px;
+    }
+
+    .lyrics-editor-toolbar-buttons .toolbar-btn {
+        padding: 0 6px;
+        font-size: 10px;
+    }
+
+    .batch-scrape-modal {
+        width: 100vw;
+        max-width: 100vw;
+        height: 100vh;
+        max-height: 100vh;
+    }
+
+    .settings-modal {
+        width: 100vw;
+        max-width: 100vw;
+    }
+
+    .task-status-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* ── Artist stats grids ── */
+    .as-nocover-row {
+        grid-template-columns: 1fr;
+    }
+
+    .as-topn-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .as-similar-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* ── Toast ── */
+    .toast-container {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+    }
+
+    .toast {
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+    }
+
+    /* ── Pagination ── */
+    .pagination-bar {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px;
+    }
+
+    /* ── Files page toolbar ── */
+    .files-search {
+        width: 100%;
+        order: 10;
+        margin-left: 0 !important;
+    }
+
+    .files-search input {
+        flex: 1;
+    }
+
+    .file-select-toolbar {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    /* ── Pending view ── */
+    .pending-view {
+        padding: 12px;
+    }
+
+    .pending-header {
+        flex-wrap: wrap;
+    }
+
+    /* ── Log view ── */
+    .log-view {
+        padding: 10px;
+    }
+
+    /* ── Login page ── */
+    .login-box {
+        padding: 24px 20px;
+        margin: 0 16px;
+    }
+
+    /* ── Touch targets: ensure min 44px ── */
+    .sort-chip {
+        min-height: 32px;
+        padding: 4px 10px;
+    }
+
+    .filter-toggle-btn {
+        min-height: 36px;
+    }
+
+    .sidebar-selection-btn {
+        min-height: 36px;
+    }
+
+    /* ── Scan status ── */
+    .scan-status {
+        padding: 8px 12px;
+    }
+
+    /* ── Album card ── */
+    .album-card-cover {
+        aspect-ratio: 1;
+    }
+
+    /* ── Format modal ── */
+    .format-preview {
+        max-height: 40vh;
+    }
+
+    /* ── Image viewer ── */
+    .image-viewer-overlay {
+        padding: 0;
+    }
+
+    .image-viewer-content {
+        width: 100%;
+        height: 100%;
+    }
+
+    /* ── Lyrics editor search panel ── */
+    .lyrics-editor-search-panel {
+        max-height: 50vh;
+    }
+
+    /* ── Batch scrape cards ── */
+    .batch-cards-container {
+        padding: 0;
+    }
+
+    .batch-card {
+        max-height: none;
+        overflow-y: auto;
+    }
+
+    /* ── Settings rows ── */
+    .settings-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .settings-row label {
+        min-width: 0;
+    }
+
+    /* ── Confirm modal ── */
+    .confirm-modal {
+        width: 90vw;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — max-width: 480px (extra small)
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 480px) {
+    .header-logo {
+        padding: 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.1em;
+    }
+
+    .nav-btn {
+        padding: 0 6px;
+        font-size: 9px;
+    }
+
+    .nav-btn .dot {
+        width: 4px;
+        height: 4px;
+    }
+
+    .albums-grid {
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stat-card {
+        padding: 12px;
+    }
+
+    .toolbar-btn {
+        font-size: 9px;
+        padding: 0 6px;
+        height: 30px;
+    }
+
+    .main-toolbar {
+        padding: 4px 8px;
+        gap: 4px;
+    }
+
+    .artist-view {
+        padding: 4px;
+    }
+
+    .pending-view {
+        padding: 8px;
+    }
+
+    .log-view {
+        padding: 6px;
+    }
+}
+
+/* ── Desktop: hide mobile sidebar toggle ── */
+@media (min-width: 769px) {
+    .mobile-sidebar-toggle {
+        display: none !important;
+    }
+
+    .mobile-sidebar-overlay {
+        display: none !important;
+    }
 }
