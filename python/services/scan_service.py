@@ -18,6 +18,7 @@ def _normalize_path(path: str) -> str:
 
 
 from utils.metadata import read_metadata, normalize_str, extract_cover_to_file
+from utils.formatting import safe_dirname
 from models.db import get_db
 from repository.track_repository import (
     get_all_track_paths,
@@ -40,8 +41,8 @@ AUDIO_EXTS = {".mp3", ".flac"}
 _ORGANIZED_FILENAME_RE = re.compile(r"^\d{2}\.\s+.+\.(?:mp3|flac)$", re.IGNORECASE)
 logger = logging.getLogger("tunetree")
 
-BATCH_SIZE = 500
-MAX_WORKERS = 8
+BATCH_SIZE = 1000
+MAX_WORKERS = min(os.cpu_count() or 4, 3)
 
 
 def _is_organized_path(filepath: Path, music_root: str) -> bool:
@@ -55,6 +56,55 @@ def _is_organized_path(filepath: Path, music_root: str) -> bool:
         return False
     filename = parts[2]
     return bool(_ORGANIZED_FILENAME_RE.match(filename))
+
+
+def _ensure_artist_local(db, name: str, library_id: int | None = None) -> int:
+    """Ensure artist exists WITHOUT committing — uses passed connection."""
+    name_norm = normalize_str(name)
+    if library_id is not None:
+        row = db.execute(
+            "SELECT id, library_id FROM artists WHERE name_normalized=? AND (library_id=? OR library_id IS NULL)",
+            (name_norm, library_id),
+        ).fetchone()
+    else:
+        row = db.execute(
+            "SELECT id, library_id FROM artists WHERE name_normalized=?" ,
+            (name_norm,),
+        ).fetchone()
+    if row is not None:
+        if library_id is not None and row["library_id"] is None:
+            db.execute("UPDATE artists SET library_id=? WHERE id=?", (library_id, row["id"]))
+        return row["id"]
+    now = time.time()
+    cursor = db.execute(
+        "INSERT INTO artists (name, name_normalized, dir_name, cover_path, library_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+        (name, name_norm, safe_dirname(name), None, library_id, now, now),
+    )
+    return cursor.lastrowid
+
+
+def _ensure_album_local(db, title: str, artist_id: int, year=None, library_id: int | None = None) -> int:
+    """Ensure album exists WITHOUT committing — uses passed connection."""
+    title_norm = normalize_str(title)
+    row = db.execute(
+        "SELECT id, year, library_id FROM albums WHERE title_normalized=? AND artist_id=?",
+        (title_norm, artist_id),
+    ).fetchone()
+    if row is not None:
+        needs_update = False
+        if year and not row["year"]:
+            db.execute("UPDATE albums SET year=? WHERE id=?", (year, row["id"]))
+            needs_update = True
+        if library_id is not None and row["library_id"] is None:
+            db.execute("UPDATE albums SET library_id=? WHERE id=?", (library_id, row["id"]))
+            needs_update = True
+        return row["id"]
+    now = time.time()
+    cursor = db.execute(
+        "INSERT INTO albums (title, title_normalized, artist_id, dir_name, year, library_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        (title, title_norm, artist_id, safe_dirname(title), year, library_id, now, now),
+    )
+    return cursor.lastrowid
 
 
 def _load_existing_tracks(library_id: int | None = None) -> dict[str, dict]:
@@ -244,16 +294,18 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
                 effective_artist = album_artist_name or artist_name
                 if effective_artist:
                     if effective_artist not in artist_id_cache:
-                        artist_id_cache[effective_artist] = ensure_artist(
-                            effective_artist, library_id=library_id
+                        db = get_db()
+                        artist_id_cache[effective_artist] = _ensure_artist_local(
+                            db, effective_artist, library_id=library_id
                         )
                     artist_id = artist_id_cache[effective_artist]
 
                     if album_name:
                         cache_key = (artist_id, normalize_str(album_name))
                         if cache_key not in album_id_cache:
-                            album_id_cache[cache_key] = ensure_album(
-                                album_name, artist_id, year=year, library_id=library_id
+                            db = get_db()
+                            album_id_cache[cache_key] = _ensure_album_local(
+                                db, album_name, artist_id, year=year, library_id=library_id
                             )
                         album_id = album_id_cache[cache_key]
 
@@ -301,21 +353,18 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
     stale_paths = existing_paths - found_paths
     if stale_paths:
         db = get_db()
-        chunk_size = 1000
         stale_list = list(stale_paths)
-        for i in range(0, len(stale_list), chunk_size):
-            chunk = stale_list[i : i + chunk_size]
-            placeholders = ",".join("?" * len(chunk))
-            artist_rows = db.execute(
-                f"SELECT DISTINCT artist FROM tracks WHERE path IN ({placeholders})",
-                tuple(chunk),
-            ).fetchall()
-            for row in artist_rows:
-                if row["artist"]:
-                    changed_artists.add(row["artist"])
-            db.execute(
-                f"DELETE FROM tracks WHERE path IN ({placeholders})", tuple(chunk)
-            )
+        placeholders = ",".join("?" * len(stale_list))
+        artist_rows = db.execute(
+            f"SELECT DISTINCT artist FROM tracks WHERE path IN ({placeholders})",
+            tuple(stale_list),
+        ).fetchall()
+        for row in artist_rows:
+            if row["artist"]:
+                changed_artists.add(row["artist"])
+        db.execute(
+            f"DELETE FROM tracks WHERE path IN ({placeholders})", tuple(stale_list)
+        )
         removed = len(stale_list)
     else:
         removed = 0
@@ -385,8 +434,8 @@ def _backfill_artist_album_ids(library_id: int | None = None):
 
         effective_artist = album_artist_name or artist_name
         if effective_artist not in artist_cache:
-            artist_cache[effective_artist] = ensure_artist(
-                effective_artist, library_id=library_id
+            artist_cache[effective_artist] = _ensure_artist_local(
+                db, effective_artist, library_id=library_id
             )
         artist_id = artist_cache[effective_artist]
 
@@ -394,8 +443,8 @@ def _backfill_artist_album_ids(library_id: int | None = None):
         if album_name:
             cache_key = (artist_id, normalize_str(album_name))
             if cache_key not in album_cache:
-                album_cache[cache_key] = ensure_album(
-                    album_name, artist_id, library_id=library_id
+                album_cache[cache_key] = _ensure_album_local(
+                    db, album_name, artist_id, library_id=library_id
                 )
             album_id = album_cache[cache_key]
 
@@ -421,12 +470,9 @@ def _ensure_covers(music_root: str):
     for artist in artists:
         artist_dir = os.path.join(music_root, artist["dir_name"])
         cover_path = os.path.join(artist_dir, ARTIST_COVER_FILENAME)
-        if os.path.exists(cover_path):
-            if not artist["cover_path"]:
-                from repository.artist_repository import update_artist
-
-                update_artist(artist["id"], cover_path=cover_path)
-                artist_cover_updated += 1
+        if os.path.exists(cover_path) and not artist["cover_path"]:
+            db.execute("UPDATE artists SET cover_path=? WHERE id=?", (cover_path, artist["id"]))
+            artist_cover_updated += 1
     if artist_cover_updated > 0:
         logger.info(f"艺术家封面更新完成：{artist_cover_updated} 个艺术家")
 
@@ -458,7 +504,7 @@ def _ensure_covers(music_root: str):
 
         if os.path.exists(cover_path):
             if not album["cover_path"]:
-                update_album(album_id, cover_path=cover_path)
+                db.execute("UPDATE albums SET cover_path=? WHERE id=?", (cover_path, album_id))
             continue
 
         first_track = db.execute(
@@ -469,7 +515,7 @@ def _ensure_covers(music_root: str):
             continue
 
         if extract_cover_to_file(first_track["path"], cover_path):
-            update_album(album_id, cover_path=cover_path)
+            db.execute("UPDATE albums SET cover_path=? WHERE id=?", (cover_path, album_id))
             extracted += 1
 
     if extracted > 0:
@@ -477,25 +523,24 @@ def _ensure_covers(music_root: str):
 
 
 def _cleanup_orphaned_artists_albums():
-    """清理不再被任何 track 引用的 artists 和 albums"""
+    """清理不再被任何 track 引用的 artists 和 albums — 单条SQL批量操作，避免逐行提交"""
     db = get_db()
 
-    orphan_albums = db.execute("""
-        SELECT al.id FROM albums al
-        WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = al.id)
-    """).fetchall()
-    for row in orphan_albums:
-        delete_album(row["id"])
+    db.execute("""
+        DELETE FROM albums WHERE NOT EXISTS (
+            SELECT 1 FROM tracks WHERE tracks.album_id = albums.id
+        )
+    """)
+    deleted_albums = db.execute("SELECT changes()").fetchone()[0]
 
-    orphan_artists = db.execute("""
-        SELECT a.id FROM artists a
-        WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.artist_id = a.id)
-    """).fetchall()
-    for row in orphan_artists:
-        delete_artist(row["id"])
+    db.execute("""
+        DELETE FROM artists WHERE NOT EXISTS (
+            SELECT 1 FROM tracks WHERE tracks.artist_id = artists.id
+        )
+    """)
+    deleted_artists = db.execute("SELECT changes()").fetchone()[0]
 
-    cleaned = len(orphan_albums) + len(orphan_artists)
-    if cleaned > 0:
+    if deleted_albums > 0 or deleted_artists > 0:
         logger.info(
-            f"清理孤立记录：{len(orphan_albums)} 个专辑，{len(orphan_artists)} 个艺术家"
+            f"清理孤立记录：{deleted_albums} 个专辑，{deleted_artists} 个艺术家"
         )

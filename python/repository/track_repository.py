@@ -704,6 +704,49 @@ def clear_op_logs(library_id: int | None = None):
     db.commit()
 
 
+def batch_update_track_metadata(updates: list[tuple[int, dict]]):
+    """批处理更新多个 track 的元数据，不逐条提交
+
+    updates: [(track_id, {field: value, ...}), ...]
+    """
+    if not updates:
+        return
+    db = get_db()
+    for track_id, fields in updates:
+        allowed = {k: v for k, v in fields.items() if k not in FORBIDDEN_UPDATE_FIELDS}
+        if not allowed:
+            continue
+        set_clause = ", ".join(f"{k}=?" for k in allowed)
+        values = list(allowed.values()) + [track_id]
+        db.execute(f"UPDATE tracks SET {set_clause} WHERE id=?", values)
+
+
+def batch_recalc_pending(track_ids: list[int]):
+    """批量重新计算 pending 状态，不逐条提交"""
+    if not track_ids:
+        return
+    db = get_db()
+    placeholders = ",".join("?" * len(track_ids))
+    rows = db.execute(
+        f"SELECT id, title, artist, album FROM tracks WHERE id IN ({placeholders})",
+        track_ids,
+    ).fetchall()
+    for row in rows:
+        missing = []
+        if not row["title"]:
+            missing.append("title")
+        if not row["artist"]:
+            missing.append("artist")
+        if not row["album"]:
+            missing.append("album")
+        pending = 1 if missing else 0
+        missing_str = ",".join(missing)
+        db.execute(
+            "UPDATE tracks SET pending=?, missing_tags=? WHERE id=?",
+            (pending, missing_str, row["id"]),
+        )
+
+
 def commit():
     """提交事务"""
     db = get_db()

@@ -217,34 +217,23 @@ def execute_format(
 
     # 收集所有原目录以便后续检查是否为空
     original_dirs = set()
+    skip_ids = []
 
     for item in preview["items"]:
-        # Skip already formatted files and mark them as organized
         if item["status"] == "skip":
             skipped += 1
-            # Mark as organized and not pending if not already
-            db = get_db()
-            existing = db.execute(
-                "SELECT organized, pending FROM tracks WHERE id=?", (item["track_id"],)
-            ).fetchone()
-            if existing and (existing["organized"] == 0 or existing["pending"] == 1):
-                db.execute(
-                    "UPDATE tracks SET organized=1, pending=0 WHERE id=?",
-                    (item["track_id"],),
-                )
+            skip_ids.append(item["track_id"])
             continue
 
-        # Skip conflict files
         if item["status"] == "conflict":
             skipped += 1
+            conflict_ids.append(item["track_id"])
             continue
 
         src = Path(item["old_path"])
         dst = Path(item["new_path"])
         try:
-            # 记录原目录
             original_dirs.add(src.parent)
-
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dst))
             update_track_path_and_name(item["track_id"], str(dst), dst.name)
@@ -258,6 +247,16 @@ def execute_format(
                 library_id=get_current_library_id(),
             )
             errors += 1
+
+    # Batch mark skipped tracks as organized (single query)
+    if skip_ids:
+        db = get_db()
+        db.execute(
+            "UPDATE tracks SET organized=1, pending=0 WHERE id IN ({}) AND (organized=0 OR pending=1)".format(
+                ",".join("?" * len(skip_ids))
+            ),
+            skip_ids,
+        )
 
     # 删除空目录（从子目录到父目录递归删除）
     for original_dir in original_dirs:

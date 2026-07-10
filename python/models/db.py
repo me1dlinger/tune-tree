@@ -5,25 +5,62 @@
 import os
 import sqlite3
 import logging
+import threading
 from flask import g
 from config import DB_PATH
 
 logger = logging.getLogger("tunetree")
 
+_local = threading.local()
+
+
+def _apply_pragmas(db: sqlite3.Connection):
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA foreign_keys=ON")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("PRAGMA cache_size=-64000")
+    db.execute("PRAGMA busy_timeout=5000")
+
+
+def _create_db_connection() -> sqlite3.Connection:
+    db = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
+    db.row_factory = sqlite3.Row
+    _apply_pragmas(db)
+    return db
+
 
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA journal_mode=WAL")
-        g.db.execute("PRAGMA foreign_keys=ON")
+        g.db = _create_db_connection()
     return g.db
+
+
+def get_db_background() -> sqlite3.Connection:
+    """Get DB connection for background threads (scheduler, scan workers).
+
+    Uses thread-local storage instead of Flask ``g`` so it works outside
+    request / app contexts.
+    """
+    if not hasattr(_local, "db") or _local.db is None:
+        _local.db = _create_db_connection()
+    return _local.db
 
 
 def close_db(exc=None):
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+def close_db_background():
+    """Close the background-thread connection, if one exists."""
+    db = getattr(_local, "db", None)
+    if db is not None:
+        try:
+            db.close()
+        except Exception:
+            pass
+        _local.db = None
 
 
 def init_db():

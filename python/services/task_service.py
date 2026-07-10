@@ -211,6 +211,15 @@ def run_scrape_task():
     # 获取待处理的歌曲（缺少标签的）
     pending_tracks = get_pending_tracks(library_id=get_current_library_id())
 
+    from repository.track_repository import (
+        batch_update_track_metadata as bulk_update,
+        batch_recalc_pending as bulk_recalc,
+    )
+
+    pending_updates: list[tuple[int, dict]] = []
+    pending_recalc: list[int] = []
+    BATCH_FLUSH = 50
+
     for track in pending_tracks:
         track_id = track["id"]
         track_path = track["path"]
@@ -231,63 +240,63 @@ def run_scrape_task():
             scraped_data = scraper.scrape(track_path, current_meta)
 
             if scraped_data:
-                # 使用最高评分的标签写入
-                updated = {}
-
-                # 写入元数据
+                # 写入元数据到文件
                 meta_fields = {}
-                for key in [
-                    "title",
-                    "artist",
-                    "album",
-                    "album_artist",
-                    "year",
-                    "track_num",
-                ]:
+                for key in ["title", "artist", "album", "album_artist", "year", "track_num"]:
                     if key in scraped_data and scraped_data[key] is not None:
                         meta_fields[key] = scraped_data[key]
 
                 if meta_fields:
                     updated = write_metadata(track_path, meta_fields)
                     if updated:
-                        update_track_metadata(track_id, updated)
+                        pending_updates.append((track_id, updated))
                         if any(k in updated for k in ("artist", "album", "title")):
-                            update_track_metadata(track_id, {"organized": 0})
+                            pending_updates.append((track_id, {"organized": 0}))
 
                 # 写入封面
-                cover_updated = False
                 if scraped_data.get("_cover_data"):
                     import base64
 
                     cover_data = base64.b64decode(scraped_data["_cover_data"])
                     write_cover(track_path, cover_data, "image/jpeg")
-                    update_track_metadata(track_id, {"has_cover": 1})
-                    cover_updated = True
+                    pending_updates.append((track_id, {"has_cover": 1}))
 
                 # 写入歌词
-                lyrics_updated = False
                 if scraped_data.get("lyrics") is not None:
                     write_lyrics(track_path, scraped_data["lyrics"])
                     has_lyrics = 1 if scraped_data["lyrics"] else 0
-                    update_track_metadata(track_id, {"has_lyrics": has_lyrics})
-                    lyrics_updated = True
+                    pending_updates.append((track_id, {"has_lyrics": has_lyrics}))
 
-                # 更新状态
-                update_track_metadata(track_id, {"scrape_failed": 0})
-                recalc_pending(track_id)
+                pending_updates.append((track_id, {"scrape_failed": 0}))
+                pending_recalc.append(track_id)
                 result["success"] += 1
 
             else:
-                # 刮削失败，标记并加入冷却
-                update_track_metadata(track_id, {"scrape_failed": 1})
+                pending_updates.append((track_id, {"scrape_failed": 1}))
                 add_track_cooldown(track_id, "scrape_failed")
                 result["failed"] += 1
 
         except Exception as e:
             logger.error(f"刮削歌曲失败 {track['filename']}: {e}")
-            update_track_metadata(track_id, {"scrape_failed": 1})
+            pending_updates.append((track_id, {"scrape_failed": 1}))
             add_track_cooldown(track_id, f"scrape_error: {str(e)}")
             result["failed"] += 1
+
+        # 批量刷新
+        if len(pending_updates) >= BATCH_FLUSH:
+            bulk_update(pending_updates)
+            if pending_recalc:
+                bulk_recalc(pending_recalc)
+            commit()
+            pending_updates.clear()
+            pending_recalc.clear()
+
+    # 刷新剩余
+    if pending_updates:
+        bulk_update(pending_updates)
+    if pending_recalc:
+        bulk_recalc(pending_recalc)
+    commit()
 
     return result
 
