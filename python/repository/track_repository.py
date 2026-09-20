@@ -4,9 +4,13 @@ Track 数据访问层
 """
 
 import os
+import time
+import logging
 from models.db import get_db
 from utils.metadata import normalize_str
 from utils.formatting import safe_dirname
+
+logger = logging.getLogger("tunetree")
 
 # === Track CRUD 操作 ===
 
@@ -626,6 +630,7 @@ def set_scan_meta(key: str, value: str):
 
 SCAN_STATUS_KEY = "scan_status"
 SCAN_START_TIME_KEY = "scan_start_time"
+SCAN_HEARTBEAT_KEY = "scan_heartbeat"
 
 
 def get_scan_status() -> dict:
@@ -661,6 +666,57 @@ def set_scan_running(start_time: float):
         "INSERT OR REPLACE INTO scan_meta VALUES (?,?)",
         (SCAN_START_TIME_KEY, str(start_time)),
     )
+    db.execute(
+        "INSERT OR REPLACE INTO scan_meta VALUES (?,?)",
+        (SCAN_HEARTBEAT_KEY, str(time.time())),
+    )
+    db.commit()
+
+
+def set_scan_heartbeat(ts: float | None = None):
+    """更新扫描心跳（用于判断扫描线程是否仍在推进）"""
+    db = get_db()
+    db.execute(
+        "INSERT OR REPLACE INTO scan_meta VALUES (?,?)",
+        (SCAN_HEARTBEAT_KEY, str(ts if ts is not None else time.time())),
+    )
+    db.commit()
+
+
+def get_scan_heartbeat() -> float | None:
+    """读取最近一次心跳时间戳（可能为 None）"""
+    db = get_db()
+    row = db.execute(
+        "SELECT value FROM scan_meta WHERE key=?", (SCAN_HEARTBEAT_KEY,)
+    ).fetchone()
+    if not row or not row["value"]:
+        return None
+    try:
+        return float(row["value"])
+    except (ValueError, TypeError):
+        return None
+
+
+def reset_stale_scan_status():
+    """复位“残留的运行中”扫描状态。
+
+    扫描状态保存在数据库里；如果进程在扫描途中被终止/崩溃，状态会停留在
+    running，导致重启服务后界面仍然显示“扫描中”且无法结束。
+    本函数供服务启动时调用——全新进程必然没有真正在跑的扫描线程，
+    此时把残留 running 重置为 idle 是最安全的兜底。
+    """
+    db = get_db()
+    status = db.execute(
+        "SELECT value FROM scan_meta WHERE key=?", (SCAN_STATUS_KEY,)
+    ).fetchone()
+    if status and status["value"] == "running":
+        logger.warning("检测到残留的扫描状态（可能由进程异常退出导致），已自动复位")
+        db.execute(
+            "INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_STATUS_KEY, "idle")
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_START_TIME_KEY, "")
+        )
     db.commit()
 
 
@@ -672,6 +728,9 @@ def set_scan_finished():
     )
     db.execute(
         "INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_START_TIME_KEY, "")
+    )
+    db.execute(
+        "INSERT OR REPLACE INTO scan_meta VALUES (?,?)", (SCAN_HEARTBEAT_KEY, "")
     )
     db.commit()
 

@@ -529,6 +529,35 @@ body {
     animation: spin 1s linear infinite;
 }
 
+/* 扫描心跳失联（可能卡住）时的警示样式 */
+.scan-status.scan-stale {
+    background: var(--amber-dim);
+    color: var(--amber);
+}
+
+.scan-status .scan-cancel-btn {
+    margin-left: auto;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-family: var(--font-sans);
+    background: var(--bg4);
+    color: var(--text);
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.scan-status .scan-cancel-btn:hover:not(:disabled) {
+    border-color: var(--red);
+    color: var(--red);
+}
+
+.scan-status .scan-cancel-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .sort-chip.spin i {
     animation: spin 1s linear infinite;
     display: inline-block;

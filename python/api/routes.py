@@ -76,8 +76,10 @@ from repository.track_repository import (
     insert_track,
     recalc_pending,
     set_scan_finished,
+    set_scan_heartbeat,
     set_scan_meta,
     set_scan_running,
+    get_scan_heartbeat,
     update_track_by_path,
     update_track_metadata,
 )
@@ -115,6 +117,12 @@ _API_EXECUTOR = ThreadPoolExecutor(max_workers=12, thread_name_prefix="api")
 
 # 扫描后台线程锁：防止并发触发多个扫描任务。
 _scan_lock = threading.Lock()
+# 当前进行中的扫描取消信号（由 /api/scan 启动、/api/scan/cancel 触发置位）。
+_scan_cancel_event: threading.Event | None = None
+
+# 心跳“失联”判定阈值：扫描循环每 20 个文件更新一次心跳；
+# 若超过该时长仍无心跳，说明扫描线程可能卡死（如卡在某个文件的 IO 上）。
+SCAN_HEARTBEAT_STALE_SECONDS = 90
 
 from services.task_service import get_app as _get_flask_app
 
@@ -262,6 +270,7 @@ def auth_verify():
 @api_bp.route("/api/scan", methods=["POST"])
 @require_auth
 def api_scan():
+    global _scan_cancel_event
     _check_scan_timeout()
 
     scan_status = get_scan_status()
@@ -281,6 +290,10 @@ def api_scan():
 
     library_id = get_current_library_id()
 
+    # 创建本轮扫描的取消信号：/api/scan/cancel 置位后，扫描循环协作式退出
+    cancel_event = threading.Event()
+    _scan_cancel_event = cancel_event
+
     # 先标记「扫描中」，保证 /api/scan 返回后前端立刻能轮询到 scanning=true。
     # 否则后台线程真正启动前，轮询可能读到上一轮的 idle 状态而误判扫描已结束（竞态）。
     set_scan_running(datetime.now().timestamp())
@@ -293,7 +306,9 @@ def api_scan():
     def _do_scan():
         """后台实际执行扫描（需要在 Flask 应用上下文中访问数据库）"""
         try:
-            result = scan_library(music_root, library_id=library_id)
+            result = scan_library(
+                music_root, library_id=library_id, cancel_event=cancel_event
+            )
             # 保存本次扫描结果，供前端在轮询/完成后展示
             try:
                 set_scan_meta(
@@ -307,6 +322,7 @@ def api_scan():
                                 "skipped",
                                 "removed",
                                 "duration",
+                                "cancelled",
                             )
                         },
                         ensure_ascii=False,
@@ -352,6 +368,12 @@ def api_scan_status():
     except Exception:  # noqa: BLE001
         last_result = None
 
+    heartbeat_age = None
+    if scan_status["scanning"]:
+        hb = get_scan_heartbeat()
+        if hb:
+            heartbeat_age = max(0, int(datetime.now().timestamp() - hb))
+
     if scan_status["scanning"] and scan_status["start_time"]:
         elapsed = int(datetime.now().timestamp() - scan_status["start_time"])
         return jsonify(
@@ -359,6 +381,7 @@ def api_scan_status():
                 "scanning": True,
                 "elapsed_seconds": elapsed,
                 "timed_out": False,
+                "heartbeat_age_seconds": heartbeat_age,
                 "last_result": last_result,
             }
         )
@@ -367,9 +390,41 @@ def api_scan_status():
             "scanning": False,
             "elapsed_seconds": 0,
             "timed_out": timed_out,
+            "heartbeat_age_seconds": None,
             "last_result": last_result,
         }
     )
+
+
+@api_bp.route("/api/scan/cancel", methods=["POST"])
+@require_auth
+def api_scan_cancel():
+    """请求停止当前扫描（协作式取消）。
+
+    置位取消事件后，扫描循环会在下一个检查点退出并尽快返回；
+    前端通过轮询 /api/scan/status 等待 scanning 变为 false。
+    """
+    global _scan_cancel_event
+
+    scan_status = get_scan_status()
+    if not scan_status["scanning"]:
+        return jsonify({"error": "not_scanning", "message": "当前没有进行中的扫描"}), 400
+
+    ev = _scan_cancel_event
+    if ev is None:
+        # 数据库标记在扫描，但本进程没有对应的扫描线程（例如另一 worker 在跑，
+        # 或状态残留）。此时无法在本进程取消，提示用户稍后重试/重启即自动复位。
+        logger.warning("收到取消请求，但本进程没有可取消的扫描事件，可能由其他进程执行")
+        return (
+            jsonify(
+                {"error": "not_cancellable", "message": "扫描由其他进程执行，无法在此取消"}
+            ),
+            409,
+        )
+
+    ev.set()
+    logger.info("用户请求取消扫描")
+    return jsonify({"ok": True, "message": "已请求停止扫描"})
 
 
 # Artists

@@ -125,6 +125,7 @@
         <div id="scan-status" class="scan-status" style="display:none;">
           <i class="bi bi-arrow-clockwise spin"></i>
           <span id="scan-status-text">正在扫描中...</span>
+          <button class="scan-cancel-btn" id="scan-cancel-btn" onclick="cancelScan()" title="停止当前扫描" style="display:none;">停止</button>
         </div>
         <div class="sidebar-tree" id="artist-tree">
           <div class="loading-row">加载中...</div>
@@ -714,7 +715,7 @@
   <script defer src="static/js/modules/metadata-edit.js?v=2"></script>
   <script defer src="static/js/modules/batch-scrape.js?v=2"></script>
   <script defer src="static/js/modules/settings.js?v=2"></script>
-  <script defer src="static/js/app.js?v=3"></script>
+  <script defer src="static/js/app.js?v=4"></script>
 </body>
 
 </html>

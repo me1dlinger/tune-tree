@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import time
+import threading
 import unicodedata
 import concurrent.futures
 from datetime import datetime
@@ -24,6 +25,7 @@ from repository.track_repository import (
     get_all_track_paths,
     delete_track_by_path,
     set_scan_meta,
+    set_scan_heartbeat,
     add_op_log,
     commit,
 )
@@ -38,6 +40,18 @@ from repository.album_repository import (
 )
 
 AUDIO_EXTS = {".mp3", ".flac"}
+
+
+def _format_duration(seconds: float) -> str:
+    """把秒数格式化为可读的中文时长字符串"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hours > 0:
+        return f"{hours}小时{minutes}分钟{secs}秒"
+    if minutes > 0:
+        return f"{minutes}分钟{secs}秒"
+    return f"{secs}秒"
 _ORGANIZED_FILENAME_RE = re.compile(r"^\d{2}\.\s+.+\.(?:mp3|flac)$", re.IGNORECASE)
 logger = logging.getLogger("tunetree")
 
@@ -227,7 +241,16 @@ def _process_file(filepath, existing_tracks, scanned_at, music_root):
         return ("insert", track_data, meta_info)
 
 
-def scan_library(root: str, library_id: int | None = None) -> dict:
+def scan_library(
+    root: str,
+    library_id: int | None = None,
+    cancel_event: threading.Event | None = None,
+) -> dict:
+    """扫描音乐库。
+
+    cancel_event: 传入 threading.Event 后可协作式取消——扫描循环会定期检查，
+    一旦被置位即停止并返回已处理的部分结果（cancelled=True）。
+    """
     root_path = Path(root)
     found_paths: set[str] = set()
     existing_tracks = _load_existing_tracks(library_id)
@@ -238,6 +261,7 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
     added = updated = skipped = 0
     scanned_at = time.time()
     scan_start_time = time.time()
+    cancelled = False
 
     changed_artists = set()
 
@@ -246,6 +270,9 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
 
     audio_files = []
     for dirpath, dirnames, filenames in os.walk(root_path):
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+            break
         dirnames[:] = [d for d in dirnames if d != ".upload_temp"]
         dirnames.sort()
         for filename in filenames:
@@ -254,16 +281,49 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
 
     logger.info(f"开始扫描：共发现 {len(audio_files)} 个音频文件")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_path = {}
+    # 手动管理执行器：取消时可用 cancel_futures 尽快丢弃尚未运行的子任务
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS)
+    future_to_path = {}
+
+    # 批处理缓存：_collect_batch 会按批落库并把已落库的列表替换为空列表，
+    # 因此后续读取必须统一走 pending（不能再用外层 pending_inserts 别名）
+    pending = {"inserts": pending_inserts, "updates": pending_updates}
+
+    def _collect_batch():
+        """按批落库，避免频繁小事务"""
+        nonlocal added, updated
+        if len(pending["inserts"]) >= BATCH_SIZE:
+            _batch_insert(get_db(), pending["inserts"])
+            added += len(pending["inserts"])
+            pending["inserts"] = []
+        if len(pending["updates"]) >= BATCH_SIZE:
+            _batch_update(get_db(), pending["updates"])
+            updated += len(pending["updates"])
+            pending["updates"] = []
+
+    try:
         for filepath in audio_files:
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
             logger.debug(f"处理文件: {filepath}")
             future = executor.submit(
                 _process_file, filepath, existing_tracks, scanned_at, root
             )
             future_to_path[future] = _normalize_path(str(filepath))
 
+        processed = 0
         for future in concurrent.futures.as_completed(future_to_path):
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
+            processed += 1
+            if processed % 20 == 0:
+                # 定期心跳：让 /api/scan/status 能判断扫描线程是否仍在推进
+                try:
+                    set_scan_heartbeat()
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 result = future.result()
                 if result is None:
@@ -296,18 +356,20 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
                 effective_artist = album_artist_name or artist_name
                 if effective_artist:
                     if effective_artist not in artist_id_cache:
-                        db = get_db()
                         artist_id_cache[effective_artist] = _ensure_artist_local(
-                            db, effective_artist, library_id=library_id
+                            get_db(), effective_artist, library_id=library_id
                         )
                     artist_id = artist_id_cache[effective_artist]
 
                     if album_name:
                         cache_key = (artist_id, normalize_str(album_name))
                         if cache_key not in album_id_cache:
-                            db = get_db()
                             album_id_cache[cache_key] = _ensure_album_local(
-                                db, album_name, artist_id, year=year, library_id=library_id
+                                get_db(),
+                                album_name,
+                                artist_id,
+                                year=year,
+                                library_id=library_id,
                             )
                         album_id = album_id_cache[cache_key]
 
@@ -319,38 +381,52 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
                 )
 
                 if op_type == "insert":
-                    pending_inserts.append(extended_data)
+                    pending["inserts"].append(extended_data)
                     if artist_name:
                         changed_artists.add(artist_name)
                 elif op_type == "update":
-                    pending_updates.append(extended_data + (existing_id,))
+                    pending["updates"].append(extended_data + (existing_id,))
                     if artist_name:
                         changed_artists.add(artist_name)
 
-                if len(pending_inserts) >= BATCH_SIZE:
-                    db = get_db()
-                    _batch_insert(db, pending_inserts)
-                    added += len(pending_inserts)
-                    pending_inserts = []
-
-                if len(pending_updates) >= BATCH_SIZE:
-                    db = get_db()
-                    _batch_update(db, pending_updates)
-                    updated += len(pending_updates)
-                    pending_updates = []
+                _collect_batch()
 
             except Exception as e:
                 logger.error(f"处理文件时出错: {e}")
+    finally:
+        # 取消时尽快丢弃尚未启动的子任务，不等待它们
+        executor.shutdown(wait=False, cancel_futures=True)
+        # 注意：executor 线程若仍在解析大文件，会在进程结束前自然退出，
+        # 这里选择 wait=False 以便取消请求能尽快返回。
 
-    if pending_inserts:
-        db = get_db()
-        _batch_insert(db, pending_inserts)
-        added += len(pending_inserts)
+    # 收尾落库：_collect_batch 会把快满的批落库并列重置为空，这里 flush 剩余记录
+    if pending["inserts"]:
+        _batch_insert(get_db(), pending["inserts"])
+        added += len(pending["inserts"])
 
-    if pending_updates:
-        db = get_db()
-        _batch_update(db, pending_updates)
-        updated += len(pending_updates)
+    if pending["updates"]:
+        _batch_update(get_db(), pending["updates"])
+        updated += len(pending["updates"])
+
+    if cancelled:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        add_op_log(
+            now,
+            "scan",
+            f"扫描被用户取消（已处理 {added + updated + skipped} 个文件：新增 {added} 更新 {updated} 跳过 {skipped}）",
+            library_id=library_id,
+        )
+        logger.info("扫描被用户取消：新增 %d 更新 %d 跳过 %d", added, updated, skipped)
+        commit()
+        return {
+            "added": added,
+            "updated": updated,
+            "skipped": skipped,
+            "removed": 0,
+            "duration": _format_duration(time.time() - scan_start_time),
+            "cancelled": True,
+            "changed_artists": list(changed_artists),
+        }
 
     stale_paths = existing_paths - found_paths
     if stale_paths:
@@ -376,15 +452,7 @@ def scan_library(root: str, library_id: int | None = None) -> dict:
     _cleanup_orphaned_artists_albums()
 
     scan_duration = time.time() - scan_start_time
-    hours = int(scan_duration // 3600)
-    minutes = int((scan_duration % 3600) // 60)
-    seconds = int(scan_duration % 60)
-    duration_str = ""
-    if hours > 0:
-        duration_str += f"{hours}小时"
-    if minutes > 0 or hours > 0:
-        duration_str += f"{minutes}分钟"
-    duration_str += f"{seconds}秒"
+    duration_str = _format_duration(scan_duration)
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     set_scan_meta("last_scan", now)

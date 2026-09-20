@@ -60,14 +60,26 @@ async function initApp() {
    SCAN
 ═══════════════════════════════════════════════════════════ */
 
-function setScanningUI(scanning, elapsedSeconds = 0) {
+/**
+ * 扫描中 UI 的完整刷新。
+ * @param {boolean} scanning
+ * @param {number} [elapsedSeconds]
+ * @param {number|null} [heartbeatAgeSeconds] 心跳失联秒数（来自 /scan/status）
+ * @param {boolean} [cancelling] 正在请求取消中
+ */
+function setScanningUI(scanning, elapsedSeconds = 0, heartbeatAgeSeconds = null, cancelling = false) {
   isScanning = scanning;
   const btn = document.getElementById('scan-btn');
   const statusEl = document.getElementById('scan-status');
   const statusText = document.getElementById('scan-status-text');
+  const cancelBtn = document.getElementById('scan-cancel-btn');
 
-  if (btn) btn.disabled = scanning;
+  if (btn) btn.disabled = scanning || cancelling;
   if (statusEl) statusEl.style.display = scanning ? 'flex' : 'none';
+  if (cancelBtn) {
+    cancelBtn.style.display = scanning && cancelling ? 'none' : (scanning ? '' : 'none');
+    cancelBtn.disabled = cancelling;
+  }
 
   if (statusText && scanning) {
     const hours = Math.floor(elapsedSeconds / 3600);
@@ -77,8 +89,24 @@ function setScanningUI(scanning, elapsedSeconds = 0) {
     if (hours > 0) timeStr += `${hours}小时`;
     if (minutes > 0 || hours > 0) timeStr += `${minutes}分钟`;
     timeStr += `${seconds}秒`;
-    statusText.textContent = `扫描中... ${timeStr}`;
+
+    let extra = '';
+    if (cancelling) {
+      extra = ' · 正在停止…';
+    } else if (heartbeatAgeSeconds != null && heartbeatAgeSeconds > 90) {
+      extra = ` · 停留 ${formatHeartbeat(heartbeatAgeSeconds)}，可能已卡住，可点击停止`;
+    }
+    statusText.textContent = `扫描中... ${timeStr}${extra}`;
+
+    // 心跳失联时给状态条加警示样式
+    const stale = heartbeatAgeSeconds != null && heartbeatAgeSeconds > 90;
+    if (statusEl) statusEl.classList.toggle('scan-stale', stale);
   }
+}
+
+function formatHeartbeat(sec) {
+  if (sec >= 60) return `${Math.floor(sec / 60)}分${sec % 60}秒`;
+  return `${sec}秒`;
 }
 
 /**
@@ -110,7 +138,9 @@ function pollScanUntilDone(onTick) {
 
 /** 扫描结束后的统一处理：结果提示 + 刷新各页面数据 */
 async function afterScanFinished(result) {
-  if (result) {
+  if (result && result.cancelled) {
+    showToast('扫描已停止', 'info');
+  } else if (result) {
     const parts = [
       `新增 ${result.added ?? 0}`,
       `更新 ${result.updated ?? 0}`,
@@ -139,12 +169,35 @@ async function afterScanFinished(result) {
 
 /** 页面加载时发现扫描已在运行：跟随它直到结束并刷新数据 */
 async function followScanUntilDone() {
-  const final = await pollScanUntilDone(s => setScanningUI(true, s.elapsed_seconds));
+  const final = await pollScanUntilDone(s => setScanningUI(true, s.elapsed_seconds, s.heartbeat_age_seconds));
   setScanningUI(false);
   if (final && final.timed_out) {
     showToast('扫描已超时，可重新扫描', 'warning');
     return;
   }
+  await afterScanFinished(final ? final.last_result : null);
+}
+
+/**
+ * 请求停止当前扫描。
+ * 置位后端取消事件后，后端扫描循环会在下一个检查点退出；这里继续轮询直到结束。
+ */
+async function cancelScan() {
+  if (!isScanning) return;
+  setScanningUI(true, 0, null, true); // 禁用按钮并显示“正在停止…”
+  try {
+    await POST('/scan/cancel', {});
+  } catch (e) {
+    if (e.message === 'not_scanning') {
+      setScanningUI(false);
+      return;
+    }
+    showToast('停止失败: ' + e.message, 'error');
+    setScanningUI(true);
+    return;
+  }
+  const final = await pollScanUntilDone(s => setScanningUI(true, s.elapsed_seconds, s.heartbeat_age_seconds, true));
+  setScanningUI(false);
   await afterScanFinished(final ? final.last_result : null);
 }
 
@@ -155,6 +208,10 @@ async function doScan() {
     return;
   }
 
+  // 关键：在发起请求前就置为扫描中（禁用按钮 + 置位 isScanning），
+  // 杜绝快速连点导致并发触发多个扫描请求。
+  setScanningUI(true);
+
   let started;
   try {
     started = await POST('/scan', {});
@@ -164,23 +221,25 @@ async function doScan() {
     } else {
       showToast('扫描失败: ' + e.message, 'error');
     }
+    setScanningUI(false);
     return;
   }
 
   // 兼容后端同步返回扫描结果的旧行为
   if (started && (started.added != null || started.updated != null || started.removed != null)) {
+    setScanningUI(false);
     await afterScanFinished(started);
     return;
   }
 
   if (!started || !started.started) {
     showToast('扫描未能启动', 'error');
+    setScanningUI(false);
     return;
   }
 
   // 后端异步执行：轮询状态直到扫描结束，再取本轮结果
-  setScanningUI(true);
-  const final = await pollScanUntilDone(s => setScanningUI(true, s.elapsed_seconds));
+  const final = await pollScanUntilDone(s => setScanningUI(true, s.elapsed_seconds, s.heartbeat_age_seconds));
   setScanningUI(false);
 
   if (final && final.timed_out) {
