@@ -300,7 +300,7 @@ async function searchArtistStats(query) {
         ${artists.map(a => `
           <div class="as-search-item" onclick="showArtistSearchDetail(${a.id})">
             <div class="as-search-icon">
-              ${a.cover_path ? `<img src="/api/artists/${a.id}/cover?token=${TOKEN}" alt="">` : '<i class="bi bi-person-circle"></i>'}
+              ${a.cover_path ? `<img src="/api/artists/${a.id}/cover?token=${TOKEN}" alt="" loading="lazy" decoding="async">` : '<i class="bi bi-person-circle"></i>'}
             </div>
             <div class="as-search-info">
               <div class="as-search-name">${esc(a.name)}</div>

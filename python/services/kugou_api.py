@@ -4,11 +4,41 @@
 
 import io
 import logging
+import threading
 from typing import List, Dict, Optional
 from PIL import Image
 import requests
+from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger("tunetree")
+
+
+_HTTP_SESSION_LOCAL = threading.local()
+
+
+def _get_http_session() -> requests.Session:
+    """获取当前线程复用的 requests.Session（连接池 + 少量重试）。
+
+    Session 非线程安全，按线程持有以避免并发外呼时的状态竞争。
+    """
+    session = getattr(_HTTP_SESSION_LOCAL, "session", None)
+    if session is None:
+        from urllib3.util.retry import Retry
+
+        retry = Retry(
+            total=1,
+            connect=1,
+            read=1,
+            backoff_factor=0.2,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=["GET", "POST"],
+        )
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16, max_retries=retry)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _HTTP_SESSION_LOCAL.session = session
+    return session
 
 
 class KugouApi:
@@ -31,7 +61,7 @@ class KugouApi:
         """
         keyword = keyword.replace("|", "").replace("!", "").replace("@", "").replace("#", "").replace("$", "").replace("%", "").replace("^", "").replace("&", "").replace("*", "").replace("/", "").replace("+", "")
         search_url = 'http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={}&page={}&pagesize=10&showtype=1'
-        res_json = requests.get(search_url.format(keyword, page), headers={'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:7.0a1) Gecko/20110623 Firefox/7.0a1 Fennec/7.0a1'}, timeout=10).json()
+        res_json = _get_http_session().get(search_url.format(keyword, page), headers={'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:7.0a1) Gecko/20110623 Firefox/7.0a1 Fennec/7.0a1'}, timeout=10).json()
         song_info_list = []
         if 'data' not in res_json or 'info' not in res_json['data']:
             return song_info_list
@@ -53,7 +83,7 @@ class KugouApi:
         song_info_url = 'http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={}'
         album_info_url = 'http://mobilecdn.kugou.com/api/v3/album/info?albumid={}&plat=0&pagesize=10&area_code=1'
         header = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:7.0a1) Gecko/20110623 Firefox/7.0a1 Fennec/7.0a1'}
-        song_json = requests.get(song_info_url.format(hash), headers=header, timeout=10).json()
+        song_json = _get_http_session().get(song_info_url.format(hash), headers=header, timeout=10).json()
         if(song_json.get("errcode") == 1002):
             return {
             "errcode": song_json.get("errcode", "")
@@ -66,7 +96,7 @@ class KugouApi:
         year = None
         if album_id and album_id != 0:
             try:
-                album_json = requests.get(album_info_url.format(album_id), headers=header, timeout=10).json()
+                album_json = _get_http_session().get(album_info_url.format(album_id), headers=header, timeout=10).json()
                 if 'data' in album_json:
                     album = album_json["data"].get("albumname")
                     year = album_json["data"].get("publishtime")
@@ -77,7 +107,7 @@ class KugouApi:
         pic_url = album_img.replace("/{size}/", "/")
         if pic_url:
             try:
-                pic_response = requests.get(pic_url, timeout=10)
+                pic_response = _get_http_session().get(pic_url, timeout=10)
                 pic_response.raise_for_status()
                 with Image.open(io.BytesIO(pic_response.content)) as img:
                     if img.mode != 'RGB':

@@ -4,6 +4,7 @@ Flask + Python 3.13 + SQLite + mutagen
 主应用入口
 """
 import os
+import gzip
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from flask import Flask, request
@@ -57,6 +58,10 @@ app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2GB
 # 注册蓝图
 app.register_blueprint(api_bp)
 
+# 在模块加载时就设置 Flask 实例，供后台线程（扫描/后台工作）获取应用上下文。
+# 这保证无论是 `python app.py` 还是 WSGI 入口（wsgi.py）都能正常使用 get_app()。
+set_app(app)
+
 
 # 静态资源缓存策略：
 #  - /static/* 已由前端 URL 通过 ?v= 做版本控制，允许长期缓存
@@ -68,6 +73,36 @@ def _apply_cache_headers(resp):
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     elif path == "/" or path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+# JSON 响应 gzip 压缩：
+#  - 只处理普通 JSON 响应（跳过音频 Range 流、封面、ZIP 等直通/流式响应）
+#  - 仅在客户端声明支持 gzip 且体积足够大时才压缩，避免得不偿失
+_GZIP_MIN_BYTES = 1024
+
+
+@app.after_request
+def _gzip_json_response(resp):
+    try:
+        if (
+            resp.status_code == 200
+            and resp.mimetype == "application/json"
+            and not resp.direct_passthrough
+            and not resp.is_streamed
+            and "gzip" in (request.headers.get("Accept-Encoding") or "").lower()
+        ):
+            data = resp.get_data()
+            if len(data) >= _GZIP_MIN_BYTES:
+                compressed = gzip.compress(data, compresslevel=5)
+                if len(compressed) < len(data):
+                    resp.set_data(compressed)
+                    resp.headers["Content-Encoding"] = "gzip"
+                    resp.headers["Content-Length"] = str(len(compressed))
+                    resp.headers.add("Vary", "Accept-Encoding")
+    except Exception:
+        # 压缩失败不应影响正常响应
+        logger.debug("gzip compression skipped", exc_info=True)
     return resp
 
 

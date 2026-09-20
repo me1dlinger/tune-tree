@@ -1229,6 +1229,11 @@ body {
     margin-top: 4px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    /* 性能：艺术家视图会一次性渲染全部专辑的曲目区块，
+       content-visibility 让浏览器跳过视口外区块的布局与绘制，
+       显著降低滚动 / 点击时的卡顿；auto 会记住上次渲染尺寸避免滚动跳动。 */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 360px;
 }
 
 .track-section-header {
@@ -6897,5 +6902,41 @@ body {
 
     .view-switch-btn {
         padding: 0 8px;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PERFORMANCE & MOTION
+   ═══════════════════════════════════════════════════════════ */
+
+/* 页面切换：轻微淡入上移，让切换更顺滑 */
+@keyframes tt-page-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.page.active {
+    animation: tt-page-in 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* 曲目区块：渲染/展开时的轻微淡入（区块数量有限，且有 content-visibility 兜底） */
+@keyframes tt-section-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.track-section {
+    animation: tt-section-in 0.16s ease both;
+}
+
+/* 尊重系统「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
     }
 }

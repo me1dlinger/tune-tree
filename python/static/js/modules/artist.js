@@ -261,6 +261,13 @@ function filterArtists(q) {
   renderArtistTree(getSortedArtists(toRender));
 }
 
+// 搜索框输入去抖：避免每次按键都重建整棵艺术家树（列表很大时明显卡顿）。
+let _artistSearchTimer = null;
+function onArtistSearchInput(q) {
+  clearTimeout(_artistSearchTimer);
+  _artistSearchTimer = setTimeout(() => filterArtists(q), 160);
+}
+
 /* ═══════════════════════════════════════════════════════════
    ARTIST SORTING
 ═══════════════════════════════════════════════════════════ */
@@ -674,6 +681,8 @@ let artistTracksCache = {};
  * @param {HTMLElement|null} albumsEl — 侧边栏专辑容器（null 表示仅刷新主视图）
  */
 async function selectArtist(artistId, albumsEl) {
+  // 递增令牌作废未完成的旧渲染，防止快速切换艺术家时数据错位
+  const token = ++viewRenderToken;
   currentArtist = allArtists.find(a => a.id === artistId);
   currentAlbum = null;
   selectedAlbums.clear();
@@ -685,8 +694,11 @@ async function selectArtist(artistId, albumsEl) {
 
     if (!fullInfo) {
       fullInfo = await GET(`/artists/${artistId}/full`);
+      if (token !== viewRenderToken) return; // 已切换到其他艺术家
       setArtistToCache(artistId, fullInfo);
     }
+
+    if (token !== viewRenderToken) return;
 
     artistAlbums = fullInfo.albums;
 
@@ -715,7 +727,9 @@ async function selectArtist(artistId, albumsEl) {
       console.debug(`Artist ${artistId} loaded from API`);
     }
   } catch (e) {
-    showToast('加载失败: ' + e.message, 'error');
+    if (token === viewRenderToken) {
+      showToast('加载失败: ' + e.message, 'error');
+    }
   }
 }
 
@@ -726,9 +740,28 @@ async function selectArtist(artistId, albumsEl) {
  * @param {string} album
  */
 async function selectAlbumFromTree(artistId, albumId) {
-  if (!currentArtist || currentArtist.id !== artistId) {
-    await selectArtist(artistId, null);
+  if (currentArtist && currentArtist.id === artistId) {
+    // 目标是当前艺术家：主视图已渲染全量内容，仅需切换显隐，避免整页重渲染
+    document.querySelectorAll('.tree-album').forEach(el => el.classList.remove('active'));
+    const card = document.getElementById('talbcard-' + albumId);
+    if (card) card.classList.add('active');
+    currentAlbum = albumId;
+    selectedAlbums.clear();
+    selectedTracks.clear();
+
+    const a = currentArtist;
+    const albumObj = artistAlbums.find(al => al.id === albumId);
+    let bc = `<span>${esc(a.name)}</span>`;
+    if (albumObj) bc += `<span class="sep">/</span><span>${esc(albumObj.title)}</span>`;
+    document.getElementById('breadcrumb').innerHTML = bc;
+
+    applyAlbumVisibility();
+    updateToolbar();
+    switchPage('artist');
+    return;
   }
+
+  await selectArtist(artistId, null);
 
   document.querySelectorAll('.tree-album').forEach(el => el.classList.remove('active'));
   const card = document.getElementById('talbcard-' + albumId);
@@ -736,7 +769,8 @@ async function selectAlbumFromTree(artistId, albumId) {
   currentAlbum = albumId;
   selectedAlbums.clear();
   selectedTracks.clear();
-  renderArtistView();
+  applyAlbumVisibility();
+  updateToolbar();
   switchPage('artist');
 }
 
@@ -749,6 +783,46 @@ let artistCoverCache = {};
 
 /** 专辑封面缓存 */
 let albumCoverCache = {};
+
+/**
+ * 封面存在性缓存：{ artist: {id: bool}, album: {id: bool} }
+ * 通过一次批量接口获取，避免每个专辑各发一次 /cover/exists 请求；
+ * 重复渲染（展开/勾选专辑等）时直接命中缓存，不再产生网络往返。
+ */
+let coverExistsCache = { artist: {}, album: {} };
+
+/** 视图渲染令牌：防止快速切换艺术家时，旧的异步封面加载覆盖新视图 */
+let viewRenderToken = 0;
+
+/** 清除封面存在性缓存（扫描/格式化后目录可能变化时调用） */
+function clearCoverCache() {
+  coverExistsCache = { artist: {}, album: {} };
+}
+
+/**
+ * 批量获取封面存在性并缓存。
+ * @param {number[]} albumIds
+ * @param {number[]} [artistIds]
+ * @returns {Promise<boolean>} 是否成功拿到结果（网络失败返回 false，不写缓存）
+ */
+async function batchFetchCoverExists(albumIds, artistIds) {
+  const needAlbums = (albumIds || []).filter(id => !(id in coverExistsCache.album));
+  const needArtists = (artistIds || []).filter(id => !(id in coverExistsCache.artist));
+  if (needAlbums.length === 0 && needArtists.length === 0) return true;
+
+  try {
+    const res = await POST('/covers/batch', {
+      album_ids: needAlbums,
+      artist_ids: needArtists,
+    });
+    if (res && res.albums) Object.assign(coverExistsCache.album, res.albums);
+    if (res && res.artists) Object.assign(coverExistsCache.artist, res.artists);
+    return true;
+  } catch (e) {
+    // 网络失败时不写缓存，避免把“不存在”的错误结论缓存下来
+    return false;
+  }
+}
 
 function artistCoverUrl(artistId) {
   const bust = artistCoverCache[artistId] ? `&_t=${Date.now()}` : '';
@@ -771,6 +845,7 @@ async function scrapeArtistCover(artistId) {
     }
 
     artistCoverCache[artistId] = true;
+    coverExistsCache.artist[artistId] = true;
     await loadArtistCover(artistId);
     showToast('歌手头像搜索成功', 'success');
   } catch (err) {
@@ -924,6 +999,7 @@ async function applyAvatarFromUrl(artistId, picUrl) {
     }
 
     artistCoverCache[artistId] = true;
+    coverExistsCache.artist[artistId] = true;
     closeAvatarSearchModal();
     await loadArtistCover(artistId);
     showToast('艺术家头像已应用', 'success');
@@ -943,6 +1019,7 @@ async function deleteArtistCover(artistId) {
     }
 
     delete artistCoverCache[artistId];
+    delete coverExistsCache.artist[artistId];
     await loadArtistCover(artistId);
     showToast('歌手头像已删除', 'success');
   } catch (err) {
@@ -954,175 +1031,183 @@ async function loadArtistCover(artistId) {
   const coverEl = document.getElementById('artist-cover-img');
   if (!coverEl) return;
 
+  const token = viewRenderToken;
   coverEl.className = 'artist-cover';
   coverEl.onclick = null;
   coverEl.innerHTML = `<i class="bi bi-person" style="font-size: 36px;"></i>`;
 
-  try {
-    const exists = await GET(`/artists/${artistId}/cover/exists`);
-    if (exists.exists) {
-      const img = document.createElement('img');
-      img.className = 'artist-cover-image';
-      img.src = artistCoverUrl(artistId);
-      img.alt = currentArtist ? currentArtist.name : '';
-      img.style.cursor = 'zoom-in';
-      img.onclick = (e) => {
-        e.stopPropagation();
-        const safeName = (currentArtist ? currentArtist.name : 'unknown').replace(/[\\/:*?"<>|]/g, '_');
-        openCoverImageViewer(img.src, safeName);
-      };
-      img.onerror = () => {
-        coverEl.innerHTML = `<i class="bi bi-person" style="font-size: 36px;"></i>`;
-        coverEl.onclick = () => uploadArtistCover(artistId);
-      };
+  // 命中缓存则不再请求；否则一次性批量获取存在性（命中 or 失败都会退出）
+  let ok = true;
+  if (!(artistId in coverExistsCache.artist)) {
+    ok = await batchFetchCoverExists([], [artistId]);
+    if (token !== viewRenderToken) return;
+  }
 
-      const actionsDiv = document.createElement('div');
-      actionsDiv.className = 'artist-cover-actions';
-      actionsDiv.innerHTML = `
-        <button class="artist-cover-btn" title="从本地上传">
-          <i class="bi bi-upload"></i>
-        </button>
-        <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
-          <i class="bi bi-cloud-download"></i>
-        </button>
-        <button class="artist-cover-btn" id="more-cover-btn" title="更多头像">
-          <i class="bi bi-three-dots"></i>
-        </button>
-        <button class="artist-cover-btn" id="delete-cover-btn" title="删除头像">
-          <i class="bi bi-trash"></i>
-        </button>
-      `;
-      actionsDiv.querySelectorAll('button')[0].onclick = (e) => {
-        e.stopPropagation();
-        uploadArtistCover(artistId);
-      };
-      actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
-        e.stopPropagation();
-        scrapeArtistCover(artistId);
-      };
-      actionsDiv.querySelector('#more-cover-btn').onclick = (e) => {
-        e.stopPropagation();
-        openAvatarSearchModal(artistId);
-      };
-      actionsDiv.querySelector('#delete-cover-btn').onclick = (e) => {
-        e.stopPropagation();
-        deleteArtistCover(artistId);
-      };
+  const has = !!coverExistsCache.artist[artistId];
 
-      coverEl.innerHTML = '';
-      coverEl.appendChild(img);
-      coverEl.appendChild(actionsDiv);
-    } else {
-      const actionsDiv = document.createElement('div');
-      actionsDiv.className = 'artist-cover-actions';
-      actionsDiv.innerHTML = `
-        <button class="artist-cover-btn" id="upload-cover-btn" title="从本地上传">
-          <i class="bi bi-upload"></i>
-        </button>
-        <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
-          <i class="bi bi-cloud-download"></i>
-        </button>
-        <button class="artist-cover-btn" id="more-cover-btn" title="更多头像">
-          <i class="bi bi-three-dots"></i>
-        </button>
-      `;
-      actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
-        e.stopPropagation();
-        uploadArtistCover(artistId);
-      };
-      actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
-        e.stopPropagation();
-        scrapeArtistCover(artistId);
-      };
-      actionsDiv.querySelector('#more-cover-btn').onclick = (e) => {
-        e.stopPropagation();
-        openAvatarSearchModal(artistId);
-      };
-      coverEl.appendChild(actionsDiv);
-    }
-  } catch (e) {
+  if (ok && has) {
+    const img = document.createElement('img');
+    img.className = 'artist-cover-image';
+    img.src = artistCoverUrl(artistId);
+    img.alt = currentArtist ? currentArtist.name : '';
+    img.style.cursor = 'zoom-in';
+    img.onclick = (e) => {
+      e.stopPropagation();
+      const safeName = (currentArtist ? currentArtist.name : 'unknown').replace(/[\\/:*?"<>|]/g, '_');
+      openCoverImageViewer(img.src, safeName);
+    };
+    img.onerror = () => {
+      coverEl.innerHTML = `<i class="bi bi-person" style="font-size: 36px;"></i>`;
+      coverEl.onclick = () => uploadArtistCover(artistId);
+    };
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'artist-cover-actions';
+    actionsDiv.innerHTML = `
+      <button class="artist-cover-btn" title="从本地上传">
+        <i class="bi bi-upload"></i>
+      </button>
+      <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
+        <i class="bi bi-cloud-download"></i>
+      </button>
+      <button class="artist-cover-btn" id="more-cover-btn" title="更多头像">
+        <i class="bi bi-three-dots"></i>
+      </button>
+      <button class="artist-cover-btn" id="delete-cover-btn" title="删除头像">
+        <i class="bi bi-trash"></i>
+      </button>
+    `;
+    actionsDiv.querySelectorAll('button')[0].onclick = (e) => {
+      e.stopPropagation();
+      uploadArtistCover(artistId);
+    };
+    actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
+      e.stopPropagation();
+      scrapeArtistCover(artistId);
+    };
+    actionsDiv.querySelector('#more-cover-btn').onclick = (e) => {
+      e.stopPropagation();
+      openAvatarSearchModal(artistId);
+    };
+    actionsDiv.querySelector('#delete-cover-btn').onclick = (e) => {
+      e.stopPropagation();
+      deleteArtistCover(artistId);
+    };
+
+    coverEl.innerHTML = '';
+    coverEl.appendChild(img);
+    coverEl.appendChild(actionsDiv);
+  } else {
+    // 无封面（或存在性未知时的保守处理）：占位图 + 上传/刮削/更多
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'artist-cover-actions';
     actionsDiv.innerHTML = `
       <button class="artist-cover-btn" id="upload-cover-btn" title="从本地上传">
         <i class="bi bi-upload"></i>
       </button>
+      <button class="artist-cover-btn" id="scrape-cover-btn" title="从网易云获取">
+        <i class="bi bi-cloud-download"></i>
+      </button>
+      <button class="artist-cover-btn" id="more-cover-btn" title="更多头像">
+        <i class="bi bi-three-dots"></i>
+      </button>
     `;
     actionsDiv.querySelector('#upload-cover-btn').onclick = (e) => {
       e.stopPropagation();
       uploadArtistCover(artistId);
     };
+    actionsDiv.querySelector('#scrape-cover-btn').onclick = (e) => {
+      e.stopPropagation();
+      scrapeArtistCover(artistId);
+    };
+    actionsDiv.querySelector('#more-cover-btn').onclick = (e) => {
+      e.stopPropagation();
+      openAvatarSearchModal(artistId);
+    };
     coverEl.appendChild(actionsDiv);
   }
 }
 
-async function loadAlbumCovers(albums) {
-  // 并行发起封面检测/加载，避免大量专辑时逐张串行等待拖慢首屏
-  const tasks = albums.map(async (al) => {
-    const wrap = document.getElementById('alcw-' + al.id);
-    if (!wrap) return;
-
-    try {
-      const exists = await GET(`/albums/${al.id}/cover/exists`);
-      if (exists.exists) {
-        const img = document.createElement('img');
-        img.className = 'album-cover-img';
-        img.src = albumCoverUrl(al.id);
-        img.alt = al.title || '';
-        img.loading = 'lazy';
-        img.style.cursor = 'zoom-in';
-        img.onclick = (e) => {
-          e.stopPropagation();
-          const artistName = currentArtist ? currentArtist.name : 'unknown';
-          const albumTitle = al.title || 'unknown';
-          const safeName = `${artistName} - ${albumTitle}`.replace(/[\\/:*?"<>|]/g, '_');
-          openCoverImageViewer(img.src, safeName);
-        };
-        img.onerror = () => {
-          img.style.display = 'none';
-          const ph = wrap.querySelector('.album-cover-placeholder');
-          if (ph) ph.style.display = '';
-          const actions = wrap.querySelector('.album-cover-actions');
-          if (actions) actions.remove();
-        };
-        img.onload = () => {
-          const ph = wrap.querySelector('.album-cover-placeholder');
-          if (ph) ph.style.display = 'none';
-        };
-        wrap.insertBefore(img, wrap.firstChild);
-
-        const actionsDiv = document.createElement('div');
-        actionsDiv.className = 'album-cover-actions';
-        actionsDiv.innerHTML = `
-          <button class="album-cover-btn" title="上传封面">
-            <i class="bi bi-upload"></i>
-          </button>
-        `;
-        actionsDiv.querySelector('button').onclick = (e) => {
-          e.stopPropagation();
-          uploadAlbumCover(al.id);
-        };
-        wrap.appendChild(actionsDiv);
-      } else {
-        const actionsDiv = document.createElement('div');
-        actionsDiv.className = 'album-cover-actions';
-        actionsDiv.innerHTML = `
-          <button class="album-cover-btn" title="上传封面">
-            <i class="bi bi-upload"></i>
-          </button>
-        `;
-        actionsDiv.querySelector('button').onclick = (e) => {
-          e.stopPropagation();
-          uploadAlbumCover(al.id);
-        };
-        wrap.appendChild(actionsDiv);
-      }
-    } catch (e) {
-      // ignore — placeholder stays
-    }
-  });
-  await Promise.all(tasks);
+/**
+ * 为专辑封面容器追加“上传封面”操作按钮（仅一次）
+ */
+function addAlbumCoverActions(wrap, albumId) {
+  if (wrap.querySelector('.album-cover-actions')) return;
+  const actionsDiv = document.createElement('div');
+  actionsDiv.className = 'album-cover-actions';
+  actionsDiv.innerHTML = `
+    <button class="album-cover-btn" title="上传封面">
+      <i class="bi bi-upload"></i>
+    </button>
+  `;
+  actionsDiv.querySelector('button').onclick = (e) => {
+    e.stopPropagation();
+    uploadAlbumCover(albumId);
+  };
+  wrap.appendChild(actionsDiv);
 }
+
+async function loadAlbumCovers(albums) {
+  // 收集尚未处理的封面容器（带图片或已挂操作按钮的视为已处理），
+  // 批量查询存在性后统一填充，避免每个专辑一次网络请求。
+  const token = viewRenderToken;
+  const wrapById = {};
+  const pendingIds = [];
+
+  for (const al of albums) {
+    if (!al || al.id == null) continue;
+    const wrap = document.getElementById('alcw-' + al.id);
+    if (!wrap) continue;
+    if (wrap.querySelector('.album-cover-img') || wrap.querySelector('.album-cover-actions')) continue;
+    wrapById[al.id] = wrap;
+    pendingIds.push(al.id);
+  }
+
+  if (pendingIds.length === 0) return;
+
+  const ok = await batchFetchCoverExists(pendingIds);
+  if (token !== viewRenderToken) return;
+
+  for (const albumId of pendingIds) {
+    const wrap = wrapById[albumId];
+    if (!wrap || !wrap.isConnected) continue;
+    const al = artistAlbums.find(x => x.id === albumId) || albums.find(x => x.id === albumId);
+    if (!al) continue;
+
+    if (ok && coverExistsCache.album[albumId]) {
+      const img = document.createElement('img');
+      img.className = 'album-cover-img';
+      img.src = albumCoverUrl(al.id);
+      img.alt = al.title || '';
+      img.loading = 'lazy';
+      img.style.cursor = 'zoom-in';
+      img.onclick = (e) => {
+        e.stopPropagation();
+        const artistName = currentArtist ? currentArtist.name : 'unknown';
+        const albumTitle = al.title || 'unknown';
+        const safeName = `${artistName} - ${albumTitle}`.replace(/[\\/:*?"<>|]/g, '_');
+        openCoverImageViewer(img.src, safeName);
+      };
+      img.onerror = () => {
+        img.style.display = 'none';
+        const ph = wrap.querySelector('.album-cover-placeholder');
+        if (ph) ph.style.display = '';
+        const actions = wrap.querySelector('.album-cover-actions');
+        if (actions) actions.remove();
+      };
+      img.onload = () => {
+        const ph = wrap.querySelector('.album-cover-placeholder');
+        if (ph) ph.style.display = 'none';
+      };
+      wrap.insertBefore(img, wrap.firstChild);
+      addAlbumCoverActions(wrap, al.id);
+    } else {
+      // 无封面或状态未知：保留占位图，并始终提供上传入口
+      addAlbumCoverActions(wrap, al.id);
+    }
+  }
+}
+
 
 function uploadAlbumCover(albumId) {
   const input = document.createElement('input');
@@ -1147,6 +1232,7 @@ function uploadAlbumCover(albumId) {
       if (result.ok) {
         showToast('专辑封面上传成功', 'success');
         albumCoverCache[albumId] = true;
+        coverExistsCache.album[albumId] = true;
         const wrap = document.getElementById('alcw-' + albumId);
         if (wrap) {
           const existingImg = wrap.querySelector('.album-cover-img');
@@ -1211,6 +1297,7 @@ function uploadArtistCover(artistId) {
       if (result.ok) {
         showToast('艺术家封面上传成功', 'success');
         artistCoverCache[artistId] = true;
+        coverExistsCache.artist[artistId] = true;
         await loadArtistCover(artistId);
       } else {
         showToast('上传失败: ' + (result.error || '未知错误'), 'error');
@@ -1228,19 +1315,20 @@ function renderArtistView() {
   const view = document.getElementById('artist-view');
   const a = currentArtist;
 
+  // 每次完整渲染递增令牌，使旧的异步封面加载不再写入新视图
+  viewRenderToken++;
+
   const currentAlbumObj = currentAlbum ? artistAlbums.find(al => al.id === currentAlbum) : null;
 
   let bc = `<span>${esc(a.name)}</span>`;
   if (currentAlbumObj) bc += `<span class="sep">/</span><span>${esc(currentAlbumObj.title)}</span>`;
   document.getElementById('breadcrumb').innerHTML = bc;
 
-  const albumsToShow = currentAlbum
-    ? artistAlbums.filter(al => al.id === currentAlbum)
-    : artistAlbums;
-
   const totalTracks = artistAlbums.reduce((s, al) => s + al.track_count, 0);
   const orgAlbums = artistAlbums.filter(al => al.all_organized).length;
 
+  // 始终渲染全部专辑与曲目区块；是否“展开”通过 CSS 显隐控制，
+  // 这样展开/收起专辑时无需重渲染整页，也不会重复加载封面。
   view.innerHTML = `
     <div class="artist-header">
       <div class="artist-cover" id="artist-cover-img">
@@ -1261,7 +1349,7 @@ function renderArtistView() {
     </div>
 
     <div class="albums-grid">
-      ${albumsToShow.map(al => `
+      ${artistAlbums.map(al => `
         <div class="album-card ${selectedAlbums.has(al.id) ? 'selected' : ''}" id="alcard-${al.id}">
           <div class="album-cover-wrap" id="alcw-${al.id}">
             <div class="album-cover-placeholder">
@@ -1283,13 +1371,33 @@ function renderArtistView() {
     </div>
 
     <div id="track-sections">
-      ${albumsToShow.map(al => renderTrackSection(al)).join('')}
+      ${artistAlbums.map(al => renderTrackSection(al)).join('')}
     </div>
   `;
 
+  // 应用当前展开状态（仅显隐切换，不重建 DOM）
+  applyAlbumVisibility();
+
   loadArtistCover(a.id);
-  loadAlbumCovers(albumsToShow);
+  loadAlbumCovers(artistAlbums);
   updateToolbar();
+}
+
+/**
+ * 根据 currentAlbum 显示/隐藏专辑卡片与曲目区块。
+ * 纯 DOM 显隐切换，避免整页 innerHTML 重渲染带来的卡顿与封面重复请求。
+ */
+function applyAlbumVisibility() {
+  document.querySelectorAll('.album-card').forEach(card => {
+    const id = parseInt(String(card.id).replace('alcard-', ''), 10);
+    if (Number.isNaN(id)) return;
+    card.style.display = (currentAlbum == null || id === currentAlbum) ? '' : 'none';
+  });
+  document.querySelectorAll('.track-section').forEach(sec => {
+    const id = parseInt(String(sec.id).replace('ts-', ''), 10);
+    if (Number.isNaN(id)) return;
+    sec.style.display = (currentAlbum == null || id === currentAlbum) ? '' : 'none';
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1610,6 +1718,41 @@ function toggleTrack(e, id) {
   updateToolbar();
 }
 
+/**
+ * 将当前选中集合同步到已渲染的 DOM（专辑卡片 / 曲目全选 / 单条曲目）。
+ * 纯 class + 文本更新，避免整页 innerHTML 重渲染带来的卡顿与封面重复加载。
+ */
+function syncSelectionUI() {
+  document.querySelectorAll('.album-card').forEach(card => {
+    const id = parseInt(String(card.id).replace('alcard-', ''), 10);
+    if (Number.isNaN(id)) return;
+    const sel = selectedAlbums.has(id);
+    card.classList.toggle('selected', sel);
+    const cb = card.querySelector('.album-checkbox');
+    if (cb) cb.textContent = sel ? '✓' : '';
+  });
+
+  document.querySelectorAll('.track-section').forEach(sec => {
+    const id = parseInt(String(sec.id).replace('ts-', ''), 10);
+    if (Number.isNaN(id)) return;
+    const sel = selectedAlbums.has(id);
+    const checkAll = sec.querySelector('.check-all');
+    if (checkAll) {
+      checkAll.textContent = sel ? '✓' : '';
+      checkAll.classList.toggle('checked', sel);
+    }
+  });
+
+  document.querySelectorAll('.track-row').forEach(row => {
+    const id = parseInt(String(row.id).replace('tr-', ''), 10);
+    if (Number.isNaN(id)) return;
+    const sel = selectedTracks.has(id);
+    row.classList.toggle('selected', sel);
+    const cb = row.querySelector('.track-checkbox');
+    if (cb) cb.textContent = sel ? '✓' : '';
+  });
+}
+
 /** 全选 / 取消全选当前艺术家所有专辑 */
 function selectAllAlbums() {
   const allSelected = artistAlbums.every(al => selectedAlbums.has(al.id));
@@ -1624,7 +1767,9 @@ function selectAllAlbums() {
     }
   }
 
-  renderArtistView();
+  // 仅同步选中态，不重建 DOM
+  syncSelectionUI();
+  updateToolbar();
 }
 
 /**
@@ -1634,7 +1779,10 @@ function selectAllAlbums() {
 function expandAlbum(albumId) {
   currentAlbum = currentAlbum === albumId ? null : albumId;
   selectedAlbums.clear();
-  renderArtistView();
+  // 只切换可见性与选中态，避免整页重渲染
+  syncSelectionUI();
+  applyAlbumVisibility();
+  updateToolbar();
 }
 
 /* ═══════════════════════════════════════════════════════════

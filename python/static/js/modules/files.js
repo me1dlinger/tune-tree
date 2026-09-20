@@ -63,7 +63,6 @@ function renderFiles(items) {
     document.getElementById('file-list').innerHTML = '<div class="loading-row">此目录为空</div>';
     return;
   }
-
   const html = items.map(f => {
     const isSelected = fileSelectedPaths.has(f.path);
     const canSelect = f.is_dir || f.is_audio;
@@ -112,6 +111,34 @@ function renderFiles(items) {
   updateFileSelectUI();
 }
 
+/**
+ * 就地同步多选状态到已渲染的行（class / 图标 / 禁用态），
+ * 避免每次勾选都重建整个列表 DOM（200 行时尤其明显）。
+ */
+function syncFileSelectionUI() {
+  const list = document.getElementById('file-list');
+  if (!list) return;
+  const rows = list.querySelectorAll('.file-row');
+  rows.forEach((row, i) => {
+    const f = currentFiles[i];
+    if (!f) return;
+    const isSelected = fileSelectedPaths.has(f.path);
+    const canSelect = f.is_dir || f.is_audio;
+    const selectDisabled = canSelect && !isSelected && fileSelectedPaths.size >= FILE_SELECT_LIMIT;
+
+    row.classList.toggle('selected', isSelected);
+    row.classList.toggle('select-disabled', !!(selectDisabled && fileSelectMode));
+
+    if (fileSelectMode && canSelect) {
+      const icon = row.querySelector('.fr-check i');
+      if (icon) {
+        icon.className = `bi ${isSelected ? 'bi-check-circle-fill' : 'bi-circle'}${isSelected ? ' selected' : ''}`;
+        icon.style.opacity = selectDisabled ? '0.3' : '';
+      }
+    }
+  });
+}
+
 /* ═══════════════════════════════════════════════════════════
    MULTI-SELECT
    ═══════════════════════════════════════════════════════════ */
@@ -154,7 +181,8 @@ async function toggleFileSelect(path, isDir, isAudio) {
     }
     fileSelectedPaths.add(path);
   }
-  renderFiles(currentFiles);
+  syncFileSelectionUI();
+  updateFileSelectUI();
 }
 
 function _countSelectedAudio() {
@@ -170,7 +198,8 @@ function _countSelectedAudio() {
 function clearFileSelection() {
   fileSelectedPaths.clear();
   _folderAudioCounts = {};
-  renderFiles(currentFiles);
+  syncFileSelectionUI();
+  updateFileSelectUI();
 }
 
 function updateFileSelectUI() {
@@ -268,6 +297,13 @@ function filterFiles(query) {
   currentSearch = query?.trim() || '';
   currentOffset = 0;
   fetchFiles();
+}
+
+// 搜索框输入去抖：避免每次按键都发起一次后端请求。
+let _fileSearchTimer = null;
+function onFileSearchInput(query) {
+  clearTimeout(_fileSearchTimer);
+  _fileSearchTimer = setTimeout(() => filterFiles(query), 250);
 }
 
 /* ═══════════════════════════════════════════════════════════

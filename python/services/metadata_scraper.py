@@ -15,6 +15,12 @@ from services.kugou_api import KugouApi
 
 logger = logging.getLogger("tunetree")
 
+# 全局共享的线程池：刮削需要的歌曲详情可以并发抓取，
+# 复用线程避免每次搜索都重新创建/销毁线程带来的开销。
+_SHARED_EXECUTOR = ThreadPoolExecutor(
+    max_workers=12, thread_name_prefix="scraper"
+)
+
 
 def normalize_str(text: str) -> str:
     """对字符串进行Unicode正规化，用于比较"""
@@ -536,20 +542,19 @@ class MetadataScraper:
                 search_results = KugouApi.search_hash(keyword)
                 logger.info(f"{api_name} API 返回 {len(search_results)} 条结果")
 
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [
-                    executor.submit(
-                        self._fetch_song_detail,
-                        api_name,
-                        sr,
-                        keywords,
-                    )
-                    for sr in search_results[:fetch_limit]
-                ]
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result:
-                        all_results.append(result)
+            futures = [
+                _SHARED_EXECUTOR.submit(
+                    self._fetch_song_detail,
+                    api_name,
+                    sr,
+                    keywords,
+                )
+                for sr in search_results[:fetch_limit]
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    all_results.append(result)
 
         except Exception as e:
             logger.warning(f"关键词 '{keyword}' 通过 {api_name} 搜索失败: {e}")

@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tune Tree</title>
-  <link rel="icon" type="image/svg+xml" href="static/favicon.svg?v=1">
+  <link rel="icon" type="image/svg+xml" href="static/favicon.svg?v=2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -18,7 +18,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   </noscript>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="static/css/main.css?v=1">
+  <link rel="stylesheet" href="static/css/main.css?v=2">
 </head>
 
 <body>
@@ -94,7 +94,7 @@
       <aside class="sidebar">
         <div class="sidebar-search">
           <i class="bi bi-search sidebar-search-icon"></i>
-          <input type="text" placeholder="搜索艺术家..." id="artist-search" oninput="filterArtists(this.value)">
+          <input type="text" placeholder="搜索艺术家..." id="artist-search" oninput="onArtistSearchInput(this.value)">
         </div>
         <div class="sidebar-sort">
           <button class="sort-chip active" id="sort-artist-date" onclick="setArtistSort('date')">创建时间↓</button>
@@ -169,7 +169,7 @@
             </button>
             <div class="files-search" style="display:flex;align-items:center;gap:8px;margin-left:4px;">
               <i class="bi bi-search files-search-icon"></i>
-              <input type="text" placeholder="搜索文件..." id="file-search" oninput="filterFiles(this.value)">
+              <input type="text" placeholder="搜索文件..." id="file-search" oninput="onFileSearchInput(this.value)">
             </div>
             <div style="display:flex;gap:4px;margin-left:4px;">
               <button class="sort-chip active" id="sort-name" onclick="setFileSort('name')">名称</button>
@@ -694,27 +694,27 @@
   </div>
 
   <!-- JavaScript Modules (load order matters) -->
-  <script defer src="static/js/modules/utils.js?v=1"></script>
-  <script defer src="static/js/modules/api.js?v=1"></script>
-  <script defer src="static/js/modules/state.js?v=1"></script>
-  <script defer src="static/js/modules/ui.js?v=1"></script>
-  <script defer src="static/js/modules/auth.js?v=1"></script>
-  <script defer src="static/js/modules/image-viewer.js?v=1"></script>
-  <script defer src="static/js/modules/artist.js?v=1"></script>
-  <script defer src="static/js/modules/files.js?v=1"></script>
-  <script defer src="static/js/modules/stats.js?v=1"></script>
-  <script defer src="static/js/modules/artist-stats.js?v=1"></script>
-  <script defer src="static/js/modules/album-stats.js?v=1"></script>
-  <script defer src="static/js/modules/pending.js?v=1"></script>
-  <script defer src="static/js/modules/logs.js?v=1"></script>
-  <script defer src="static/js/modules/format.js?v=1"></script>
-  <script defer src="static/js/modules/detail.js?v=1"></script>
-  <script defer src="static/js/modules/lrc-parser.js?v=1"></script>
-  <script defer src="static/js/modules/lyrics-editor.js?v=1"></script>
-  <script defer src="static/js/modules/metadata-edit.js?v=1"></script>
-  <script defer src="static/js/modules/batch-scrape.js?v=1"></script>
-  <script defer src="static/js/modules/settings.js?v=1"></script>
-  <script defer src="static/js/app.js?v=1"></script>
+  <script defer src="static/js/modules/utils.js?v=2"></script>
+  <script defer src="static/js/modules/api.js?v=2"></script>
+  <script defer src="static/js/modules/state.js?v=2"></script>
+  <script defer src="static/js/modules/ui.js?v=2"></script>
+  <script defer src="static/js/modules/auth.js?v=2"></script>
+  <script defer src="static/js/modules/image-viewer.js?v=2"></script>
+  <script defer src="static/js/modules/artist.js?v=2"></script>
+  <script defer src="static/js/modules/files.js?v=2"></script>
+  <script defer src="static/js/modules/stats.js?v=2"></script>
+  <script defer src="static/js/modules/artist-stats.js?v=2"></script>
+  <script defer src="static/js/modules/album-stats.js?v=2"></script>
+  <script defer src="static/js/modules/pending.js?v=2"></script>
+  <script defer src="static/js/modules/logs.js?v=2"></script>
+  <script defer src="static/js/modules/format.js?v=2"></script>
+  <script defer src="static/js/modules/detail.js?v=2"></script>
+  <script defer src="static/js/modules/lrc-parser.js?v=2"></script>
+  <script defer src="static/js/modules/lyrics-editor.js?v=2"></script>
+  <script defer src="static/js/modules/metadata-edit.js?v=2"></script>
+  <script defer src="static/js/modules/batch-scrape.js?v=2"></script>
+  <script defer src="static/js/modules/settings.js?v=2"></script>
+  <script defer src="static/js/app.js?v=2"></script>
 </body>
 
 </html>

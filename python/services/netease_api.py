@@ -7,16 +7,57 @@ import re
 import io
 import time
 import json
+import threading
 import logging
 from typing import List, Dict, Optional, Any
 from hashlib import md5
 from urllib.parse import urlparse
 from PIL import Image
 import requests
+from requests.adapters import HTTPAdapter
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 logger = logging.getLogger("tunetree")
+
+
+def _build_http_adapter():
+    """构建带连接池与少量重试的 HTTP 适配器。
+
+    requests 每次调用默认新建 TCP/TLS 连接，刮削/搜索是高频外呼，
+    复用连接可以显著降低 DNS/TCP/TLS 握手开销。
+    """
+    from urllib3.util.retry import Retry
+
+    retry = Retry(
+        total=1,
+        connect=1,
+        read=1,
+        backoff_factor=0.2,
+        status_forcelist=(502, 503, 504),
+        allowed_methods=["GET", "POST"],
+    )
+    return HTTPAdapter(pool_connections=8, pool_maxsize=16, max_retries=retry)
+
+
+_HTTP_SESSION_LOCAL = threading.local()
+
+
+def _get_http_session() -> requests.Session:
+    """获取当前线程复用的 requests.Session（连接池 + 少量重试）。
+
+    requests.Session 并非线程安全，而刮削/搜索会通过线程池并发外呼；
+    因此按线程各自持有一个 Session：既保留连接复用带来的握手开销下降，
+    又避免多线程共享同一 Session 造成状态竞争。
+    """
+    session = getattr(_HTTP_SESSION_LOCAL, "session", None)
+    if session is None:
+        session = requests.Session()
+        adapter = _build_http_adapter()
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _HTTP_SESSION_LOCAL.session = session
+    return session
 
 
 class APIConstants:
@@ -69,18 +110,18 @@ class NeteaseApi:
     
     @classmethod
     def _get_session(cls):
-        if cls._session is None:
-            cls._session = requests.Session()
-        return cls._session
+        # 委托给按线程复用的 Session，避免跨线程共享同一个 Session
+        return _get_http_session()
     
     @classmethod
     def _reset_session(cls):
+        session = getattr(_HTTP_SESSION_LOCAL, "session", None)
         try:
-            if cls._session:
-                cls._session.close()
-        except:
+            if session:
+                session.close()
+        except Exception:
             pass
-        cls._session = requests.Session()
+        _HTTP_SESSION_LOCAL.session = None
 
     # ==================== 歌曲搜索和信息 ====================
     
@@ -91,7 +132,7 @@ class NeteaseApi:
         """
         search_url = 'https://music.163.com/api/search/get/web?&s={}&type=1&offset={}&total=true&limit={}'
         keyword = re.sub(r"|[!@#$%^&*/]+", "", keyword)
-        res_json = requests.post(search_url.format(keyword, page * limit, limit), timeout=10).json()
+        res_json = _get_http_session().post(search_url.format(keyword, page * limit, limit), timeout=10).json()
         res_list = []
         if res_json["result"] == {} or res_json['code'] == 400 or res_json["result"]["songCount"] == 0:
             return res_list
@@ -166,7 +207,7 @@ class NeteaseApi:
         根据歌曲 ID 获取详细信息
         """
         song_info_url = 'http://music.163.com/api/song/detail/?id={}&ids=[{}]'
-        res_json = requests.post(song_info_url.format(song_id, song_id), timeout=10).json()
+        res_json = _get_http_session().post(song_info_url.format(song_id, song_id), timeout=10).json()
         if res_json['code'] == 400 or res_json['code'] == 406:
             raise requests.RequestException("访问过于频繁或接口失效")
         song_json = res_json['songs'][0]
@@ -174,7 +215,7 @@ class NeteaseApi:
         duration = song_json["duration"] // 1000
 
         pic_url = song_json["album"]["picUrl"]
-        pic_response = requests.get(pic_url, timeout=10)
+        pic_response = _get_http_session().get(pic_url, timeout=10)
         pic_response.raise_for_status()
 
         with Image.open(io.BytesIO(pic_response.content)) as img:
@@ -205,7 +246,7 @@ class NeteaseApi:
         """
         try:
             lrc_url = 'http://music.163.com/api/song/lyric?id={}&os=pc&lv=-1&kv=-1&tv=-1&rv=-1&yv=-1'
-            lrc_json = requests.get(lrc_url.format(song_id), timeout=10).json()
+            lrc_json = _get_http_session().get(lrc_url.format(song_id), timeout=10).json()
             lrc_text = lrc_json.get('lrc', {}).get('lyric', '')
             tlyric_text = lrc_json.get('tlyric', {}).get('lyric', '')
             if lrc_text:

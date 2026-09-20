@@ -42,7 +42,9 @@ _ORGANIZED_FILENAME_RE = re.compile(r"^\d{2}\.\s+.+\.(?:mp3|flac)$", re.IGNORECA
 logger = logging.getLogger("tunetree")
 
 BATCH_SIZE = 1000
-MAX_WORKERS = min(os.cpu_count() or 4, 3)
+# 元数据读取是 IO 密集 + mutagen(C 库)解析，适当提高并行度可显著加快扫描。
+# 上限 8 避免在低核机器上造成过度争抢。
+MAX_WORKERS = min(os.cpu_count() or 4, 8)
 
 
 def _is_organized_path(filepath: Path, music_root: str) -> bool:

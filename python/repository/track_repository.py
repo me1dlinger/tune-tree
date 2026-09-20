@@ -444,10 +444,14 @@ def get_artist_full_info(artist: str):
         return {"artist": artist, "albums": []}
     albums = get_albums_by_artist_id(a["id"])
     tracks = get_tracks_by_artist_id(a["id"])
+    # 先按 album_id 分桶，避免 O(专辑数 × 曲目数) 的重复扫描
+    tracks_by_album = {}
+    for t in tracks:
+        tracks_by_album.setdefault(t["album_id"], []).append(dict(t))
     albums_with_tracks = []
     for album in albums:
         album_dict = dict(album)
-        album_dict["tracks"] = [dict(t) for t in tracks if t["album_id"] == album["id"]]
+        album_dict["tracks"] = tracks_by_album.get(album["id"], [])
         albums_with_tracks.append(album_dict)
     return {"artist": artist, "albums": albums_with_tracks}
 
@@ -462,10 +466,14 @@ def get_artist_full_info_by_id(artist_id: int):
     albums = get_albums_by_artist_id(artist_id)
 
     tracks = get_tracks_by_artist_id(artist_id)
+    # 先按 album_id 分桶，避免 O(专辑数 × 曲目数) 的重复扫描
+    tracks_by_album = {}
+    for t in tracks:
+        tracks_by_album.setdefault(t["album_id"], []).append(dict(t))
     albums_with_tracks = []
     for album in albums:
         album_dict = dict(album)
-        album_dict["tracks"] = [dict(t) for t in tracks if t["album_id"] == album["id"]]
+        album_dict["tracks"] = tracks_by_album.get(album["id"], [])
         albums_with_tracks.append(album_dict)
     result = dict(a)
     result["albums"] = albums_with_tracks

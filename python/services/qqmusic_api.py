@@ -8,13 +8,43 @@ import re
 import io
 import base64
 import logging
+import threading
 from typing import List, Dict, Optional
 from PIL import Image
 import requests
+from requests.adapters import HTTPAdapter
 
 from utils.qrc_decrypt import qrc_decrypt
 
 logger = logging.getLogger("tunetree")
+
+
+_QQ_HTTP_SESSION_LOCAL = threading.local()
+
+
+def _get_http_session() -> requests.Session:
+    """获取当前线程复用的 requests.Session（连接池 + 少量重试），减少高频外呼的握手开销。
+
+    Session 非线程安全，按线程持有以避免并发搜索/刮削时的状态竞争。
+    """
+    session = getattr(_QQ_HTTP_SESSION_LOCAL, "session", None)
+    if session is None:
+        from urllib3.util.retry import Retry
+
+        retry = Retry(
+            total=1,
+            connect=1,
+            read=1,
+            backoff_factor=0.2,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=["GET", "POST"],
+        )
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16, max_retries=retry)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _QQ_HTTP_SESSION_LOCAL.session = session
+    return session
 
 
 class QQMusicApi:
@@ -51,7 +81,7 @@ class QQMusicApi:
                 "param": param,
             },
         }
-        resp = requests.post(
+        resp = _get_http_session().post(
             cls._MUSICU_URL, json=payload, headers=cls._HEADERS, timeout=10
         )
         resp.raise_for_status()
@@ -157,7 +187,7 @@ class QQMusicApi:
                 f"https://y.gtimg.cn/music/photo_new/T002R500x500M000{album_mid}.jpg"
             )
             try:
-                pic_response = requests.get(pic_url, timeout=10)
+                pic_response = _get_http_session().get(pic_url, timeout=10)
                 if pic_response.status_code == 200 and len(pic_response.content) > 1000:
                     with Image.open(io.BytesIO(pic_response.content)) as img:
                         if img.mode != "RGB":
@@ -528,7 +558,7 @@ class QQMusicApi:
             return None
 
         try:
-            resp = requests.get(pic_url, headers=cls._HEADERS, timeout=15)
+            resp = _get_http_session().get(pic_url, headers=cls._HEADERS, timeout=15)
             resp.raise_for_status()
             if len(resp.content) < 1000:
                 return None

@@ -102,7 +102,7 @@ async function searchAlbumStats(query) {
         ${albums.map(al => `
           <div class="as-search-item" onclick="showAlbumSearchDetail(${al.artist_id}, ${al.id})">
             <div class="as-search-icon">
-              ${al.cover_path ? `<img src="/api/albums/${al.id}/cover?token=${TOKEN}" alt="">` : '<i class="bi bi-disc"></i>'}
+              ${al.cover_path ? `<img src="/api/albums/${al.id}/cover?token=${TOKEN}" alt="" loading="lazy" decoding="async">` : '<i class="bi bi-disc"></i>'}
             </div>
             <div class="as-search-info">
               <div class="as-search-name">${_d(al.title)}</div>
@@ -495,7 +495,7 @@ function _renderTimeline(tracks, range) {
                 ${di.albums.map((al, idx) => {
       const side = idx % 2 === 0 ? 'left' : 'right';
       const coverHtml = al.cover_path
-        ? `<img src="/api/albums/${al.album_id}/cover?token=${TOKEN}" alt="">`
+        ? `<img src="/api/albums/${al.album_id}/cover?token=${TOKEN}" alt="" loading="lazy" decoding="async">`
         : '<i class="bi bi-disc"></i>';
       const trackCount = al.tracks.length;
       return `
@@ -537,7 +537,7 @@ function _absShowHover(item) {
   if (!album) return;
 
   const coverHtml = album.cover_path
-    ? `<img src="/api/albums/${album.album_id}/cover?token=${TOKEN}" alt="">`
+    ? `<img src="/api/albums/${album.album_id}/cover?token=${TOKEN}" alt="" loading="lazy" decoding="async">`
     : '<i class="bi bi-disc"></i>';
 
   const tracksHtml = album.tracks.map(t => `

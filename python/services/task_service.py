@@ -56,6 +56,11 @@ def set_app(app):
     _app = app
 
 
+def get_app():
+    """获取当前设置的Flask应用实例（供后台线程获取应用上下文）"""
+    return _app
+
+
 def update_scheduler():
     """更新定时任务调度器"""
     global scheduler

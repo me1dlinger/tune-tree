@@ -18,6 +18,7 @@ import base64
 import hmac
 import hashlib
 import ipaddress
+import json
 import logging
 import re
 import threading
@@ -83,6 +84,7 @@ from repository.track_repository import (
     count_duplicate_groups,
     count_tracks_by_extension,
     get_scan_meta,
+    set_scan_meta,
     get_scan_status,
     set_scan_running,
     set_scan_finished,
@@ -113,6 +115,15 @@ api_bp = Blueprint("api", __name__)
 
 SCAN_TIMEOUT_HOURS = 1
 scraper = MetadataScraper()
+
+# 全局共享线程池：批量刮削 / 歌词搜索 / 目录音频计数等并发操作复用线程，
+# 避免每次请求都新建/销毁线程的开销。
+_API_EXECUTOR = ThreadPoolExecutor(max_workers=12, thread_name_prefix="api")
+
+# 扫描后台线程锁：防止并发触发多个扫描任务。
+_scan_lock = threading.Lock()
+
+from services.task_service import get_app as _get_flask_app  # noqa: E402
 
 
 def _relink_track_artist_album(track_id: int):
@@ -279,13 +290,57 @@ def api_scan():
     if not music_root or not Path(music_root).exists():
         return jsonify({"error": f"Music library path not found"}), 400
 
-    try:
-        set_scan_running(datetime.now().timestamp())
-        library_id = get_current_library_id()
-        result = scan_library(music_root, library_id=library_id)
-        return jsonify(result)
-    finally:
-        set_scan_finished()
+    if not _scan_lock.acquire(blocking=False):
+        return jsonify(
+            {"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}
+        ), 409
+
+    library_id = get_current_library_id()
+
+    def _do_scan():
+        """后台实际执行扫描（需要在 Flask 应用上下文中访问数据库）"""
+        now = datetime.now().timestamp()
+        set_scan_running(now)
+        try:
+            result = scan_library(music_root, library_id=library_id)
+            # 保存本次扫描结果，供前端在轮询/完成后展示
+            try:
+                set_scan_meta(
+                    "last_scan_result",
+                    json.dumps(
+                        {
+                            k: result.get(k)
+                            for k in ("added", "updated", "skipped", "removed", "duration")
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            except Exception as log_exc:  # noqa: BLE001
+                logger.warning("保存扫描结果失败: %s", log_exc)
+            logger.info("后台扫描完成: %s", result)
+        finally:
+            set_scan_finished()
+
+    def _scan_worker():
+        """后台线程入口：在应用上下文里跑扫描，结束后释放锁"""
+        try:
+            flask_app = _get_flask_app()
+            if flask_app is not None:
+                with flask_app.app_context():
+                    _do_scan()
+            else:
+                _do_scan()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("后台扫描失败: %s", exc)
+        finally:
+            _scan_lock.release()
+
+    # 后台线程执行，接口立即返回，防止长时间占用请求线程导致整个服务卡顿
+    threading.Thread(
+        target=_scan_worker, name="library-scan", daemon=True
+    ).start()
+
+    return jsonify({"started": True, "status": "running"})
 
 
 @api_bp.route("/api/scan/status", methods=["GET"])
@@ -294,12 +349,32 @@ def api_scan_status():
     timed_out = _check_scan_timeout()
     scan_status = get_scan_status()
 
+    last_result = None
+    try:
+        raw = get_scan_meta("last_scan_result")
+        if raw:
+            last_result = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        last_result = None
+
     if scan_status["scanning"] and scan_status["start_time"]:
         elapsed = int(datetime.now().timestamp() - scan_status["start_time"])
         return jsonify(
-            {"scanning": True, "elapsed_seconds": elapsed, "timed_out": False}
+            {
+                "scanning": True,
+                "elapsed_seconds": elapsed,
+                "timed_out": False,
+                "last_result": last_result,
+            }
         )
-    return jsonify({"scanning": False, "elapsed_seconds": 0, "timed_out": timed_out})
+    return jsonify(
+        {
+            "scanning": False,
+            "elapsed_seconds": 0,
+            "timed_out": timed_out,
+            "last_result": last_result,
+        }
+    )
 
 
 # Artists
@@ -725,6 +800,57 @@ def api_album_cover_exists(album_id: int):
     return jsonify({"exists": cover_path.exists()})
 
 
+def _artist_cover_exists(artist_id: int) -> bool:
+    """判断艺术家封面文件是否存在（与单条 cover/exists 逻辑一致）"""
+    artist_dir = get_artist_directory_path_by_id(artist_id)
+    if not artist_dir:
+        return False
+    return (Path(artist_dir) / ARTIST_COVER_FILENAME).exists()
+
+
+def _album_cover_exists(album_id: int) -> bool:
+    """判断专辑封面文件是否存在（与单条 cover/exists 逻辑一致）"""
+    album = get_album_by_id(album_id)
+    if not album:
+        return False
+    artist_row = get_artist_by_id(album["artist_id"]) if album["artist_id"] else None
+    if not artist_row:
+        return False
+    cover_path = (
+        Path(get_current_library_path() or "")
+        / artist_row["dir_name"]
+        / album["dir_name"]
+        / ALBUM_COVER_FILENAME
+    )
+    return cover_path.exists()
+
+
+@api_bp.route("/api/covers/batch", methods=["POST"])
+@require_auth
+def api_covers_batch():
+    """批量查询艺术家/专辑封面是否存在。
+
+    前端在渲染艺术家视图时一次性提交当前页所有专辑 ID，
+    将原来的 N 次 cover/exists 请求合并为 1 次，显著减少前后端往返。
+    """
+    data = request.get_json(force=True) or {}
+    albums = {}
+    for album_id in data.get("album_ids", []) or []:
+        try:
+            albums[str(album_id)] = _album_cover_exists(int(album_id))
+        except (TypeError, ValueError):
+            albums[str(album_id)] = False
+
+    artists = {}
+    for artist_id in data.get("artist_ids", []) or []:
+        try:
+            artists[str(artist_id)] = _artist_cover_exists(int(artist_id))
+        except (TypeError, ValueError):
+            artists[str(artist_id)] = False
+
+    return jsonify({"albums": albums, "artists": artists})
+
+
 @api_bp.route("/api/albums/<int:album_id>/cover", methods=["POST"])
 @require_auth
 def api_album_cover_upload(album_id: int):
@@ -1035,11 +1161,10 @@ def api_lyrics_search():
             except Exception:
                 return []
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            netease_future = executor.submit(_search_netease)
-            qq_future = executor.submit(_search_qq)
-            netease_raw = netease_future.result()
-            qq_raw = qq_future.result()
+        netease_future = _API_EXECUTOR.submit(_search_netease)
+        qq_future = _API_EXECUTOR.submit(_search_qq)
+        netease_raw = netease_future.result()
+        qq_raw = qq_future.result()
 
         for r in netease_raw:
             score = _score_result(r, title, artist, album)
@@ -2549,18 +2674,12 @@ def api_files_audio_count():
     path_list = [p.strip().lstrip("/") for p in paths.split("|") if p.strip()]
     _lib_path = get_current_library_path() or ""
     base = Path(_lib_path)
-    counts = {}
 
-    for rel in path_list:
+    def _audio_count_for_rel(rel: str):
         rel_normalized = rel.replace("/", "\\") if "\\" in _lib_path else rel
         cur = (base / rel_normalized).resolve()
-        if not _is_within(base, cur):
-            counts[rel] = 0
-            continue
-        if not cur.is_dir():
-            counts[rel] = 0
-            continue
-
+        if not _is_within(base, cur) or not cur.is_dir():
+            return rel, 0
         try:
             files = list(cur.rglob("*"))
             audio_files = [
@@ -2568,11 +2687,18 @@ def api_files_audio_count():
                 for f in files
                 if f.is_file() and f.suffix.lower().lstrip(".") in ("mp3", "flac")
             ]
+            return rel, len(audio_files)
+        except OSError:
+            return rel, 0
 
-            count = len(audio_files)
-            counts[rel] = count
-        except OSError as e:
-            counts[rel] = 0
+    # 目录音频计数为纯 IO 扫描，多个目录并行统计可显著加速
+    counts = {}
+    futures = [
+        _API_EXECUTOR.submit(_audio_count_for_rel, rel) for rel in path_list
+    ]
+    for future in as_completed(futures):
+        rel, count = future.result()
+        counts[rel] = count
     return jsonify({"counts": counts})
 
 
@@ -2666,20 +2792,19 @@ def api_batch_scrape():
             }
 
     results = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {
-            executor.submit(scrape_single_track, track_id): track_id
-            for track_id in track_ids
-        }
-        for future in as_completed(futures):
-            result = future.result()
-            results.append(result)
-            # log_type = result.get("_log_type")
-            # log_msg = result.get("_log_msg")
-            # if log_type and log_msg:
-            #     add_op_log(now, f"batch_scrape_{log_type}", log_msg)
-            result.pop("_log_type", None)
-            result.pop("_log_msg", None)
+    futures = {
+        _API_EXECUTOR.submit(scrape_single_track, track_id): track_id
+        for track_id in track_ids
+    }
+    for future in as_completed(futures):
+        result = future.result()
+        results.append(result)
+        # log_type = result.get("_log_type")
+        # log_msg = result.get("_log_msg")
+        # if log_type and log_msg:
+        #     add_op_log(now, f"batch_scrape_{log_type}", log_msg)
+        result.pop("_log_type", None)
+        result.pop("_log_msg", None)
 
     commit()
     return jsonify({"ok": True, "results": results})
