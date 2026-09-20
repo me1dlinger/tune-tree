@@ -89,6 +89,8 @@ async function loadStats() {
 
     if (s.pending_count > 0) {
       document.getElementById('pending-dot').style.display = 'inline-block';
+      const vsDot = document.getElementById('view-switch-pending-dot');
+      if (vsDot) vsDot.style.display = 'inline-block';
     }
   } catch (e) {
     document.getElementById('stats-view').innerHTML =

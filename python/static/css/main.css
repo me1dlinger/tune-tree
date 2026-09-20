@@ -1227,6 +1227,8 @@ body {
 /* TRACKS */
 .track-section {
     margin-top: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .track-section-header {
@@ -1288,7 +1290,7 @@ body {
 
 .track-row {
     display: grid;
-    grid-template-columns: 28px 28px 40px 1fr 1fr 80px 60px 60px 160px 32px;
+    grid-template-columns: 28px 28px 40px minmax(180px, 1fr) minmax(160px, 1fr) 80px 60px 60px 160px 32px;
     align-items: center;
     height: 38px;
     border-bottom: 1px solid var(--border);
@@ -1429,7 +1431,7 @@ body {
 
 .track-header-row {
     display: grid;
-    grid-template-columns: 28px 28px 40px 1fr 1fr 80px 60px 60px 160px 32px;
+    grid-template-columns: 28px 28px 40px minmax(180px, 1fr) minmax(160px, 1fr) 80px 60px 60px 160px 32px;
     height: 28px;
     align-items: center;
     border-bottom: 1px solid var(--border);
@@ -1450,11 +1452,13 @@ body {
 .files-view {
     flex: 1;
     overflow-y: auto;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .file-row {
     display: grid;
-    grid-template-columns: 32px 1fr 280px 80px 70px 200px 32px;
+    grid-template-columns: 32px minmax(220px, 1fr) 280px 80px 70px 200px 32px;
     align-items: center;
     height: 36px;
     border-bottom: 1px solid var(--border);
@@ -1530,7 +1534,7 @@ body {
 
 .file-header-row {
     display: grid;
-    grid-template-columns: 32px 1fr 280px 80px 70px 200px 32px;
+    grid-template-columns: 32px minmax(220px, 1fr) 280px 80px 70px 200px 32px;
     height: 28px;
     align-items: center;
     border-bottom: 1px solid var(--border);
@@ -6626,5 +6630,272 @@ body {
 
     .mobile-sidebar-overlay {
         display: none !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE VIEW SWITCH DROPDOWN + COMPACT / FULL-FIELD GRIDS
+   （追加覆盖块，保证在窄屏下可完整切换视图、完整展示字段）
+   ═══════════════════════════════════════════════════════════ */
+
+/* 桌面端默认隐藏视图下拉与“艺术家列表”按钮 */
+.view-switch { display: none; }
+.mobile-artist-list-btn { display: none; }
+
+@media (min-width: 769px) {
+    .view-switch {
+        display: none !important;
+    }
+
+    .mobile-artist-list-btn {
+        display: none !important;
+    }
+}
+
+@media (max-width: 768px) {
+    /* ── 顶栏：隐藏难以触达的横向滚动 nav，改用“视图”下拉；logo 可收缩 ── */
+    .header-nav {
+        display: none;
+    }
+
+    .header-logo {
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    /* ── 视图下拉 ── */
+    .view-switch {
+        display: block;
+        position: relative;
+        margin-left: 4px;
+        flex-shrink: 0;
+    }
+
+    .view-switch-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 10px;
+        background: var(--bg3);
+        border: 1px solid var(--border2);
+        color: var(--text2);
+        border-radius: var(--radius);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all var(--transition);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .view-switch-btn:active {
+        background: var(--bg4);
+    }
+
+    .view-switch-btn>i {
+        font-size: 14px;
+        color: var(--text3);
+    }
+
+    .view-switch-label {
+        max-width: 68px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .view-switch-caret {
+        font-size: 10px;
+        color: var(--text3);
+    }
+
+    .view-switch-menu {
+        display: none;
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        z-index: 1000;
+        min-width: 172px;
+        background: var(--bg2);
+        border: 1px solid var(--border2);
+        border-radius: var(--radius2);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        padding: 6px;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .view-switch-menu.open {
+        display: flex;
+    }
+
+    .view-switch-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        padding: 0 12px;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius);
+        color: var(--text2);
+        font-size: 13px;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        text-align: left;
+        transition: background var(--transition), color var(--transition);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .view-switch-item i {
+        width: 20px;
+        text-align: center;
+        font-size: 14px;
+        color: var(--text3);
+        flex-shrink: 0;
+    }
+
+    .view-switch-item:active {
+        background: var(--bg3);
+    }
+
+    .view-switch-item.active {
+        color: var(--accent);
+        background: var(--accent-dim2);
+    }
+
+    .view-switch-item.active i {
+        color: var(--accent);
+    }
+
+    .view-switch-item .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--red);
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    /* ── 艺术家详情工具栏：一键打开艺术家列表侧栏 ── */
+    .mobile-artist-list-btn {
+        display: flex;
+    }
+
+    /* ── 专辑封面更小 ── */
+    .albums-grid {
+        grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    }
+
+    .album-info {
+        padding: 8px 10px;
+    }
+
+    .album-name {
+        font-size: 12px;
+    }
+
+    .album-cover-placeholder {
+        font-size: 22px;
+    }
+
+    /* ── 曲目列表：整表横向滑动 + 字段完整（标题/专辑可换行，绝不挤压） ── */
+    .track-section {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .track-header-row,
+    .track-row {
+        display: grid;
+        grid-template-columns: 28px 28px 44px minmax(150px, 1.4fr) minmax(140px, 1.2fr) 84px 64px 78px 150px 40px;
+        min-width: 960px;
+    }
+
+    .track-header-row {
+        display: grid;
+        height: 28px;
+    }
+
+    .track-row {
+        height: auto;
+        min-height: 40px;
+        padding: 6px 0;
+    }
+
+    .track-row .tc-title,
+    .track-row .tc-album {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+    }
+
+    .track-row .tc-title {
+        flex: none;
+        min-width: 0;
+    }
+
+    .track-row .tc-artist,
+    .track-row .tc-album,
+    .track-row .tc-genre,
+    .track-row .tc-year,
+    .track-row .tc-duration {
+        display: block;
+    }
+
+    /* ── 文件列表：整表横向滑动 + 字段完整（文件名可换行，绝不挤压） ── */
+    .files-view {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .file-header-row,
+    .file-row {
+        display: grid;
+        grid-template-columns: 40px minmax(230px, 1.8fr) minmax(160px, 1.3fr) 80px 90px 180px 40px;
+        min-width: 920px;
+    }
+
+    .file-header-row {
+        display: grid;
+        height: 28px;
+    }
+
+    .file-row {
+        height: auto;
+        min-height: 40px;
+        padding: 6px 0;
+    }
+
+    .file-row .fr-name {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        word-break: break-word;
+    }
+
+    .file-row .fr-dir,
+    .file-row .fr-type,
+    .file-row .fr-size,
+    .file-row .fr-date {
+        display: block;
+    }
+}
+
+@media (max-width: 480px) {
+    .albums-grid {
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    }
+
+    .view-switch-label {
+        max-width: 56px;
+        font-size: 10px;
+    }
+
+    .view-switch-btn {
+        padding: 0 8px;
     }
 }

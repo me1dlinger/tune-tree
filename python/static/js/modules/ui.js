@@ -132,11 +132,26 @@ function switchPage(page) {
   document.getElementById('nav-' + page).classList.add('active');
   currentPage = page;
   if (page !== 'artist') hideDetailPanel();
-  
+
+  // 同步移动端“视图”下拉菜单
+  const labels = {
+    artist: '艺术家视图',
+    files: '目录浏览',
+    stats: '统计概览',
+    pending: '待定文件',
+    log: '操作日志'
+  };
+  const labelEl = document.getElementById('view-switch-label');
+  if (labelEl && labels[page]) labelEl.textContent = labels[page];
+  document.querySelectorAll('.view-switch-item').forEach(item => {
+    item.classList.toggle('active', item.dataset.page === page);
+  });
+
   if (page === 'log') {
     loadLogs();
   }
 
+  closeViewSwitch();
   closeMobileSidebar();
 }
 
@@ -157,3 +172,26 @@ function closeMobileSidebar() {
   if (sidebar) sidebar.classList.remove('mobile-open');
   if (overlay) overlay.classList.remove('active');
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE VIEW SWITCH DROPDOWN
+   ═══════════════════════════════════════════════════════════ */
+
+/** 打开 / 收起移动端“视图”下拉 */
+function toggleViewSwitch(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  const menu = document.getElementById('view-switch-menu');
+  if (menu) menu.classList.toggle('open');
+}
+
+/** 关闭移动端“视图”下拉 */
+function closeViewSwitch() {
+  const menu = document.getElementById('view-switch-menu');
+  if (menu) menu.classList.remove('open');
+}
+
+// 点击下拉菜单外部时自动关闭
+document.addEventListener('click', (e) => {
+  const vs = document.getElementById('view-switch');
+  if (vs && !vs.contains(e.target)) closeViewSwitch();
+});

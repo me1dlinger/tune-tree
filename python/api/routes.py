@@ -15,7 +15,9 @@ from functools import wraps
 from pathlib import Path
 from datetime import datetime
 import base64
+import hmac
 import hashlib
+import ipaddress
 import logging
 import re
 import threading
@@ -200,11 +202,50 @@ def require_auth(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get("X-Token") or request.args.get("token")
-        if token != ACCESS_KEY:
+        if not token or not hmac.compare_digest(token, ACCESS_KEY):
             return jsonify({"error": "unauthorized"}), 401
         return f(*args, **kwargs)
 
     return wrapper
+
+
+def _is_within(base: Path, target: Path) -> bool:
+    """判断 target 是否位于 base 之下（解析为绝对路径，Windows 大小写不敏感）。
+
+    使用 commonpath 做真正的“包含”判断，替代脆弱的 ``startswith``（可被
+    ``C:\\music2`` 之类的同名前缀绕过，造成路径穿越读取/写入）。
+    """
+    try:
+        base_r = str(Path(base).resolve())
+        tgt_r = str(Path(target).resolve())
+    except OSError:
+        return False
+    if os.name == "nt":
+        base_r = base_r.lower()
+        tgt_r = tgt_r.lower()
+    try:
+        return os.path.commonpath([base_r, tgt_r]) == base_r
+    except ValueError:
+        return False
+
+
+_MAX_IMAGE_PIXELS = 40_000_000
+
+
+def _guard_image_dimensions(img) -> bool:
+    """防压缩炸弹：检查解码后位图的尺寸/像素总量是否超出安全上限。
+
+    返回 True 表示合法；否则上传方提供的“小体积大尺寸”图片可能在 PIL
+    解码时耗尽服务器内存与 CPU。
+    """
+    try:
+        if img.width > 8192 or img.height > 8192:
+            return False
+        if (img.width * img.height) > _MAX_IMAGE_PIXELS:
+            return False
+        return True
+    except Exception:
+        return False
 
 
 @api_bp.route("/")
@@ -217,7 +258,7 @@ def index():
 def auth_verify():
     data = request.get_json(force=True)
     token = data.get("token", "")
-    if token == ACCESS_KEY:
+    if token and hmac.compare_digest(token, ACCESS_KEY):
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "invalid key"}), 401
 
@@ -430,7 +471,7 @@ def api_files_download():
 
     base = Path(get_current_library_path() or "")
     file_path = (base / path).resolve()
-    if not str(file_path).startswith(str(base.resolve())):
+    if not _is_within(base, file_path):
         abort(403)
 
     if not file_path.exists():
@@ -554,6 +595,8 @@ def api_artist_cover_upload(artist_id: int):
         import io
 
         img = Image.open(io.BytesIO(image_data))
+        if not _guard_image_dimensions(img):
+            return jsonify({"error": "cover image too large"}), 400
         if img.format != "JPEG":
             img = img.convert("RGB")
 
@@ -713,6 +756,8 @@ def api_album_cover_upload(album_id: int):
         import io as _io
 
         img = Image.open(_io.BytesIO(image_data))
+        if not _guard_image_dimensions(img):
+            return jsonify({"error": "cover image too large"}), 400
         if img.format != "JPEG":
             img = img.convert("RGB")
 
@@ -759,6 +804,8 @@ def api_artist_scrape_cover(artist_id: int):
         import io
 
         img = Image.open(io.BytesIO(image_data))
+        if not _guard_image_dimensions(img):
+            return jsonify({"error": "cover image too large"}), 400
         if img.format != "JPEG":
             img = img.convert("RGB")
 
@@ -843,6 +890,39 @@ def api_artists_apply_avatar(artist_id: int):
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
 
+    # SSRF 防护：只允许拉取已知图片 CDN 域名下的 http(s) 图片，
+    # 并拒绝内网/回环等私有地址，防止服务器被当作跳板访问内部服务。
+    import socket
+    import urllib.parse as _up
+
+    _ALLOWED_AVATAR_HOSTS = (
+        "music.163.com",
+        "music.126.net",
+        "y.gtimg.cn",
+        "qqmusic.qq.com",
+    )
+
+    def _is_allowed_avatar_url(url: str) -> bool:
+        try:
+            parsed = _up.urlparse(url)
+            if parsed.scheme not in ("http", "https"):
+                return False
+            host = (parsed.hostname or "").lower()
+            if not any(
+                host == h or host.endswith("." + h) for h in _ALLOWED_AVATAR_HOSTS
+            ):
+                return False
+            addr = socket.getaddrinfo(host, None)[0][4][0]
+            ip = ipaddress.ip_address(addr)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+            return True
+        except Exception:
+            return False
+
+    if not _is_allowed_avatar_url(pic_url):
+        return jsonify({"error": "picUrl 域名不在允许列表内"}), 400
+
     try:
         import requests as _req
 
@@ -876,6 +956,13 @@ def api_artists_apply_avatar(artist_id: int):
         import io as _io
 
         img = Image.open(_io.BytesIO(image_data))
+        # 防压缩炸弹：拒绝超大尺寸图片（避免解码时耗尽内存/CPU）
+        if (
+            img.width > 8192
+            or img.height > 8192
+            or (img.width * img.height) > 40_000_000
+        ):
+            return jsonify({"error": "图片尺寸过大"}), 400
         if img.format != "JPEG":
             img = img.convert("RGB")
 
@@ -1268,6 +1355,12 @@ def api_track_by_path():
     full_path = str(Path(_lib_path) / rel_path.lstrip("/"))
     full_path_normalized = str(Path(_lib_path) / rel_path_normalized.lstrip("/"))
 
+    # 目录穿越防护：只允许音乐库内的相对路径（拒绝 ../ 等越界路径）
+    if _lib_path:
+        _base = Path(_lib_path).resolve()
+        if not any(_is_within(_base, Path(p)) for p in (full_path, full_path_normalized)):
+            return jsonify({"error": "path outside library"}), 403
+
     # Try exact match first
     row = get_track_by_path(full_path)
 
@@ -1392,7 +1485,7 @@ def api_files():
     rel = request.args.get("path", "").lstrip("/")
     base = Path(get_current_library_path() or "")
     cur = (base / rel).resolve()
-    if not str(cur).startswith(str(base.resolve())):
+    if not _is_within(base, cur):
         abort(403)
     if not cur.exists():
         abort(404)
@@ -1694,6 +1787,9 @@ def api_batch_scrape_covers():
             import io as _io
 
             img = Image.open(_io.BytesIO(image_data))
+            if not _guard_image_dimensions(img):
+                results.append({"id": aid, "ok": False, "error": "image too large"})
+                continue
             if img.format != "JPEG":
                 img = img.convert("RGB")
             cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
@@ -2018,10 +2114,40 @@ def api_scrape_all(track_id: int):
 
 
 ALLOWED_UPLOAD_EXTS = {"flac", "mp3"}
+MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024  # 单个上传文件上限 500MB
 
 
 def _get_upload_temp_dir():
     return Path(get_current_library_path() or "") / ".upload_temp"
+
+
+def _safe_upload_filename(name: str) -> str:
+    """清理上传文件名，防止目录穿越写入。
+
+    去除路径分隔符、控制字符以及 ``..``/纯点号，确保最终落盘文件名
+    只会是临时目录/目标目录下的普通文件名。
+    """
+    if not name:
+        return "upload"
+    name = name.replace("\\", "_").replace("/", "_")
+    name = re.sub(r"[\x00-\x1f\x7f]", "", name)
+    name = name.strip()
+    if re.fullmatch(r"\.+", name):
+        name = "_"
+    name = name.replace("..", "_")
+    name = name.strip(" .")
+    return name or "upload"
+
+
+def _valid_temp_id(temp_id: str) -> bool:
+    """校验 temp_id 是否是一个合法的临时文件名（纯 basename，不可含路径/穿越）。"""
+    if not temp_id or temp_id in (".", ".."):
+        return False
+    if "/" in temp_id or "\\" in temp_id:
+        return False
+    if Path(temp_id).name != temp_id:
+        return False
+    return True
 
 
 def _find_matching_track(artist: str | None, album: str | None, title: str | None):
@@ -2087,7 +2213,13 @@ def api_files_upload_check():
             )
             continue
 
-        temp_id = f"{int(time.time() * 1000)}_{filename}"
+        if f.content_length and f.content_length > MAX_UPLOAD_FILE_SIZE:
+            errors.append(
+                {"name": filename, "error": f"文件过大（超过 {MAX_UPLOAD_FILE_SIZE // (1024 * 1024)}MB）"}
+            )
+            continue
+
+        temp_id = f"{int(time.time() * 1000)}_{_safe_upload_filename(filename)}"
         temp_path = _get_upload_temp_dir() / temp_id
 
         try:
@@ -2160,7 +2292,7 @@ def api_files_upload_commit():
 
     base = Path(get_current_library_path() or "")
     cur = (base / target).resolve()
-    if not str(cur).startswith(str(base.resolve())):
+    if not _is_within(base, cur):
         abort(403)
     if not cur.is_dir():
         abort(400)
@@ -2170,6 +2302,9 @@ def api_files_upload_commit():
     errors = []
 
     for temp_id, action in resolve.items():
+        if not _valid_temp_id(temp_id):
+            errors.append({"name": temp_id, "error": "非法临时文件ID"})
+            continue
         temp_path = _get_upload_temp_dir() / temp_id
         if not temp_path.exists():
             errors.append({"name": temp_id, "error": "临时文件不存在"})
@@ -2197,6 +2332,10 @@ def api_files_upload_commit():
                     continue
 
                 existing_path = Path(existing_row["path"])
+                if not _is_within(base, existing_path):
+                    temp_path.unlink(missing_ok=True)
+                    errors.append({"name": temp_id, "error": "覆盖目标路径非法"})
+                    continue
                 dest = existing_path
                 dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2212,6 +2351,10 @@ def api_files_upload_commit():
                 )
             else:
                 dest = cur / (temp_id.split("_", 1)[-1] if "_" in temp_id else temp_id)
+                if not _is_within(cur, dest) or not _is_within(base, dest):
+                    temp_path.unlink(missing_ok=True)
+                    errors.append({"name": temp_id, "error": "目标路径非法"})
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
 
                 shutil.move(str(temp_path), str(dest))
@@ -2385,6 +2528,8 @@ def api_files_upload_cancel():
     temp_ids = data.get("temp_ids", [])
     removed = 0
     for temp_id in temp_ids:
+        if not _valid_temp_id(temp_id):
+            continue
         temp_path = _get_upload_temp_dir() / temp_id
         if temp_path.exists():
             try:
@@ -2409,9 +2554,7 @@ def api_files_audio_count():
     for rel in path_list:
         rel_normalized = rel.replace("/", "\\") if "\\" in _lib_path else rel
         cur = (base / rel_normalized).resolve()
-        base_resolved = str(base.resolve())
-        cur_str = str(cur)
-        if not cur_str.startswith(base_resolved):
+        if not _is_within(base, cur):
             counts[rel] = 0
             continue
         if not cur.is_dir():

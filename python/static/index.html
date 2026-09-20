@@ -5,13 +5,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tune Tree</title>
-  <link rel="icon" type="image/svg+xml" href="static/favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="static/favicon.svg?v=1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap"
-    rel="stylesheet">
+    rel="stylesheet"
+    media="print"
+    onload="this.media='all';this.onload=null;">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  </noscript>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="static/css/main.css">
+  <link rel="stylesheet" href="static/css/main.css?v=1">
 </head>
 
 <body>
@@ -43,6 +50,31 @@
         </button>
         <button class="nav-btn" onclick="switchPage('log')" id="nav-log">操作日志</button>
       </nav>
+      <!-- 移动端视图切换下拉（桌面端隐藏） -->
+      <div class="view-switch" id="view-switch">
+        <button class="view-switch-btn" onclick="toggleViewSwitch(event)" aria-haspopup="true">
+          <i class="bi bi-grid-1x2-fill"></i>
+          <span class="view-switch-label" id="view-switch-label">艺术家视图</span>
+          <i class="bi bi-chevron-down view-switch-caret"></i>
+        </button>
+        <div class="view-switch-menu" id="view-switch-menu">
+          <button class="view-switch-item active" data-page="artist" onclick="switchPage('artist')">
+            <i class="bi bi-person"></i>艺术家视图
+          </button>
+          <button class="view-switch-item" data-page="files" onclick="switchPage('files')">
+            <i class="bi bi-folder"></i>目录浏览
+          </button>
+          <button class="view-switch-item" data-page="stats" onclick="switchPage('stats')">
+            <i class="bi bi-bar-chart"></i>统计概览
+          </button>
+          <button class="view-switch-item" data-page="pending" onclick="switchPage('pending')">
+            <i class="bi bi-exclamation-circle"></i>待定文件<span class="dot" id="view-switch-pending-dot" style="display:none"></span>
+          </button>
+          <button class="view-switch-item" data-page="log" onclick="switchPage('log')">
+            <i class="bi bi-list-ul"></i>操作日志
+          </button>
+        </div>
+      </div>
       <div class="header-actions">
         <span class="theme-indicator" id="theme-label" onclick="toggleTheme()" title="切换主题">DARK</span>
         <button class="icon-btn" id="scan-btn" onclick="doScan()" title="重新扫描">
@@ -103,6 +135,10 @@
         <!-- ARTIST PAGE -->
         <div class="page active" id="page-artist">
           <div class="main-toolbar">
+            <!-- 移动端：一键打开艺术家列表侧栏 -->
+            <button class="toolbar-btn mobile-artist-list-btn" onclick="toggleMobileSidebar()">
+              <i class="bi bi-list-ul"></i>艺术家列表
+            </button>
             <span class="toolbar-path" id="breadcrumb"><span>全部艺术家</span></span>
             <button class="toolbar-btn" id="select-all-btn" onclick="selectAllAlbums()">全选专辑</button>
             <button class="toolbar-btn primary" id="format-btn" onclick="openFormatModal()"
@@ -658,27 +694,27 @@
   </div>
 
   <!-- JavaScript Modules (load order matters) -->
-  <script defer src="static/js/modules/utils.js"></script>
-  <script defer src="static/js/modules/api.js"></script>
-  <script defer src="static/js/modules/state.js"></script>
-  <script defer src="static/js/modules/ui.js"></script>
-  <script defer src="static/js/modules/auth.js"></script>
-  <script defer src="static/js/modules/image-viewer.js"></script>
-  <script defer src="static/js/modules/artist.js"></script>
-  <script defer src="static/js/modules/files.js"></script>
-  <script defer src="static/js/modules/stats.js"></script>
-  <script defer src="static/js/modules/artist-stats.js"></script>
-  <script defer src="static/js/modules/album-stats.js"></script>
-  <script defer src="static/js/modules/pending.js"></script>
-  <script defer src="static/js/modules/logs.js"></script>
-  <script defer src="static/js/modules/format.js"></script>
-  <script defer src="static/js/modules/detail.js"></script>
-  <script defer src="static/js/modules/lrc-parser.js"></script>
-  <script defer src="static/js/modules/lyrics-editor.js"></script>
-  <script defer src="static/js/modules/metadata-edit.js"></script>
-  <script defer src="static/js/modules/batch-scrape.js"></script>
-  <script defer src="static/js/modules/settings.js"></script>
-  <script defer src="static/js/app.js"></script>
+  <script defer src="static/js/modules/utils.js?v=1"></script>
+  <script defer src="static/js/modules/api.js?v=1"></script>
+  <script defer src="static/js/modules/state.js?v=1"></script>
+  <script defer src="static/js/modules/ui.js?v=1"></script>
+  <script defer src="static/js/modules/auth.js?v=1"></script>
+  <script defer src="static/js/modules/image-viewer.js?v=1"></script>
+  <script defer src="static/js/modules/artist.js?v=1"></script>
+  <script defer src="static/js/modules/files.js?v=1"></script>
+  <script defer src="static/js/modules/stats.js?v=1"></script>
+  <script defer src="static/js/modules/artist-stats.js?v=1"></script>
+  <script defer src="static/js/modules/album-stats.js?v=1"></script>
+  <script defer src="static/js/modules/pending.js?v=1"></script>
+  <script defer src="static/js/modules/logs.js?v=1"></script>
+  <script defer src="static/js/modules/format.js?v=1"></script>
+  <script defer src="static/js/modules/detail.js?v=1"></script>
+  <script defer src="static/js/modules/lrc-parser.js?v=1"></script>
+  <script defer src="static/js/modules/lyrics-editor.js?v=1"></script>
+  <script defer src="static/js/modules/metadata-edit.js?v=1"></script>
+  <script defer src="static/js/modules/batch-scrape.js?v=1"></script>
+  <script defer src="static/js/modules/settings.js?v=1"></script>
+  <script defer src="static/js/app.js?v=1"></script>
 </body>
 
 </html>

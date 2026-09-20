@@ -6,7 +6,7 @@ Flask + Python 3.13 + SQLite + mutagen
 import os
 import logging
 from logging.handlers import TimedRotatingFileHandler
-from flask import Flask
+from flask import Flask, request
 from config import SECRET_KEY
 from models.db import init_db, close_db
 from api.routes import api_bp
@@ -51,8 +51,25 @@ logger = logging.getLogger("tunetree")
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# Register blueprints
+# 限制请求体上限，防止超大上传把磁盘/内存打满（上传接口另有单文件上限）
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2GB
+
+# 注册蓝图
 app.register_blueprint(api_bp)
+
+
+# 静态资源缓存策略：
+#  - /static/* 已由前端 URL 通过 ?v= 做版本控制，允许长期缓存
+#  - 首页（index.html）与 /api/* 一律不缓存，保证 HTML/接口始终最新
+@app.after_request
+def _apply_cache_headers(resp):
+    path = request.path
+    if path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path == "/" or path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
 
 # Teardown app context
 app.teardown_appcontext(close_db)
@@ -67,4 +84,9 @@ if __name__ == "__main__":
     with app.app_context():
         update_scheduler()
     
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # 默认关闭 debug（Werkzeug 调试器允许任意代码执行，切勿在生产开放）
+    app.run(
+        debug=os.environ.get("FLASK_DEBUG", "").lower() == "1",
+        host="0.0.0.0",
+        port=5000,
+    )

@@ -218,6 +218,7 @@ def execute_format(
     # 收集所有原目录以便后续检查是否为空
     original_dirs = set()
     skip_ids = []
+    conflict_ids = []
 
     for item in preview["items"]:
         if item["status"] == "skip":

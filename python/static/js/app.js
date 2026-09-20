@@ -45,10 +45,13 @@ async function initApp() {
     await selectArtistFromId(firstArtistId);
   }
 
-  loadFiles('');
-  loadStats();
-  loadPending();
-  loadLogs();
+  // 各页面数据互相独立，并行加载以缩短首屏等待
+  await Promise.all([
+    loadFiles(''),
+    loadStats(),
+    loadPending(),
+    loadLogs(),
+  ]);
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -1057,9 +1057,10 @@ async function loadArtistCover(artistId) {
 }
 
 async function loadAlbumCovers(albums) {
-  for (const al of albums) {
+  // 并行发起封面检测/加载，避免大量专辑时逐张串行等待拖慢首屏
+  const tasks = albums.map(async (al) => {
     const wrap = document.getElementById('alcw-' + al.id);
-    if (!wrap) continue;
+    if (!wrap) return;
 
     try {
       const exists = await GET(`/albums/${al.id}/cover/exists`);
@@ -1119,7 +1120,8 @@ async function loadAlbumCovers(albums) {
     } catch (e) {
       // ignore — placeholder stays
     }
-  }
+  });
+  await Promise.all(tasks);
 }
 
 function uploadAlbumCover(albumId) {
