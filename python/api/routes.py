@@ -2,113 +2,106 @@
 API 路由模块
 """
 
-from flask import (
-    Blueprint,
-    request,
-    jsonify,
-    send_from_directory,
-    abort,
-    Response,
-    send_file,
-)
-from functools import wraps
-from pathlib import Path
-from datetime import datetime
 import base64
 import hmac
-import hashlib
+import io
 import ipaddress
 import json
 import logging
-import re
-import threading
-import zipfile
-import io
 import os
+import re
 import shutil
+import threading
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from functools import wraps
+from pathlib import Path
 
 from config import ACCESS_KEY
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+)
+from repository.album_repository import ensure_album
+from repository.album_repository import get_album_stats as repo_get_album_stats
+from repository.artist_repository import ensure_artist, get_artist_by_id
+from repository.artist_repository import get_artist_stats as repo_get_artist_stats
+from repository.library_repository import delete_library as delete_library_repo
 from repository.library_repository import (
+    get_all_libraries,
+    get_current_library,
     get_current_library_id,
     get_current_library_path,
-    get_current_library,
-    get_all_libraries,
     get_library_by_id,
     insert_library,
-    update_library,
-    delete_library as delete_library_repo,
     set_current_library_id,
+    update_library,
 )
-from utils.metadata import (
-    get_cover_b64,
-    get_lyrics,
-    read_metadata,
-    write_metadata,
-    write_cover,
-    write_lyrics,
-    normalize_str,
+from repository.track_repository import (
+    add_op_log,
+    clear_op_logs,
+    commit,
+    count_duplicate_groups,
+    count_organized_albums,
+    count_organized_artists,
+    count_pending_tracks,
+    count_total_albums,
+    count_total_artists,
+    count_total_tracks,
+    count_tracks_by_extension,
+    delete_track_by_id,
+    get_artist_directory_path_by_id,
+    get_artist_full_info_by_id,
+    get_artists,
+    get_duplicate_tracks,
+    get_op_logs,
+    get_pending_tracks,
+    get_scan_meta,
+    get_scan_status,
+    get_track_by_filename,
+    get_track_by_filename_and_album,
+    get_track_by_filename_and_artist,
+    get_track_by_id,
+    get_track_by_path,
+    get_tracks_by_album_id,
+    get_tracks_by_artist_id,
+    get_tracks_by_ids,
+    insert_track,
+    recalc_pending,
+    set_scan_finished,
+    set_scan_meta,
+    set_scan_running,
+    update_track_by_path,
+    update_track_metadata,
 )
-from utils.formatting import get_relative_path
-from services.scan_service import scan_library
 from services.format_service import (
-    preview_format,
-    execute_format,
-    batch_preview_format,
     batch_execute_format,
+    batch_preview_format,
+    execute_format,
+    preview_format,
 )
 from services.metadata_scraper import MetadataScraper
 from services.netease_api import NeteaseApi
 from services.qqmusic_api import QQMusicApi
-from repository.track_repository import (
-    get_track_by_id,
-    get_track_by_path,
-    get_track_by_filename_and_artist,
-    get_tracks_by_ids,
-    get_track_by_filename_and_album,
-    get_track_by_filename,
-    get_tracks_by_artist_id,
-    get_tracks_by_album_id,
-    get_pending_tracks,
-    get_duplicate_tracks,
-    get_artists,
-    get_artist_full_info_by_id,
-    get_artist_directory_path_by_id,
-    count_total_tracks,
-    count_total_artists,
-    count_total_albums,
-    count_pending_tracks,
-    count_organized_artists,
-    count_organized_albums,
-    count_duplicate_groups,
-    count_tracks_by_extension,
-    get_scan_meta,
-    set_scan_meta,
-    get_scan_status,
-    set_scan_running,
-    set_scan_finished,
-    get_op_logs,
-    clear_op_logs,
-    add_op_log,
-    delete_track_by_id,
-    update_track_metadata,
-    insert_track,
-    update_track_by_path,
-    recalc_pending,
-    commit,
-)
-from repository.artist_repository import (
-    get_artist_stats as repo_get_artist_stats,
-    get_artists_without_cover,
-    get_artist_by_id,
-    ensure_artist,
-)
-from repository.album_repository import (
-    ensure_album,
-    get_album_stats as repo_get_album_stats,
-)
+from services.scan_service import scan_library
 from services.similarity_service import find_similar_artists
+from utils.formatting import get_relative_path
+from utils.metadata import (
+    get_cover_b64,
+    get_lyrics,
+    normalize_str,
+    read_metadata,
+    write_cover,
+    write_lyrics,
+    write_metadata,
+)
 
 logger = logging.getLogger("tunetree")
 api_bp = Blueprint("api", __name__)
@@ -123,21 +116,12 @@ _API_EXECUTOR = ThreadPoolExecutor(max_workers=12, thread_name_prefix="api")
 # 扫描后台线程锁：防止并发触发多个扫描任务。
 _scan_lock = threading.Lock()
 
-from services.task_service import get_app as _get_flask_app  # noqa: E402
+from services.task_service import get_app as _get_flask_app
 
 
 def _relink_track_artist_album(track_id: int):
-    from repository.artist_repository import (
-        ensure_artist,
-        get_artist_by_name,
-        delete_artist,
-    )
-    from repository.album_repository import (
-        ensure_album,
-        get_album_by_title_and_artist,
-        delete_album,
-        get_album_by_id,
-    )
+    from repository.album_repository import delete_album, ensure_album, get_album_by_id
+    from repository.artist_repository import delete_artist, ensure_artist
 
     row = get_track_by_id(track_id)
     if not row:
@@ -288,7 +272,7 @@ def api_scan():
 
     music_root = get_current_library_path()
     if not music_root or not Path(music_root).exists():
-        return jsonify({"error": f"Music library path not found"}), 400
+        return jsonify({"error": "Music library path not found"}), 400
 
     if not _scan_lock.acquire(blocking=False):
         return jsonify(
@@ -297,10 +281,17 @@ def api_scan():
 
     library_id = get_current_library_id()
 
+    # 先标记「扫描中」，保证 /api/scan 返回后前端立刻能轮询到 scanning=true。
+    # 否则后台线程真正启动前，轮询可能读到上一轮的 idle 状态而误判扫描已结束（竞态）。
+    set_scan_running(datetime.now().timestamp())
+    # 清空上一轮结果，避免本轮尚未产出结果时前端读到旧数据
+    try:
+        set_scan_meta("last_scan_result", "")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("清空上次扫描结果失败: %s", exc)
+
     def _do_scan():
         """后台实际执行扫描（需要在 Flask 应用上下文中访问数据库）"""
-        now = datetime.now().timestamp()
-        set_scan_running(now)
         try:
             result = scan_library(music_root, library_id=library_id)
             # 保存本次扫描结果，供前端在轮询/完成后展示
@@ -310,7 +301,13 @@ def api_scan():
                     json.dumps(
                         {
                             k: result.get(k)
-                            for k in ("added", "updated", "skipped", "removed", "duration")
+                            for k in (
+                                "added",
+                                "updated",
+                                "skipped",
+                                "removed",
+                                "duration",
+                            )
                         },
                         ensure_ascii=False,
                     ),
@@ -336,9 +333,7 @@ def api_scan():
             _scan_lock.release()
 
     # 后台线程执行，接口立即返回，防止长时间占用请求线程导致整个服务卡顿
-    threading.Thread(
-        target=_scan_worker, name="library-scan", daemon=True
-    ).start()
+    threading.Thread(target=_scan_worker, name="library-scan", daemon=True).start()
 
     return jsonify({"started": True, "status": "running"})
 
@@ -598,13 +593,9 @@ def api_artist_full(artist_id: int):
     return jsonify(result)
 
 
-from repository.album_repository import (
-    get_album_by_id,
-    get_albums_by_artist_id,
-    update_album as update_album_repo,
-)
-from repository.artist_repository import get_artist_by_id
 from models.db import get_db
+from repository.album_repository import get_album_by_id, get_albums_by_artist_id
+from repository.album_repository import update_album as update_album_repo
 
 ARTIST_COVER_FILENAME = "cover.jpg"
 ALBUM_COVER_FILENAME = "cover.jpg"
@@ -666,8 +657,9 @@ def api_artist_cover_upload(artist_id: int):
         return jsonify({"error": "cover file too large (max 5MB)"}), 400
 
     try:
-        from PIL import Image
         import io
+
+        from PIL import Image
 
         img = Image.open(io.BytesIO(image_data))
         if not _guard_image_dimensions(img):
@@ -878,8 +870,9 @@ def api_album_cover_upload(album_id: int):
         return jsonify({"error": "cover file too large (max 5MB)"}), 400
 
     try:
-        from PIL import Image
         import io as _io
+
+        from PIL import Image
 
         img = Image.open(_io.BytesIO(image_data))
         if not _guard_image_dimensions(img):
@@ -926,8 +919,9 @@ def api_artist_scrape_cover(artist_id: int):
         return jsonify({"error": "cover file too large (max 5MB)"}), 400
 
     try:
-        from PIL import Image
         import io
+
+        from PIL import Image
 
         img = Image.open(io.BytesIO(image_data))
         if not _guard_image_dimensions(img):
@@ -1078,8 +1072,9 @@ def api_artists_apply_avatar(artist_id: int):
         return jsonify({"error": "cover file too large (max 5MB)"}), 400
 
     try:
-        from PIL import Image
         import io as _io
+
+        from PIL import Image
 
         img = Image.open(_io.BytesIO(image_data))
         # 防压缩炸弹：拒绝超大尺寸图片（避免解码时耗尽内存/CPU）
@@ -1483,7 +1478,9 @@ def api_track_by_path():
     # 目录穿越防护：只允许音乐库内的相对路径（拒绝 ../ 等越界路径）
     if _lib_path:
         _base = Path(_lib_path).resolve()
-        if not any(_is_within(_base, Path(p)) for p in (full_path, full_path_normalized)):
+        if not any(
+            _is_within(_base, Path(p)) for p in (full_path, full_path_normalized)
+        ):
             return jsonify({"error": "path outside library"}), 403
 
     # Try exact match first
@@ -1547,8 +1544,8 @@ def api_track_by_path():
                 artist_id = None
                 album_id = None
                 if artist_name:
-                    from repository.artist_repository import ensure_artist
                     from repository.album_repository import ensure_album
+                    from repository.artist_repository import ensure_artist
 
                     effective_artist = album_artist_name or artist_name
                     artist_id = ensure_artist(
@@ -1908,8 +1905,9 @@ def api_batch_scrape_covers():
             if len(image_data) > MAX_ARTIST_COVER_SIZE:
                 results.append({"id": aid, "ok": False, "error": "too large"})
                 continue
-            from PIL import Image
             import io as _io
+
+            from PIL import Image
 
             img = Image.open(_io.BytesIO(image_data))
             if not _guard_image_dimensions(img):
@@ -2081,7 +2079,7 @@ def api_scrape_metadata(track_id: int):
         add_op_log(
             now,
             "scrape_error",
-            f"刮削元数据出错: {row['filename']} - {str(e)}",
+            f"刮削元数据出错: {row['filename']} - {e!s}",
             library_id=get_current_library_id(),
         )
         commit()
@@ -2176,7 +2174,7 @@ def api_apply_scraped_metadata(track_id: int):
         add_op_log(
             now,
             "apply_scrape_error",
-            f"应用元数据出错: {row['filename']} - {str(e)}",
+            f"应用元数据出错: {row['filename']} - {e!s}",
             library_id=get_current_library_id(),
         )
         commit()
@@ -2231,7 +2229,7 @@ def api_scrape_all(track_id: int):
         add_op_log(
             now,
             "scrape_all_error",
-            f"批量搜索出错: {row['filename']} - {str(e)}",
+            f"批量搜索出错: {row['filename']} - {e!s}",
             library_id=get_current_library_id(),
         )
         commit()
@@ -2340,7 +2338,10 @@ def api_files_upload_check():
 
         if f.content_length and f.content_length > MAX_UPLOAD_FILE_SIZE:
             errors.append(
-                {"name": filename, "error": f"文件过大（超过 {MAX_UPLOAD_FILE_SIZE // (1024 * 1024)}MB）"}
+                {
+                    "name": filename,
+                    "error": f"文件过大（超过 {MAX_UPLOAD_FILE_SIZE // (1024 * 1024)}MB）",
+                }
             )
             continue
 
@@ -2693,9 +2694,7 @@ def api_files_audio_count():
 
     # 目录音频计数为纯 IO 扫描，多个目录并行统计可显著加速
     counts = {}
-    futures = [
-        _API_EXECUTOR.submit(_audio_count_for_rel, rel) for rel in path_list
-    ]
+    futures = [_API_EXECUTOR.submit(_audio_count_for_rel, rel) for rel in path_list]
     for future in as_completed(futures):
         rel, count = future.result()
         counts[rel] = count
@@ -2788,7 +2787,7 @@ def api_batch_scrape():
                 "track_title": row["title"] if row["title"] else "",
                 "filename": row["filename"] if row["filename"] else "",
                 "_log_type": "error",
-                "_log_msg": f"批量搜索出错: {row['filename']} - {str(e)}",
+                "_log_msg": f"批量搜索出错: {row['filename']} - {e!s}",
             }
 
     results = []
@@ -2833,7 +2832,7 @@ def api_get_task_config():
 @require_auth
 def api_set_task_config():
     """设置任务配置"""
-    from repository.task_repository import set_task_config, commit
+    from repository.task_repository import commit, set_task_config
 
     data = request.get_json(force=True)
     scrape_enabled = int(data.get("scrape_enabled", False))
@@ -2841,8 +2840,7 @@ def api_set_task_config():
     interval_minutes = int(data.get("interval_minutes", 60))
 
     # 时间间隔最小为5分钟
-    if interval_minutes < 5:
-        interval_minutes = 5
+    interval_minutes = max(interval_minutes, 5)
 
     set_task_config(scrape_enabled, organize_enabled, interval_minutes)
     commit()
