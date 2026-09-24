@@ -1,0 +1,15 @@
+requirement.md
+codecopi.md
+.codefree-o
+.ruff_cache
+code-copilot
+openspec
+AGENTS.md
+**/__pycache__
+python/instance
+python/.env
+.env
+python/config.py
+.trae
+music
+.codefree

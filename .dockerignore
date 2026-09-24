@@ -1,0 +1,31 @@
+# 版本控制与 CI 元数据（不进镜像，减小构建上下文）
+.git
+.gitignore
+.github
+AGENTS.md
+
+# Python 缓存与运行时产物
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# 本地环境与编辑器
+myenv/
+.trae/
+.codefree/
+.codefree-o/
+openspec/
+code-copilot
+codecopi.md
+requirement.md
+
+# 敏感/本地配置：避免 python/.env 被打进镜像（见 AGENTS.md 提醒）
+# 注意：python/config.py 是应用必需文件，已被 git 跟踪，不能排除
+python/.env
+.env
+python/instance/
+
+# 运行时音乐库与数据
+music/
+data/

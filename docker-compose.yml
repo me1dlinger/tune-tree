@@ -1,19 +1,19 @@
 version: '3'
 services:
-  docqa:
-    image: tune-tree:1.0.0
+  tune-tree:
+    image: meidlinger1024/tune-tree:latest
     container_name: tune-tree
     restart: always
     ports:
       - "15000:5000"
     volumes:
-      #填写自己宿主机的路径，映射进容器，后续页面音乐库配置时使用，可以多音乐库映射和配置
-      - :path_to_music:/app/music
-      #数据库路径，持久化存储配置
-      - :path_to_db:/app/db
+      # 填写自己宿主机的路径，映射进容器，后续页面音乐库配置时使用，可以多音乐库映射和配置
+      - ./path_to_music:/app/music
+      # 数据库路径，持久化存储配置
+      - ./path_to_db:/app/db
     environment:
       - TZ=Asia/Shanghai
-      #后端校验秘钥
+      # 后端校验秘钥
       - ACCESS_KEY=tunetree-2026
-      #数据库路径
+      # 数据库路径
       - DB_ROOT=/app/db

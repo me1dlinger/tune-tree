@@ -177,12 +177,20 @@ waitress-serve --host=0.0.0.0 --port=5000 wsgi:application
 
 ### Docker 部署
 
+镜像支持 `linux/amd64` 与 `linux/arm64`，由 GitHub Actions 在推送 `v*` 标签时自动构建推送。
+
 ```bash
-# 构建镜像
-docker build -t tune-tree:1.0.0 .
+# 从 Docker Hub 拉取
+docker pull meidlinger1024/tune-tree:latest
 
 # 修改 docker-compose.yml 中的卷挂载路径后启动
-docker-compose up -d
+docker compose up -d
+```
+
+本地构建（可选）：
+
+```bash
+docker build -t meidlinger1024/tune-tree:latest .
 ```
 
 访问 <http://localhost:15000>
