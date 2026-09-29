@@ -27,28 +27,44 @@ def get_track_by_path(path: str):
     return db.execute("SELECT * FROM tracks WHERE path=?", (path,)).fetchone()
 
 
-def get_track_by_filename_and_artist(filename: str, artist: str):
+def get_track_by_filename_and_artist(
+    filename: str, artist: str, library_id: int | None = None
+):
     """根据文件名和艺术家获取 track"""
     db = get_db()
-    return db.execute(
-        "SELECT * FROM tracks WHERE filename=? AND artist=? LIMIT 1", (filename, artist)
-    ).fetchone()
+    sql = "SELECT * FROM tracks WHERE filename=? AND artist=?"
+    params: list = [filename, artist]
+    if library_id is not None:
+        sql += " AND library_id=?"
+        params.append(library_id)
+    sql += " LIMIT 1"
+    return db.execute(sql, params).fetchone()
 
 
-def get_track_by_filename_and_album(filename: str, album: str):
+def get_track_by_filename_and_album(
+    filename: str, album: str, library_id: int | None = None
+):
     """根据文件名和专辑获取 track"""
     db = get_db()
-    return db.execute(
-        "SELECT * FROM tracks WHERE filename=? AND album=? LIMIT 1", (filename, album)
-    ).fetchone()
+    sql = "SELECT * FROM tracks WHERE filename=? AND album=?"
+    params: list = [filename, album]
+    if library_id is not None:
+        sql += " AND library_id=?"
+        params.append(library_id)
+    sql += " LIMIT 1"
+    return db.execute(sql, params).fetchone()
 
 
-def get_track_by_filename(filename: str):
+def get_track_by_filename(filename: str, library_id: int | None = None):
     """根据文件名获取 track"""
     db = get_db()
-    return db.execute(
-        "SELECT * FROM tracks WHERE filename=? LIMIT 1", (filename,)
-    ).fetchone()
+    sql = "SELECT * FROM tracks WHERE filename=?"
+    params: list = [filename]
+    if library_id is not None:
+        sql += " AND library_id=?"
+        params.append(library_id)
+    sql += " LIMIT 1"
+    return db.execute(sql, params).fetchone()
 
 
 def get_track_id_and_mtime_by_path(path: str):
@@ -67,13 +83,19 @@ def get_all_track_paths(library_id: int | None = None):
     return db.execute("SELECT path FROM tracks").fetchall()
 
 
-def get_tracks_by_ids(track_ids: list[int]):
+def get_tracks_by_ids(track_ids: list[int], library_id: int | None = None):
     db = get_db()
     placeholders = ",".join("?" * len(track_ids))
-    return db.execute(
-        f"SELECT t.* FROM tracks t LEFT JOIN artists a ON t.artist_id = a.id LEFT JOIN albums al ON t.album_id = al.id WHERE t.id IN ({placeholders}) ORDER BY a.name, al.title, t.disc_num, t.track_num, t.filename",
-        track_ids,
-    ).fetchall()
+    sql = (
+        f"SELECT t.* FROM tracks t LEFT JOIN artists a ON t.artist_id = a.id "
+        f"LEFT JOIN albums al ON t.album_id = al.id WHERE t.id IN ({placeholders})"
+    )
+    params: list = list(track_ids)
+    if library_id is not None:
+        sql += " AND t.library_id=?"
+        params.append(library_id)
+    sql += " ORDER BY a.name, al.title, t.disc_num, t.track_num, t.filename"
+    return db.execute(sql, params).fetchall()
 
 
 def get_tracks_by_artist_and_album(artist: str, album: str):
@@ -90,17 +112,21 @@ def get_tracks_by_artist_and_album(artist: str, album: str):
     ).fetchall()
 
 
-def get_tracks_by_artist_and_album_id(artist: str, album_id: int):
+def get_tracks_by_artist_and_album_id(
+    artist: str, album_id: int, library_id: int | None = None
+):
     db = get_db()
-    return db.execute(
-        """
+    sql = """
         SELECT t.* FROM tracks t
         JOIN artists a ON t.artist_id = a.id
         WHERE a.name_normalized=? AND t.album_id=?
-        ORDER BY t.disc_num, t.track_num, t.filename
-    """,
-        (normalize_str(artist), album_id),
-    ).fetchall()
+    """
+    params: list = [normalize_str(artist), album_id]
+    if library_id is not None:
+        sql += " AND t.library_id=?"
+        params.append(library_id)
+    sql += " ORDER BY t.disc_num, t.track_num, t.filename"
+    return db.execute(sql, params).fetchall()
 
 
 def get_tracks_by_artist(artist: str):
@@ -408,16 +434,20 @@ def get_artist_by_track_id(track_id: int):
     return row["name"] if row else None
 
 
-def count_tracks_by_artist_with_status(artist: str, organized: int, pending: int):
+def count_tracks_by_artist_with_status(
+    artist: str, organized: int, pending: int, library_id: int | None = None
+):
     db = get_db()
-    return db.execute(
-        """
+    sql = """
         SELECT COUNT(*) as c FROM tracks t
         JOIN artists a ON t.artist_id = a.id
         WHERE a.name_normalized=? AND t.organized=? AND t.pending=?
-    """,
-        (normalize_str(artist), organized, pending),
-    ).fetchone()["c"]
+    """
+    params: list = [normalize_str(artist), organized, pending]
+    if library_id is not None:
+        sql += " AND t.library_id=?"
+        params.append(library_id)
+    return db.execute(sql, params).fetchone()["c"]
 
 
 def count_tracks_by_artist_id_with_status(artist_id: int, organized: int, pending: int):

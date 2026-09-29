@@ -49,8 +49,13 @@ def build_target_filename(track) -> str:
 
 
 def preview_format(
-    artist: str, album_ids: list[int] | None = None, track_ids: list[int] | None = None
+    artist: str,
+    album_ids: list[int] | None = None,
+    track_ids: list[int] | None = None,
+    library_id: int | None = None,
 ) -> dict:
+    if library_id is None:
+        library_id = get_current_library_id()
     music_root = get_current_library_path() or ""
     previews = []
     conflict_count = 0
@@ -60,25 +65,33 @@ def preview_format(
     seen_files: dict[str, str] = {}
     tree_structure = {}
 
-    artist_row = get_artist_by_name(artist)
+    artist_row = get_artist_by_name(artist, library_id=library_id)
     artist_dir_name = artist_row["dir_name"] if artist_row else safe_dirname(artist)
 
     if track_ids and len(track_ids) > 0:
-        rows = get_tracks_by_ids(track_ids)
+        rows = get_tracks_by_ids(track_ids, library_id=library_id)
     else:
         album_ids = album_ids or []
         albums_to_process = []
 
         if len(album_ids) > 0:
             for alb_id in album_ids:
-                rows = get_tracks_by_artist_and_album_id(artist, alb_id)
+                rows = get_tracks_by_artist_and_album_id(
+                    artist, alb_id, library_id=library_id
+                )
                 if rows:
                     albums_to_process.append((alb_id, rows[0]["album"], rows))
         else:
-            albums = get_albums_by_artist_id(artist_row["id"]) if artist_row else []
+            albums = (
+                get_albums_by_artist_id(artist_row["id"], library_id=library_id)
+                if artist_row
+                else []
+            )
             for album in albums:
                 alb_id = album["id"]
-                rows = get_tracks_by_artist_and_album_id(artist, alb_id)
+                rows = get_tracks_by_artist_and_album_id(
+                    artist, alb_id, library_id=library_id
+                )
                 album_name = rows[0]["album"] if rows else album["title"]
                 albums_to_process.append((alb_id, album_name, rows))
 
@@ -93,9 +106,16 @@ def preview_format(
     existing_paths = {}
     if all_paths:
         placeholders = ",".join("?" * len(all_paths))
-        existing_rows = db.execute(
-            f"SELECT id, path FROM tracks WHERE path IN ({placeholders})", all_paths
-        ).fetchall()
+        if library_id is not None:
+            existing_rows = db.execute(
+                f"SELECT id, path FROM tracks WHERE path IN ({placeholders}) AND library_id=?",
+                list(all_paths) + [library_id],
+            ).fetchall()
+        else:
+            existing_rows = db.execute(
+                f"SELECT id, path FROM tracks WHERE path IN ({placeholders})",
+                all_paths,
+            ).fetchall()
         for existing_row in existing_rows:
             existing_paths[existing_row["path"]] = existing_row["id"]
 
@@ -205,9 +225,14 @@ def delete_empty_dirs(path: Path) -> None:
 
 
 def execute_format(
-    artist: str, album_ids: list[int] | None = None, track_ids: list[int] | None = None
+    artist: str,
+    album_ids: list[int] | None = None,
+    track_ids: list[int] | None = None,
+    library_id: int | None = None,
 ) -> dict:
-    preview = preview_format(artist, album_ids, track_ids)
+    if library_id is None:
+        library_id = get_current_library_id()
+    preview = preview_format(artist, album_ids, track_ids, library_id=library_id)
     moved = errors = skipped = 0
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -263,11 +288,11 @@ def execute_format(
     for original_dir in original_dirs:
         delete_empty_dirs(original_dir)
 
-    artist_row = get_artist_by_name(artist)
+    artist_row = get_artist_by_name(artist, library_id=library_id)
     all_org = (
         count_tracks_by_artist_id_with_status(artist_row["id"], 0, 0) == 0
         if artist_row
-        else count_tracks_by_artist_with_status(artist, 0, 0) == 0
+        else count_tracks_by_artist_with_status(artist, 0, 0, library_id=library_id) == 0
     )
 
     msg = (
@@ -279,8 +304,10 @@ def execute_format(
     return {"moved": moved, "skipped": skipped, "errors": errors, "organized": all_org}
 
 
-def batch_preview_format(artists: list[str]) -> dict:
+def batch_preview_format(artists: list[str], library_id: int | None = None) -> dict:
     """批量预览多个艺术家的格式化结果，串行处理避免Flask上下文问题"""
+    if library_id is None:
+        library_id = get_current_library_id()
     results = {}
     total_files = 0
     total_conflicts = 0
@@ -288,7 +315,7 @@ def batch_preview_format(artists: list[str]) -> dict:
 
     for artist in artists:
         try:
-            result = preview_format(artist)
+            result = preview_format(artist, library_id=library_id)
             results[artist] = result
             total_files += len(result["items"])
             total_conflicts += result["conflicts"]
@@ -312,8 +339,10 @@ def batch_preview_format(artists: list[str]) -> dict:
     }
 
 
-def batch_execute_format(artists: list[str]) -> dict:
+def batch_execute_format(artists: list[str], library_id: int | None = None) -> dict:
     """批量执行多个艺术家的格式化，串行处理避免Flask上下文问题"""
+    if library_id is None:
+        library_id = get_current_library_id()
     results = {}
     total_moved = 0
     total_skipped = 0
@@ -321,7 +350,7 @@ def batch_execute_format(artists: list[str]) -> dict:
 
     for artist in artists:
         try:
-            result = execute_format(artist)
+            result = execute_format(artist, library_id=library_id)
             results[artist] = result
             total_moved += result["moved"]
             total_skipped += result["skipped"]

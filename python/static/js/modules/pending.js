@@ -141,7 +141,7 @@ function renderPending() {
   pv.innerHTML = `
     <div class="pending-header">
       <div class="pending-title">待定文件</div>
-      <div class="pending-badge">${files.length} 个文件</div>
+      ${files.length > 0 ? `<div class="pending-badge">${files.length} 个文件</div>` : ''}
       ${headerActions}
     </div>
 

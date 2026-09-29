@@ -694,7 +694,12 @@ async function saveMetadataEdit() {
       renderArtistView();
     }
 
-    showTrackDetail(parseInt(trackId, 10));
+    // 待定文件页面保存后不弹出元数据侧边栏
+    if (typeof currentPage === 'undefined' || currentPage !== 'pending') {
+      showTrackDetail(parseInt(trackId, 10));
+    } else if (typeof hideDetailPanel === 'function') {
+      hideDetailPanel();
+    }
   } catch (e) {
     showToast('保存失败: ' + e.message, 'error');
   } finally {

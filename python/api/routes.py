@@ -1567,14 +1567,15 @@ def api_track_by_path():
             )
 
             # Search by filename and artist if available
+            _lib_id = get_current_library_id()
             if potential_artist:
-                row = get_track_by_filename_and_artist(filename, potential_artist)
+                row = get_track_by_filename_and_artist(filename, potential_artist, library_id=_lib_id)
             elif potential_album:
-                row = get_track_by_filename_and_album(filename, potential_album)
+                row = get_track_by_filename_and_album(filename, potential_album, library_id=_lib_id)
 
         # Last resort: search by filename only
         if not row:
-            row = get_track_by_filename(filename)
+            row = get_track_by_filename(filename, library_id=get_current_library_id())
 
     if not row:
         # File not in library — try to read metadata and insert on the fly
@@ -2017,12 +2018,13 @@ def api_format_preview():
     artist = data.get("artist")
     album_ids = data.get("album_ids")
     track_ids = data.get("track_ids", [])
+    library_id = get_current_library_id()
     if track_ids and len(track_ids) > 0:
-        result = preview_format(artist, track_ids=track_ids)
+        result = preview_format(artist, track_ids=track_ids, library_id=library_id)
     elif artist and album_ids is not None and len(album_ids) > 0:
-        result = preview_format(artist, album_ids)
+        result = preview_format(artist, album_ids, library_id=library_id)
     elif artist:
-        result = preview_format(artist)
+        result = preview_format(artist, library_id=library_id)
     else:
         return jsonify(
             {"error": "artist and album_ids required, or track_ids required"}
@@ -2037,12 +2039,13 @@ def api_format_execute():
     artist = data.get("artist")
     album_ids = data.get("album_ids")
     track_ids = data.get("track_ids", [])
+    library_id = get_current_library_id()
     if track_ids and len(track_ids) > 0:
-        result = execute_format(artist, track_ids=track_ids)
+        result = execute_format(artist, track_ids=track_ids, library_id=library_id)
     elif artist and album_ids is not None and len(album_ids) > 0:
-        result = execute_format(artist, album_ids)
+        result = execute_format(artist, album_ids, library_id=library_id)
     elif artist:
-        result = execute_format(artist)
+        result = execute_format(artist, library_id=library_id)
     else:
         return jsonify(
             {"error": "artist and album_ids required, or track_ids required"}
@@ -2057,7 +2060,7 @@ def api_format_batch_preview():
     artists = data.get("artists", [])
     if not artists or len(artists) == 0:
         return jsonify({"error": "artists list is required"}), 400
-    result = batch_preview_format(artists)
+    result = batch_preview_format(artists, library_id=get_current_library_id())
     return jsonify(result)
 
 
@@ -2068,7 +2071,7 @@ def api_format_batch_execute():
     artists = data.get("artists", [])
     if not artists or len(artists) == 0:
         return jsonify({"error": "artists list is required"}), 400
-    result = batch_execute_format(artists)
+    result = batch_execute_format(artists, library_id=get_current_library_id())
     return jsonify(result)
 
 
@@ -2370,15 +2373,21 @@ def _valid_temp_id(temp_id: str) -> bool:
     return True
 
 
-def _find_matching_track(artist: str | None, album: str | None, title: str | None):
+def _find_matching_track(
+    artist: str | None, album: str | None, title: str | None, library_id: int | None = None
+):
     """Find a track in DB matching artist + album + title (all normalized).
 
     Uses broad SQL query (matching on raw or normalized title) then
     Python-side normalize_str() verification for reliable Unicode matching.
+
+    library_id: 仅在指定音乐库内查找，避免跨库误判冲突。
     """
     if not title:
         return None
     db = get_db()
+    if library_id is None:
+        library_id = get_current_library_id()
     norm_title = normalize_str(title)
     norm_artist = normalize_str(artist) if artist else ""
     norm_album = normalize_str(album) if album else ""
@@ -2390,6 +2399,9 @@ def _find_matching_track(artist: str | None, album: str | None, title: str | Non
     if album:
         where_parts.append("t.album = ?")
         params.append(album or "")
+    if library_id is not None:
+        where_parts.append("t.library_id = ?")
+        params.append(library_id)
     rows = db.execute(
         "SELECT t.*, ar.name as artist_name FROM tracks t "
         "LEFT JOIN artists ar ON t.artist_id = ar.id "
@@ -2808,7 +2820,7 @@ def api_batch_scrape():
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    rows = get_tracks_by_ids(track_ids)
+    rows = get_tracks_by_ids(track_ids, library_id=get_current_library_id())
     row_map = {row["id"]: row for row in rows}
 
     library_path = get_current_library_path() or ""

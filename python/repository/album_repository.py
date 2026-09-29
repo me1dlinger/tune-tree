@@ -14,20 +14,24 @@ def get_album_by_id(album_id: int):
     return db.execute("SELECT * FROM albums WHERE id=?", (album_id,)).fetchone()
 
 
-def get_albums_by_artist_id(artist_id: int):
+def get_albums_by_artist_id(artist_id: int, library_id: int | None = None):
     db = get_db()
+    lib_filter = "AND al.library_id=?" if library_id is not None else ""
+    params: list = [artist_id]
+    if library_id is not None:
+        params.append(library_id)
     return db.execute(
-        """
+        f"""
         SELECT al.*,
                (SELECT COUNT(*) FROM tracks t WHERE t.album_id = al.id) AS track_count,
                CASE WHEN EXISTS (
                    SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.organized=0 AND t.pending=0
                ) THEN 0 ELSE 1 END AS all_organized
         FROM albums al
-        WHERE al.artist_id=?
+        WHERE al.artist_id=? {lib_filter}
         ORDER BY al.year, al.title COLLATE NOCASE
     """,
-        (artist_id,),
+        params,
     ).fetchall()
 
 
