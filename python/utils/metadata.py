@@ -164,6 +164,10 @@ def read_metadata(path: str) -> dict:
                 tags = raw.tags or {}
                 meta["has_cover"] = 1 if any(k.startswith("APIC") for k in tags) else 0
                 meta["has_lyrics"] = 1 if any(k.startswith("USLT") for k in tags) else 0
+            elif ext == ".m4a":
+                tags = raw.tags or {}
+                meta["has_cover"] = 1 if tags.get("covr") else 0
+                meta["has_lyrics"] = 1 if tags.get("\xa9lyr") else 0
 
     except Exception as exc:
         logger.warning("metadata read error %s: %s", path, exc)
@@ -190,6 +194,19 @@ def get_cover_b64(path: str) -> str | None:
             for k, v in tags.items():
                 if k.startswith("APIC"):
                     return f"data:{v.mime};base64," + base64.b64encode(v.data).decode()
+        elif ext == ".m4a":
+            tags = raw.tags or {}
+            covr = tags.get("covr")
+            if covr:
+                cover = covr[0]
+                from mutagen.mp4 import MP4Cover
+
+                mime = (
+                    "image/png"
+                    if cover.imageformat == MP4Cover.FORMAT_PNG
+                    else "image/jpeg"
+                )
+                return f"data:{mime};base64," + base64.b64encode(bytes(cover)).decode()
     except Exception as exc:
         logger.warning("cover extract error %s: %s", path, exc)
     return None
@@ -215,6 +232,11 @@ def extract_cover_to_file(track_path: str, output_path: str) -> bool:
                 if k.startswith("APIC"):
                     cover_data = v.data
                     break
+        elif ext == ".m4a":
+            tags = raw.tags or {}
+            covr = tags.get("covr")
+            if covr:
+                cover_data = bytes(covr[0])
         if not cover_data:
             return False
         from PIL import Image
@@ -300,6 +322,16 @@ def write_cover(path: str, image_data: bytes, mime_type: str) -> None:
             )
         )
         tags.save(actual_path)
+    elif ext == ".m4a":
+        from mutagen.mp4 import MP4Cover
+
+        fmt = (
+            MP4Cover.FORMAT_PNG
+            if mime_type == "image/png"
+            else MP4Cover.FORMAT_JPEG
+        )
+        raw["covr"] = [MP4Cover(image_data, imageformat=fmt)]
+        raw.save()
     else:
         raise ValueError(f"Unsupported format for cover write: {ext}")
 
@@ -328,6 +360,12 @@ def write_lyrics(path: str, lyrics_text: str) -> None:
         if lyrics_text:
             tags.add(USLT(encoding=3, lang="eng", desc="", text=lyrics_text))
         tags.save(actual_path)
+    elif ext == ".m4a":
+        if lyrics_text:
+            raw["\xa9lyr"] = [lyrics_text]
+        else:
+            raw.pop("\xa9lyr", None)
+        raw.save()
     else:
         raise ValueError(f"Unsupported format for lyrics write: {ext}")
 
@@ -349,6 +387,11 @@ def get_lyrics(path: str) -> str | None:
             for k, v in tags.items():
                 if k.startswith("USLT"):
                     return v.text
+        elif ext == ".m4a":
+            tags = raw.tags or {}
+            val = tags.get("\xa9lyr")
+            if val:
+                return str(val[0]) if isinstance(val, list) else str(val)
     except Exception:
         pass
     return None

@@ -39,7 +39,7 @@ from repository.album_repository import (
     delete_album,
 )
 
-AUDIO_EXTS = {".mp3", ".flac"}
+AUDIO_EXTS = {".mp3", ".flac", ".m4a"}
 
 
 def _format_duration(seconds: float) -> str:
@@ -52,7 +52,7 @@ def _format_duration(seconds: float) -> str:
     if minutes > 0:
         return f"{minutes}分钟{secs}秒"
     return f"{secs}秒"
-_ORGANIZED_FILENAME_RE = re.compile(r"^\d{2}\.\s+.+\.(?:mp3|flac)$", re.IGNORECASE)
+_ORGANIZED_FILENAME_RE = re.compile(r"^\d{2}\.\s+.+\.(?:mp3|flac|m4a)$", re.IGNORECASE)
 logger = logging.getLogger("tunetree")
 
 BATCH_SIZE = 1000
@@ -448,8 +448,8 @@ def scan_library(
         removed = 0
 
     _backfill_artist_album_ids(library_id)
-    _ensure_covers(root)
-    _cleanup_orphaned_artists_albums()
+    _ensure_covers(root, library_id)
+    _cleanup_orphaned_artists_albums(library_id)
 
     scan_duration = time.time() - scan_start_time
     duration_str = _format_duration(scan_duration)
@@ -532,10 +532,16 @@ ALBUM_COVER_FILENAME = "cover.jpg"
 ARTIST_COVER_FILENAME = "cover.jpg"
 
 
-def _ensure_covers(music_root: str):
+def _ensure_covers(music_root: str, library_id: int | None = None):
     db = get_db()
 
-    artists = db.execute("SELECT id, dir_name, cover_path FROM artists").fetchall()
+    if library_id is not None:
+        artists = db.execute(
+            "SELECT id, dir_name, cover_path FROM artists WHERE library_id=?",
+            (library_id,),
+        ).fetchall()
+    else:
+        artists = db.execute("SELECT id, dir_name, cover_path FROM artists").fetchall()
     artist_cover_updated = 0
     for artist in artists:
         artist_dir = os.path.join(music_root, artist["dir_name"])
@@ -546,9 +552,15 @@ def _ensure_covers(music_root: str):
     if artist_cover_updated > 0:
         logger.info(f"艺术家封面更新完成：{artist_cover_updated} 个艺术家")
 
-    albums = db.execute(
-        "SELECT id, artist_id, dir_name, cover_path FROM albums"
-    ).fetchall()
+    if library_id is not None:
+        albums = db.execute(
+            "SELECT id, artist_id, dir_name, cover_path FROM albums WHERE library_id=?",
+            (library_id,),
+        ).fetchall()
+    else:
+        albums = db.execute(
+            "SELECT id, artist_id, dir_name, cover_path FROM albums"
+        ).fetchall()
     if not albums:
         return
 
@@ -592,23 +604,47 @@ def _ensure_covers(music_root: str):
         logger.info(f"专辑封面提取完成：{extracted} 个专辑")
 
 
-def _cleanup_orphaned_artists_albums():
-    """清理不再被任何 track 引用的 artists 和 albums — 单条SQL批量操作，避免逐行提交"""
+def _cleanup_orphaned_artists_albums(library_id: int | None = None):
+    """清理不再被任何 track 引用的 artists 和 albums — 单条SQL批量操作，避免逐行提交
+
+    按 library_id 限定清理范围，避免扫描某个音乐库时误删其他库的记录。
+    """
     db = get_db()
 
-    db.execute("""
-        DELETE FROM albums WHERE NOT EXISTS (
-            SELECT 1 FROM tracks WHERE tracks.album_id = albums.id
+    if library_id is not None:
+        db.execute(
+            """
+            DELETE FROM albums WHERE library_id=? AND NOT EXISTS (
+                SELECT 1 FROM tracks WHERE tracks.album_id = albums.id
+            )
+        """,
+            (library_id,),
         )
-    """)
-    deleted_albums = db.execute("SELECT changes()").fetchone()[0]
+        deleted_albums = db.execute("SELECT changes()").fetchone()[0]
 
-    db.execute("""
-        DELETE FROM artists WHERE NOT EXISTS (
-            SELECT 1 FROM tracks WHERE tracks.artist_id = artists.id
+        db.execute(
+            """
+            DELETE FROM artists WHERE library_id=? AND NOT EXISTS (
+                SELECT 1 FROM tracks WHERE tracks.artist_id = artists.id
+            )
+        """,
+            (library_id,),
         )
-    """)
-    deleted_artists = db.execute("SELECT changes()").fetchone()[0]
+        deleted_artists = db.execute("SELECT changes()").fetchone()[0]
+    else:
+        db.execute("""
+            DELETE FROM albums WHERE NOT EXISTS (
+                SELECT 1 FROM tracks WHERE tracks.album_id = albums.id
+            )
+        """)
+        deleted_albums = db.execute("SELECT changes()").fetchone()[0]
+
+        db.execute("""
+            DELETE FROM artists WHERE NOT EXISTS (
+                SELECT 1 FROM tracks WHERE tracks.artist_id = artists.id
+            )
+        """)
+        deleted_artists = db.execute("SELECT changes()").fetchone()[0]
 
     if deleted_albums > 0 or deleted_artists > 0:
         logger.info(

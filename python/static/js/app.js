@@ -157,9 +157,7 @@ async function afterScanFinished(result) {
   // 清空所有艺术家缓存，确保重新扫描后获取最新数据
   clearArtistCache();
   await loadArtistTree();
-  loadStats();
-  loadPending();
-  loadLogs();
+  await Promise.all([loadStats(), loadPending(), loadLogs()]);
 
   // 如果当前艺术家存在，重新加载他的数据
   if (currentArtist) {

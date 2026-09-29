@@ -1454,7 +1454,7 @@ function renderTrackSection(album) {
               <div class="tc tc-title">${esc(t.title || t.filename)}</div>
               <div class="tc tc-album">${esc(t.album || '')}</div>
               <div class="tc tc-time">${dur}</div>
-              <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
+              <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : fmt === 'M4A' ? 'fmt-m4a' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
               <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || 'unknown'))}', '${escJs(t.ext || '')}')">
@@ -1527,7 +1527,7 @@ async function loadTrackSection(artistId, albumId) {
               <div class="tc tc-title">${esc(t.title || t.filename)}</div>
               <div class="tc tc-album">${esc(t.album || '')}</div>
               <div class="tc tc-time">${dur}</div>
-              <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : 'fmt-mp3'}">${fmt}</div>
+              <div class="tc tc-format ${fmt === 'FLAC' ? 'fmt-flac' : fmt === 'M4A' ? 'fmt-m4a' : 'fmt-mp3'}">${fmt}</div>
               <div class="tc tc-quality">${sr}</div>
               <div class="tc tc-ctime">${t.ctime ? formatDateTime(t.ctime) : '—'}</div>
               <div class="tc tc-download" onclick="event.stopPropagation();downloadTrack(${t.id}, '${escJs((t.artist || 'unknown') + ' - ' + (t.title || 'unknown'))}', '${escJs(t.ext || '')}')">

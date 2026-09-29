@@ -123,6 +123,13 @@ class NeteaseApi:
             pass
         _HTTP_SESSION_LOCAL.session = None
 
+    @staticmethod
+    def _headers() -> Dict[str, str]:
+        return {
+            "User-Agent": APIConstants.USER_AGENT,
+            "Referer": APIConstants.REFERER,
+        }
+
     # ==================== 歌曲搜索和信息 ====================
     
     @classmethod
@@ -132,7 +139,12 @@ class NeteaseApi:
         """
         search_url = 'https://music.163.com/api/search/get/web?&s={}&type=1&offset={}&total=true&limit={}'
         keyword = re.sub(r"|[!@#$%^&*/]+", "", keyword)
-        res_json = _get_http_session().post(search_url.format(keyword, page * limit, limit), timeout=10).json()
+        res_json = _get_http_session().post(
+            search_url.format(keyword, page * limit, limit),
+            headers=cls._headers(),
+            cookies=APIConstants.DEFAULT_COOKIES,
+            timeout=10,
+        ).json()
         res_list = []
         if res_json["result"] == {} or res_json['code'] == 400 or res_json["result"]["songCount"] == 0:
             return res_list
@@ -203,37 +215,85 @@ class NeteaseApi:
 
     @classmethod
     def get_song_info(cls, song_id: str) -> Optional[Dict]:
-        """
-        根据歌曲 ID 获取详细信息
-        """
-        song_info_url = 'http://music.163.com/api/song/detail/?id={}&ids=[{}]'
-        res_json = _get_http_session().post(song_info_url.format(song_id, song_id), timeout=10).json()
-        if res_json['code'] == 400 or res_json['code'] == 406:
-            raise requests.RequestException("访问过于频繁或接口失效")
-        song_json = res_json['songs'][0]
-        artists_list = [info["name"] for info in song_json["artists"]]
-        duration = song_json["duration"] // 1000
+        """根据歌曲 ID 获取详细信息。
 
-        pic_url = song_json["album"]["picUrl"]
-        pic_response = _get_http_session().get(pic_url, timeout=10)
-        pic_response.raise_for_status()
+        Netease 在触发风控或遇到特殊曲目（下架/电台/云盘等）时，可能返回
+        不含 ``songs`` 字段的响应。这里做防御式解析并给出明确错误信息，
+        避免上层收到 bare ``KeyError: 'songs'``，同时重试一次以覆盖偶发风控。
+        歌曲确实不存在时返回 None，交由上层跳过该候选。
+        """
+        song_info_url = 'https://music.163.com/api/song/detail/?id={}&ids=[{}]'
+        headers = cls._headers()
 
-        with Image.open(io.BytesIO(pic_response.content)) as img:
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            img.thumbnail((500, 500))
-            pic_buffer = io.BytesIO()
-            img.save(pic_buffer, format='JPEG', quality=85)
-            pic_buffer.seek(0)
+        songs = None
+        last_desc = ""
+        for attempt in range(2):
+            try:
+                res_json = _get_http_session().post(
+                    song_info_url.format(song_id, song_id),
+                    headers=headers,
+                    cookies=APIConstants.DEFAULT_COOKIES,
+                    timeout=10,
+                ).json()
+            except ValueError as exc:  # 非 JSON 响应
+                last_desc = f"响应不是合法 JSON: {exc}"
+                time.sleep(0.3)
+                continue
+
+            code = res_json.get("code")
+            songs = res_json.get("songs")
+            if songs:
+                break
+
+            # songs 为空列表：歌曲确实不存在，静默跳过
+            if songs == []:
+                return None
+
+            # songs 字段缺失：多为风控/接口异常，稍后重试一次
+            last_desc = res_json.get("msg") or f"code={code}, keys={list(res_json.keys())}"
+            if attempt == 0:
+                time.sleep(0.4)
+
+        if not songs:
+            raise requests.RequestException(f"网易云歌曲详情不可用: {last_desc}")
+
+        song_json = songs[0]
+        album = song_json.get("album") or {}
+        artists_list = [info.get("name", "") for info in song_json.get("artists") or []]
+        duration = (song_json.get("duration") or 0) // 1000
+
+        pic_buffer = None
+        pic_url = album.get("picUrl")
+        if pic_url:
+            try:
+                pic_response = _get_http_session().get(pic_url, headers=headers, timeout=10)
+                pic_response.raise_for_status()
+                with Image.open(io.BytesIO(pic_response.content)) as img:
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    img.thumbnail((500, 500))
+                    pic_buffer = io.BytesIO()
+                    img.save(pic_buffer, format='JPEG', quality=85)
+                    pic_buffer.seek(0)
+            except Exception as exc:
+                logger.warning(f"下载网易云封面失败 song_id={song_id}: {exc}")
+                pic_buffer = None
 
         lyric = cls.get_lyrics_by_song_id(song_id)
 
+        publish_time = album.get("publishTime")
+        year = (
+            str(time.localtime(publish_time // 1000).tm_year)
+            if publish_time
+            else ""
+        )
+
         return {
             "singer": ','.join(artists_list),
-            "songName": song_json["name"],
-            "album": song_json["album"]["name"],
-            "year": str(time.localtime(song_json["album"]["publishTime"] // 1000).tm_year),
-            "trackNumber": (song_json["no"], song_json["album"]["size"]),
+            "songName": song_json.get("name", ""),
+            "album": album.get("name", ""),
+            "year": year,
+            "trackNumber": (song_json.get("no"), album.get("size")),
             "duration": f'{duration // 60}:{duration % 60 // 10}{duration % 60}',
             "picBuffer": pic_buffer,
             "lyric": lyric
@@ -245,8 +305,10 @@ class NeteaseApi:
         根据歌曲 ID 获取歌词（包含翻译）
         """
         try:
-            lrc_url = 'http://music.163.com/api/song/lyric?id={}&os=pc&lv=-1&kv=-1&tv=-1&rv=-1&yv=-1'
-            lrc_json = _get_http_session().get(lrc_url.format(song_id), timeout=10).json()
+            lrc_url = 'https://music.163.com/api/song/lyric?id={}&os=pc&lv=-1&kv=-1&tv=-1&rv=-1&yv=-1'
+            lrc_json = _get_http_session().get(
+                lrc_url.format(song_id), headers=cls._headers(), timeout=10
+            ).json()
             lrc_text = lrc_json.get('lrc', {}).get('lyric', '')
             tlyric_text = lrc_json.get('tlyric', {}).get('lyric', '')
             if lrc_text:

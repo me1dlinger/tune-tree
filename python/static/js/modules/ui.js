@@ -68,6 +68,10 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => {
     if (e.target !== el) return;
     if (el.id === 'batch-scrape-modal') return;
+    if (el.id === 'upload-progress-modal') {
+      if (typeof hideUploadPanel === 'function') hideUploadPanel();
+      return;
+    }
     if (el.id === 'lyrics-editor-modal') {
       if (typeof closeLyricsEditorModal === 'function') closeLyricsEditorModal();
     } else {
@@ -85,6 +89,8 @@ document.addEventListener('keydown', (e) => {
     const topModal = openModals[openModals.length - 1];
     if (topModal.id === 'lyrics-editor-modal') {
       if (typeof closeLyricsEditorModal === 'function') closeLyricsEditorModal();
+    } else if (topModal.id === 'upload-progress-modal') {
+      if (typeof hideUploadPanel === 'function') hideUploadPanel();
     } else {
       topModal.classList.remove('open');
     }

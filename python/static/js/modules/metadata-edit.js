@@ -664,6 +664,11 @@ async function saveMetadataEdit() {
     showToast('保存成功', 'success');
     closeMetadataEdit();
 
+    // 元数据补全后该文件会从待定列表中移除，刷新列表与待定角标
+    if (typeof loadPending === 'function') {
+      await loadPending();
+    }
+
     if (typeof currentArtist !== 'undefined' && currentArtist) {
       if (artistChanged) {
         await loadArtistTree(document.getElementById('artist-search')?.value || '');

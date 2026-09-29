@@ -189,6 +189,9 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+    # 必须先清理 artists 的历史唯一约束，再重建索引（见函数说明）
+    _migrate_artists_drop_legacy_unique(db)
+
     for idx_sql in [
         "CREATE INDEX IF NOT EXISTS idx_artist ON tracks(artist);",
         "CREATE INDEX IF NOT EXISTS idx_artists_library_id ON artists(library_id);",
@@ -214,6 +217,55 @@ def init_db():
 
     db.commit()
     db.close()
+
+
+def _migrate_artists_drop_legacy_unique(db):
+    """移除 artists 表的历史唯一约束，兼容多音乐库同名艺术家。
+
+    早期 schema 在 artists 上建立了单列唯一索引
+    ``idx_artists_name_norm(name_normalized)`` / ``idx_artists_dir_name(dir_name)``，
+    以及列级 ``dir_name ... UNIQUE``（生成 ``sqlite_autoindex_artists_*``）。
+    多音乐库下不同库允许存在同名艺术家，这些唯一约束会导致
+    ``UNIQUE constraint failed: artists.name_normalized``。
+
+    处理方式：
+    - 存在列级 UNIQUE 产生的 autoindex 时必须重建表；
+    - 其余命名唯一索引直接 DROP，随后 init_db 会重建为非唯一索引。
+    """
+    has_auto = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name LIKE 'sqlite_autoindex_artists_%'"
+    ).fetchone()
+    if has_auto:
+        db.executescript(
+            """
+            DROP TABLE IF EXISTS artists_new;
+            CREATE TABLE artists_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                name_normalized TEXT NOT NULL,
+                dir_name        TEXT NOT NULL,
+                cover_path      TEXT,
+                library_id      INTEGER,
+                created_at      REAL NOT NULL,
+                updated_at      REAL NOT NULL
+            );
+            INSERT INTO artists_new
+                (id, name, name_normalized, dir_name, cover_path, library_id, created_at, updated_at)
+            SELECT id, name, name_normalized, dir_name, cover_path, library_id, created_at, updated_at
+            FROM artists;
+            DROP TABLE artists;
+            ALTER TABLE artists_new RENAME TO artists;
+            """
+        )
+        logger.info("已重建 artists 表以移除列级唯一约束")
+
+    for row in db.execute("PRAGMA index_list('artists')").fetchall():
+        name = row[1]
+        is_unique = row[2]
+        if not is_unique or name.startswith("sqlite_autoindex_"):
+            continue
+        db.execute(f'DROP INDEX IF EXISTS "{name}"')
+        logger.info(f"已移除去重艺术家唯一索引: {name}")
 
 
 def _migrate_music_libraries(db):

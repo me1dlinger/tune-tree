@@ -18,7 +18,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   </noscript>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="static/css/main.css?v=2">
+  <link rel="stylesheet" href="static/css/main.css?v=7">
 </head>
 
 <body>
@@ -189,7 +189,7 @@
                 <i class="bi bi-upload"></i>
                 上传
               </button>
-              <input type="file" id="file-upload-input" multiple accept=".flac,.mp3" style="display:none;"
+              <input type="file" id="file-upload-input" multiple accept=".flac,.mp3,.m4a" style="display:none;"
                 onchange="handleFileUpload(this.files)">
               <button class="toolbar-btn" id="file-select-toggle" onclick="toggleFileSelectMode()">
                 <i class="bi bi-check-lg"></i>
@@ -385,6 +385,17 @@
         <button class="toolbar-btn primary" id="batch-apply-all-btn" onclick="applyAllBatchCards()"
           disabled>全部应用</button>
       </div>
+    </div>
+  </div>
+
+  <!-- SOURCE RESULTS MODAL (批量搜索中点击音乐源胶囊) -->
+  <div class="modal-overlay" id="source-results-modal">
+    <div class="modal source-results-modal">
+      <div class="modal-header">
+        <div class="modal-title" id="source-results-title">搜索结果</div>
+        <button class="modal-close" onclick="closeModal('source-results-modal')">&#10005;</button>
+      </div>
+      <div class="modal-body" id="source-results-body"></div>
     </div>
   </div>
 
@@ -634,6 +645,12 @@
 
   <div class="toast-container" id="toast-container"></div>
 
+  <!-- 上传任务浮动入口：面板隐藏且存在上传任务时显示 -->
+  <button class="upload-float-btn" id="upload-float-btn" onclick="openUploadPanel()" style="display:none;">
+    <i class="bi bi-arrow-repeat spin"></i>
+    <span id="upload-float-text">上传中</span>
+  </button>
+
   <!-- Similar Artists Detail Modal -->
   <div class="modal-overlay" id="similar-detail-modal">
     <div class="modal similar-detail-modal">
@@ -647,26 +664,31 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="upload-conflict-modal">
-    <div class="modal upload-conflict-modal">
+  <!-- UPLOAD PROGRESS MODAL -->
+  <div class="modal-overlay" id="upload-progress-modal">
+    <div class="modal upload-progress-modal">
       <div class="modal-header">
-        <div class="modal-title">发现重复歌曲</div>
-        <button class="modal-close" onclick="closeModal('upload-conflict-modal')">&#10005;</button>
+        <div class="modal-title">上传文件</div>
+        <button class="modal-close" onclick="hideUploadPanel()">&#10005;</button>
       </div>
       <div class="modal-body">
-        <p class="upload-conflict-desc">以下歌曲在库中已存在，请选择处理方式：</p>
-        <div class="upload-conflict-list" id="upload-conflict-list"></div>
-        <div class="upload-conflict-actions">
-          <button class="toolbar-btn" onclick="uploadResolveAll('overwrite')">
-            <i class="bi bi-arrow-repeat"></i> 全部覆盖
-          </button>
-          <button class="toolbar-btn" onclick="uploadResolveAll('skip')">
-            <i class="bi bi-skip-forward"></i> 全部跳过
-          </button>
-          <button class="toolbar-btn" onclick="uploadResolveAll('cancel')">
-            取消
-          </button>
-        </div>
+        <div class="upload-progress-summary" id="upload-progress-summary"></div>
+        <div class="upload-progress-list" id="upload-progress-list"></div>
+      </div>
+      <div class="modal-footer">
+        <span class="upload-progress-info" id="upload-progress-info"></span>
+        <button class="toolbar-btn" id="upload-overwrite-all-btn" onclick="setAllConflictAction('overwrite')" style="display:none;">
+          <i class="bi bi-arrow-repeat"></i> 全部覆盖
+        </button>
+        <button class="toolbar-btn" id="upload-skip-all-btn" onclick="setAllConflictAction('skip')" style="display:none;">
+          <i class="bi bi-skip-forward"></i> 全部跳过
+        </button>
+        <button class="toolbar-btn" id="upload-hide-btn" onclick="hideUploadPanel()">
+          <i class="bi bi-chevron-down"></i> 隐藏
+        </button>
+        <button class="toolbar-btn" id="upload-cancel-btn" onclick="cancelUpload()">取消</button>
+        <button class="toolbar-btn primary" id="upload-confirm-btn" onclick="confirmUpload()" style="display:none;">确认上传</button>
+        <button class="toolbar-btn primary" id="upload-done-btn" onclick="closeUploadModal()" style="display:none;">完成</button>
       </div>
     </div>
   </div>
@@ -698,24 +720,24 @@
   <script defer src="static/js/modules/utils.js?v=2"></script>
   <script defer src="static/js/modules/api.js?v=2"></script>
   <script defer src="static/js/modules/state.js?v=2"></script>
-  <script defer src="static/js/modules/ui.js?v=2"></script>
+  <script defer src="static/js/modules/ui.js?v=4"></script>
   <script defer src="static/js/modules/auth.js?v=2"></script>
   <script defer src="static/js/modules/image-viewer.js?v=2"></script>
-  <script defer src="static/js/modules/artist.js?v=2"></script>
-  <script defer src="static/js/modules/files.js?v=2"></script>
-  <script defer src="static/js/modules/stats.js?v=2"></script>
+  <script defer src="static/js/modules/artist.js?v=3"></script>
+  <script defer src="static/js/modules/files.js?v=5"></script>
+  <script defer src="static/js/modules/stats.js?v=4"></script>
   <script defer src="static/js/modules/artist-stats.js?v=2"></script>
   <script defer src="static/js/modules/album-stats.js?v=2"></script>
-  <script defer src="static/js/modules/pending.js?v=2"></script>
+  <script defer src="static/js/modules/pending.js?v=5"></script>
   <script defer src="static/js/modules/logs.js?v=2"></script>
   <script defer src="static/js/modules/format.js?v=2"></script>
   <script defer src="static/js/modules/detail.js?v=2"></script>
   <script defer src="static/js/modules/lrc-parser.js?v=2"></script>
   <script defer src="static/js/modules/lyrics-editor.js?v=2"></script>
-  <script defer src="static/js/modules/metadata-edit.js?v=2"></script>
-  <script defer src="static/js/modules/batch-scrape.js?v=2"></script>
+  <script defer src="static/js/modules/metadata-edit.js?v=3"></script>
+  <script defer src="static/js/modules/batch-scrape.js?v=4"></script>
   <script defer src="static/js/modules/settings.js?v=2"></script>
-  <script defer src="static/js/app.js?v=4"></script>
+  <script defer src="static/js/app.js?v=5"></script>
 </body>
 
 </html>

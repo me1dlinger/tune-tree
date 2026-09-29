@@ -17,7 +17,6 @@ let batchEditingIndex = -1;
    ═══════════════════════════════════════════════════════════ */
 
 async function openBatchScrapeModal(selectedPaths) {
-  const modal = document.getElementById('batch-scrape-modal');
   const body = document.getElementById('batch-scrape-body');
 
   body.innerHTML = `
@@ -31,17 +30,45 @@ async function openBatchScrapeModal(selectedPaths) {
 
   try {
     const trackIds = await resolveTrackIds(selectedPaths);
+    await runBatchScrape(trackIds);
+  } catch (e) {
+    body.innerHTML = `
+      <div class="scrape-empty-state">
+        <i class="bi bi-exclamation-circle" style="font-size: 24px;"></i>
+        <div>请求出错: ${esc(e.message)}</div>
+      </div>
+    `;
+  }
+}
 
-    if (trackIds.length === 0) {
-      body.innerHTML = `
-        <div class="scrape-empty-state">
-          <i class="bi bi-emoji-frown" style="font-size: 24px;"></i>
-          <div>所选内容中没有找到音频文件</div>
-        </div>
-      `;
-      return;
-    }
+/**
+ * 直接以 track id 列表发起批量搜索。
+ * 待定文件多选等场景已持有 track id，无需再按路径解析。
+ */
+async function runBatchScrape(trackIds) {
+  const body = document.getElementById('batch-scrape-body');
 
+  if (!trackIds || trackIds.length === 0) {
+    body.innerHTML = `
+      <div class="scrape-empty-state">
+        <i class="bi bi-emoji-frown" style="font-size: 24px;"></i>
+        <div>所选内容中没有找到音频文件</div>
+      </div>
+    `;
+    openModal('batch-scrape-modal');
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="batch-loading">
+      <div class="loading-spinner"></div>
+      <div>正在获取元数据...</div>
+      <div class="batch-loading-sub" id="batch-loading-progress"></div>
+    </div>
+  `;
+  openModal('batch-scrape-modal');
+
+  try {
     updateBatchProgress(0, trackIds.length);
     batchCards = [];
 
@@ -237,6 +264,10 @@ function renderBatchCards() {
   updateBatchFooter();
 }
 
+function batchApiLabel(api) {
+  return { cloud: '网易云', qq: 'QQ音乐', kugou: '酷狗' }[api] || api || '';
+}
+
 function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stackOpacity) {
   const best = card.best;
   const original = card.original;
@@ -256,6 +287,12 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
           <div class="batch-card-no-result-msg">
             <i class="bi bi-emoji-frown"></i>
             未找到匹配的元数据
+          </div>
+          <div class="batch-source-picker">
+            <span class="batch-source-picker-hint">去音乐源搜索：</span>
+            <button class="source-capsule-btn source-pick-btn" onclick="openSourceResults(${cardIndex}, 'cloud')">网易云</button>
+            <button class="source-capsule-btn source-pick-btn" onclick="openSourceResults(${cardIndex}, 'qq')">QQ音乐</button>
+            <button class="source-capsule-btn source-pick-btn" onclick="openSourceResults(${cardIndex}, 'kugou')">酷狗</button>
           </div>
           ${relativePath ? `
           <div class="batch-card-path">
@@ -278,7 +315,7 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
     ? `<img src="${coverSrc}" style="width:100%;height:100%;object-fit:cover;">`
     : `<i class="bi bi-disc" style="font-size: 48px;"></i>`;
 
-  const apiLabel = best._api === 'cloud' ? '网易云' : best._api === 'kugou' ? '酷狗' : best._api === 'qq' ? 'QQ音乐' : best._source || '';
+  const apiLabel = batchApiLabel(best._api) || best._source || '';
   const apiClass = best._api || '';
 
   function fieldRow(label, fieldKey) {
@@ -349,11 +386,13 @@ function renderSingleCard(card, cardIndex, isTop, stackOffset, stackScale, stack
        </div>` : ''}
       <div class="batch-card-info">
         <div class="batch-card-source">
-          <span class="lyrics-source-capsule ${apiClass === 'cloud' ? 'netease' : apiClass}">
+          <button type="button" class="lyrics-source-capsule source-capsule-btn ${apiClass === 'cloud' ? 'netease' : apiClass}"
+                  onclick="event.stopPropagation(); openSourceResults(${cardIndex}, '${apiClass}')"
+                  title="查看 ${apiLabel} 的全部搜索结果">
             <span class="capsule-primary"></span>
             <span class="capsule-secondary"></span>
             <span class="capsule-text">${apiLabel}</span>
-          </span>
+          </button>
         </div>
         ${fieldRow('歌名', 'title')}
         ${fieldRow('艺术家', 'artist')}
@@ -416,6 +455,7 @@ function initBatchSwipe() {
     const card = e.target.closest('.batch-card-top');
     if (!card) return;
     if (e.target.closest('.batch-card-actions')) return;
+    if (e.target.closest('.source-capsule-btn')) return;
 
     isDragging = true;
     startTime = Date.now();
@@ -778,6 +818,123 @@ async function retrySearchBatchCard(cardIndex) {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+   SOURCE PICKER — 点击胶囊查看该音乐源的全部候选并挑选
+   ═══════════════════════════════════════════════════════════ */
+
+let sourceResultsState = null; // { cardIndex, api, results }
+
+async function openSourceResults(cardIndex, api) {
+  const card = batchCards[cardIndex];
+  if (!card || !api) return;
+
+  sourceResultsState = { cardIndex, api, results: [] };
+
+  const titleEl = document.getElementById('source-results-title');
+  if (titleEl) titleEl.textContent = `${batchApiLabel(api)} 搜索结果`;
+
+  const body = document.getElementById('source-results-body');
+  body.innerHTML = `
+    <div class="batch-loading">
+      <div class="loading-spinner"></div>
+      <div>正在从 ${batchApiLabel(api)} 搜索…</div>
+    </div>`;
+  openModal('source-results-modal');
+
+  try {
+    const payload = { source: api, exclude_ids: [] };
+    for (const key of ['title', 'artist', 'album', 'track_num', 'year']) {
+      if (card.userInput[key]) payload[key] = card.userInput[key];
+    }
+    const result = await POST(`/tracks/${card.trackId}/scrape-source`, payload);
+    if (!result.ok) {
+      body.innerHTML = `
+        <div class="scrape-empty-state">
+          <i class="bi bi-exclamation-circle" style="font-size: 24px;"></i>
+          <div>搜索失败: ${esc(result.error || '未知错误')}</div>
+        </div>`;
+      return;
+    }
+    sourceResultsState.results = result.results || [];
+    renderSourceResults();
+  } catch (e) {
+    body.innerHTML = `
+      <div class="scrape-empty-state">
+        <i class="bi bi-exclamation-circle" style="font-size: 24px;"></i>
+        <div>请求出错: ${esc(e.message)}</div>
+      </div>`;
+  }
+}
+
+function renderSourceResults() {
+  const st = sourceResultsState;
+  if (!st) return;
+  const body = document.getElementById('source-results-body');
+
+  if (!st.results || st.results.length === 0) {
+    body.innerHTML = `
+      <div class="scrape-empty-state">
+        <i class="bi bi-search" style="font-size: 24px;"></i>
+        <div>该音乐源没有找到更多结果</div>
+      </div>`;
+    return;
+  }
+
+  const card = batchCards[st.cardIndex];
+  const currentId = card && card.best ? card.best._id : null;
+
+  body.innerHTML = st.results.map((r, i) => {
+    const cover = r._cover_data
+      ? `<img src="data:image/jpeg;base64,${r._cover_data}" alt="">`
+      : '<i class="bi bi-disc"></i>';
+    const isCurrent = currentId && r._id === currentId;
+    const meta = [
+      r.album ? esc(r.album) : '',
+      r.year ? esc(String(r.year)) : '',
+      r.track_num ? `第 ${esc(String(r.track_num))} 首` : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <div class="source-result-item${isCurrent ? ' active' : ''}" onclick="applySourceResult(${i})">
+        <div class="source-result-cover">${cover}</div>
+        <div class="source-result-info">
+          <div class="source-result-title">${esc(r.title || '—')}</div>
+          <div class="source-result-line">${esc(r.artist || '—')}</div>
+          <div class="source-result-line source-result-sub">${meta || '—'}</div>
+        </div>
+        <div class="source-result-action">
+          ${isCurrent
+            ? '<span class="source-result-current">当前</span>'
+            : '<span class="source-result-pick">选择</span>'}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function applySourceResult(index) {
+  const st = sourceResultsState;
+  if (!st || !st.results || !st.results[index]) return;
+  const card = batchCards[st.cardIndex];
+  if (!card) return;
+
+  const picked = st.results[index];
+  // 手动挑选后清掉会被所选结果覆盖的手工输入项
+  for (const key of Object.keys(card.userInput)) {
+    if (picked[key] != null && String(picked[key]) !== '') {
+      delete card.userInput[key];
+    }
+  }
+  card.best = picked;
+  card.noResult = false;
+  card.applied = false;
+  card.removed = false;
+  if (picked._id) card.excludeIds = [picked._id];
+
+  closeModal('source-results-modal');
+  sourceResultsState = null;
+  renderBatchCards();
+  showToast('已选择该结果', 'success');
+}
+
 function removeBatchCard(cardIndex) {
   cleanupSwipe();
   const card = batchCards[cardIndex];
@@ -893,5 +1050,12 @@ function closeBatchScrapeModal() {
     fileSelectMode = false;
     renderFiles(currentFiles);
     updateFileSelectUI();
+  }
+
+  // 待定文件批量搜索结束后退出多选并刷新列表（已补全的文件应消失，角标同步更新）
+  if (typeof pendingSelectMode !== 'undefined' && pendingSelectMode) {
+    pendingSelectMode = false;
+    pendingSelectedIds.clear();
+    if (typeof loadPending === 'function') loadPending();
   }
 }

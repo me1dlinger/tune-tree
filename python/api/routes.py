@@ -1583,7 +1583,7 @@ def api_track_by_path():
             if Path(full_path).exists()
             else (full_path_normalized if Path(full_path_normalized).exists() else None)
         )
-        if candidate and Path(candidate).suffix.lower() in (".mp3", ".flac"):
+        if candidate and Path(candidate).suffix.lower() in (".mp3", ".flac", ".m4a"):
             try:
                 meta = read_metadata(candidate)
                 stat = Path(candidate).stat()
@@ -1687,7 +1687,7 @@ def api_files():
                     if ".upload_temp" in entry.relative_to(base).parts:
                         continue
                     ext = entry.suffix.lower().lstrip(".")
-                    if ext not in ("mp3", "flac"):
+                    if ext not in ("mp3", "flac", "m4a"):
                         continue
                     stat = entry.stat()
                     entries_data.append(
@@ -1748,7 +1748,7 @@ def api_files():
             stat = entry.stat()
             is_dir = entry.is_dir()
             ext = entry.suffix.lower().lstrip(".") if not is_dir else "dir"
-            is_audio = ext in ("mp3", "flac") if not is_dir else False
+            is_audio = ext in ("mp3", "flac", "m4a") if not is_dir else False
             entries_data.append(
                 {
                     "name": entry.name,
@@ -2291,7 +2291,49 @@ def api_scrape_all(track_id: int):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-ALLOWED_UPLOAD_EXTS = {"flac", "mp3"}
+@api_bp.route("/api/tracks/<int:track_id>/scrape-source", methods=["POST"])
+@require_auth
+def api_scrape_source(track_id: int):
+    """只搜索指定的音乐源，返回该源的候选标签列表（供用户手动挑选）。"""
+    row = get_track_by_id(track_id)
+    if not row:
+        abort(404)
+
+    data = request.get_json(silent=True) or {}
+    source = data.get("source", "")
+    if source not in ("cloud", "qq", "kugou"):
+        return jsonify({"ok": False, "error": "无效的音乐源"}), 400
+
+    current_meta = {
+        "title": row["title"],
+        "artist": row["artist"],
+        "album": row["album"],
+        "track_num": row["track_num"] if row["track_num"] else "",
+        "year": row["year"] if row["year"] else "",
+        "filename": row["filename"] if row["filename"] else "",
+    }
+
+    exclude_ids = data.get("exclude_ids", []) or []
+
+    user_input = {}
+    for key in ("title", "artist", "album", "track_num", "year"):
+        val = data.get(key)
+        if val is not None and str(val).strip():
+            user_input[key] = str(val).strip()
+
+    try:
+        results = scraper.search_one_api(
+            row["path"], current_meta, source, exclude_ids, user_input
+        )
+        commit()
+        return jsonify({"ok": True, "source": source, "results": results})
+    except Exception as e:
+        logger.error(f"单源搜索失败: {e}")
+        commit()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+ALLOWED_UPLOAD_EXTS = {"flac", "mp3", "m4a"}
 MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024  # 单个上传文件上限 500MB
 
 
@@ -2387,7 +2429,7 @@ def api_files_upload_check():
         ext = Path(filename).suffix.lower().lstrip(".")
         if ext not in ALLOWED_UPLOAD_EXTS:
             errors.append(
-                {"name": filename, "error": f"不支持的格式 .{ext}，仅支持 FLAC/MP3"}
+                {"name": filename, "error": f"不支持的格式 .{ext}，仅支持 FLAC/MP3/M4A"}
             )
             continue
 
@@ -2741,7 +2783,7 @@ def api_files_audio_count():
             audio_files = [
                 f
                 for f in files
-                if f.is_file() and f.suffix.lower().lstrip(".") in ("mp3", "flac")
+                if f.is_file() and f.suffix.lower().lstrip(".") in ("mp3", "flac", "m4a")
             ]
             return rel, len(audio_files)
         except OSError:

@@ -357,10 +357,21 @@ def recalc_pending(track_id: int):
     pending = 1 if missing else 0
     missing_str = ",".join(missing)
     db = get_db()
-    db.execute(
-        "UPDATE tracks SET pending=?, missing_tags=? WHERE id=?",
-        (pending, missing_str, track_id),
-    )
+    if pending == 0:
+        # 元数据已补全：同时清除“刮削失败”标记，使其不再出现在待定列表，
+        # 并移除冷却记录，允许后续任务重新尝试刮削。
+        db.execute(
+            "UPDATE tracks SET pending=0, missing_tags='', scrape_failed=0 WHERE id=?",
+            (track_id,),
+        )
+        from repository.task_repository import delete_track_cooldown
+
+        delete_track_cooldown(track_id)
+    else:
+        db.execute(
+            "UPDATE tracks SET pending=1, missing_tags=? WHERE id=?",
+            (missing_str, track_id),
+        )
     db.commit()
 
 

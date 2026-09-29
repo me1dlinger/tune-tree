@@ -485,6 +485,39 @@ class MetadataScraper:
         logger.info(f"批量搜索完成，总共返回 {total} 条结果")
         return results
 
+    def search_one_api(
+        self,
+        filename: str,
+        current_meta: Dict,
+        api_name: str,
+        exclude_ids: List[str] = None,
+        user_input: Dict = None,
+        limit: int = 10,
+    ) -> List[Dict]:
+        """只搜索指定的音乐源，返回该源的候选结果列表（按匹配度排序）。
+
+        与 search_all_apis 不同，这里不会因为某个源已有结果而跳过其他源，
+        用于让用户在某一个音乐源内查看全部候选标签并手动挑选。
+        """
+        if api_name not in self.api_order:
+            return []
+        self._kugou_rate_limited = False
+        keywords = self._build_search_keywords(
+            filename, current_meta, user_input, exclude_ids
+        )
+        logger.info(f"单源搜索开始 api={api_name}，关键词: {keywords.get('keyword', '')}")
+        try:
+            results = self._search_api_with_multiple_results(
+                api_name, keywords, limit=limit
+            )
+        except Exception as e:
+            logger.warning(f"单源搜索 {api_name} 失败: {e}")
+            results = []
+        for r in results:
+            r["_api"] = api_name
+        logger.info(f"单源搜索完成 api={api_name}，返回 {len(results)} 条结果")
+        return results
+
     def _fetch_song_detail(
         self,
         api_name: str,
@@ -518,10 +551,11 @@ class MetadataScraper:
         self,
         api_name: str,
         keywords: Dict,
+        limit: int = 5,
     ) -> List[Dict]:
         """
-        搜索并返回最多5条结果，按匹配度排序
-        先收集所有关键词的搜索结果，然后统一评分排序取前5
+        搜索并返回最多 limit 条结果，按匹配度排序
+        先收集所有关键词的搜索结果，然后统一评分排序取前 limit
         获取歌曲详情使用多线程并行
         exclude_ids 从 keywords 字典中获取
         """
@@ -571,8 +605,8 @@ class MetadataScraper:
         # 排除列表：已在 _calculate_match_score 中通过扣分处理，
         # 排除项分数极低，排序后自然沉底，取前5条时会被淘汰
 
-        # 返回最多5条
-        return_limit = 5
+        # 返回最多 limit 条
+        return_limit = limit
         all_results = all_results[:return_limit]
         for i, r in enumerate(all_results):
             r["_sort_index"] = i
