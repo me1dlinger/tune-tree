@@ -5699,7 +5699,13 @@ body {
 
 .upload-row-choice {
     display: flex;
+    align-items: center;
     gap: 6px;
+}
+
+.upload-choice-label {
+    font-size: 11px;
+    color: var(--text3);
 }
 
 .upload-choice-btn {

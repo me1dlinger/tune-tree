@@ -537,8 +537,9 @@ function uploadStateHtml(item) {
           <span class="upload-conflict-filename">${esc((item.existing && item.existing.filename) || '')}</span>
         </div>
         <div class="upload-row-choice">
-          <button class="upload-choice-btn${item.action === 'overwrite' ? ' active' : ''}" onclick="setConflictAction(${item.idx}, 'overwrite')">覆盖</button>
-          <button class="upload-choice-btn${item.action === 'skip' ? ' active' : ''}" onclick="setConflictAction(${item.idx}, 'skip')">跳过</button>
+          <span class="upload-choice-label">选择处理方式：</span>
+          <button class="upload-choice-btn${item.action === 'overwrite' ? ' active' : ''}" onclick="setConflictAction(${item.idx}, 'overwrite')">${item.action === 'overwrite' ? '✓ ' : ''}覆盖</button>
+          <button class="upload-choice-btn${item.action === 'skip' ? ' active' : ''}" onclick="setConflictAction(${item.idx}, 'skip')">${item.action === 'skip' ? '✓ ' : ''}跳过</button>
         </div>`;
     case 'committing':
       return '<span class="upload-state upload-state-muted"><i class="bi bi-arrow-repeat spin"></i> 写入中…</span>';
@@ -572,12 +573,16 @@ function updateUploadSummary() {
   const total = uploadItems.length;
   const done = uploadItems.filter(i => i.status === 'done').length;
   const skipped = uploadItems.filter(i => i.status === 'skipped').length;
-  const conflict = uploadItems.filter(i => i.status === 'conflict').length;
+  const conflictItems = uploadItems.filter(i => i.status === 'conflict');
+  const conflict = conflictItems.length;
   const error = uploadItems.filter(i => i.status === 'error').length;
   const parts = [`共 ${total} 个文件`];
   if (done) parts.push(`完成 ${done}`);
   if (skipped) parts.push(`跳过 ${skipped}`);
-  if (conflict) parts.push(`待处理冲突 ${conflict}`);
+  if (conflict) {
+    const ow = conflictItems.filter(i => i.action === 'overwrite').length;
+    parts.push(`待处理冲突 ${conflict}（覆盖 ${ow} · 跳过 ${conflict - ow}）`);
+  }
   if (error) parts.push(`失败 ${error}`);
   el.textContent = parts.join(' · ');
   updateUploadIndicator();
@@ -601,8 +606,13 @@ function updateUploadFooter() {
     show(cancelBtn, true); show(overwriteAll, false); show(skipAll, false);
     show(confirmBtn, false); show(doneBtn, false);
   } else if (uploadPhase === 'conflict') {
-    const n = uploadItems.filter(i => i.status === 'conflict').length;
-    if (info) info.textContent = `${n} 个文件已存在，请选择处理方式`;
+    const conflicts = uploadItems.filter(i => i.status === 'conflict');
+    const n = conflicts.length;
+    const ow = conflicts.filter(i => i.action === 'overwrite').length;
+    const sk = n - ow;
+    if (info) info.textContent = `冲突处理：覆盖 ${ow} 个 · 跳过 ${sk} 个`;
+    if (overwriteAll) overwriteAll.classList.toggle('active', n > 0 && ow === n);
+    if (skipAll) skipAll.classList.toggle('active', n > 0 && sk === n);
     show(cancelBtn, true); show(overwriteAll, true); show(skipAll, true);
     show(confirmBtn, true); show(doneBtn, false);
   } else if (uploadPhase === 'committing') {
@@ -728,6 +738,7 @@ function setConflictAction(idx, action) {
   item.action = action;
   renderUploadRow(item);
   updateUploadSummary();
+  updateUploadFooter();
 }
 
 function setAllConflictAction(action) {
@@ -738,6 +749,7 @@ function setAllConflictAction(action) {
     }
   }
   updateUploadSummary();
+  updateUploadFooter();
 }
 
 async function confirmUpload() {
