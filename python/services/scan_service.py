@@ -59,6 +59,10 @@ BATCH_SIZE = 1000
 # 元数据读取是 IO 密集 + mutagen(C 库)解析，适当提高并行度可显著加快扫描。
 # 上限 8 避免在低核机器上造成过度争抢。
 MAX_WORKERS = min(os.cpu_count() or 4, 8)
+# 遍历错误最多保留条数（避免日志/返回值被大量错误撑爆）
+MAX_WALK_ERRORS = 20
+# 心跳写库节流间隔（秒）：逐文件更新心跳，但距上次写库不足该间隔时跳过
+HEARTBEAT_INTERVAL_SECONDS = 2.0
 
 
 def _is_organized_path(filepath: Path, music_root: str) -> bool:
@@ -250,7 +254,28 @@ def scan_library(
 
     cancel_event: 传入 threading.Event 后可协作式取消——扫描循环会定期检查，
     一旦被置位即停止并返回已处理的部分结果（cancelled=True）。
+
+    返回值中的 ``incomplete`` / ``walk_errors`` 表示本次遍历是否完整：当目录列举
+    失败（权限错误、外接盘掉线、IO 错误）或根目录不存在时，遍历结果不可信，
+    此时**不会**执行 stale 清理，也不会清理孤立艺术家/专辑，``removed`` 恒为 0。
+    注意：单个文件读取失败（stat/元数据解析）不算遍历不完整。
     """
+    # 空根兜底：Path("") == Path(".")，也就是**进程工作目录**。若不在这里拦住，
+    # 任何漏改的调用方（曾出现过定时任务路径）都会把应用源码目录当成音乐库扫描，
+    # 把里面的音频文件写进数据库。这是纵深防御，不能只依赖调用方。
+    if not str(root or "").strip():
+        logger.warning("scan_library 收到空音乐库根路径，已拒绝执行（避免把工作目录当成音乐库）")
+        return {
+            "added": 0,
+            "updated": 0,
+            "skipped": 0,
+            "removed": 0,
+            "duration": _format_duration(0),
+            "changed_artists": [],
+            "incomplete": True,
+            "walk_errors": ["音乐库根路径为空，已拒绝扫描"],
+        }
+
     root_path = Path(root)
     found_paths: set[str] = set()
     existing_tracks = _load_existing_tracks(library_id)
@@ -268,16 +293,49 @@ def scan_library(
     artist_id_cache: dict[str, int] = {}
     album_id_cache: dict[tuple[int, str], int] = {}
 
+    # 目录列举失败（权限错误、外接盘掉线、IO 错误等）会被 os.walk 静默吞掉，
+    # 若不收集，遍历不全就会被误判为“文件已被删除”，进而清空整库记录。
+    walk_errors: list[str] = []
+
+    def _on_walk_error(exc: OSError):
+        if len(walk_errors) < MAX_WALK_ERRORS:
+            walk_errors.append(str(exc))
+
+    # 心跳：遍历阶段与元数据阶段共用同一个节流计时器。
+    # 若只在元数据循环里写心跳，大目录/慢挂载盘的 os.walk 阶段（可能长达十几分钟）
+    # 就没有任何心跳，/api/scan/status 的失联判定（heartbeat_age > 90s）会把一次
+    # 完全健康的扫描误判为卡死并协作式取消它。初始 0.0 保证进入扫描即写一次心跳。
+    last_heartbeat = 0.0
+
+    def _maybe_heartbeat():
+        """按 HEARTBEAT_INTERVAL_SECONDS 节流地刷新扫描心跳（异常吞掉，绝不中断扫描）"""
+        nonlocal last_heartbeat
+        now_monotonic = time.monotonic()
+        if now_monotonic - last_heartbeat < HEARTBEAT_INTERVAL_SECONDS:
+            return
+        last_heartbeat = now_monotonic
+        try:
+            set_scan_heartbeat()
+        except Exception:  # noqa: BLE001
+            pass
+
     audio_files = []
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        if cancel_event is not None and cancel_event.is_set():
-            cancelled = True
-            break
-        dirnames[:] = [d for d in dirnames if d != ".upload_temp"]
-        dirnames.sort()
-        for filename in filenames:
-            if Path(filename).suffix.lower() in AUDIO_EXTS:
-                audio_files.append(Path(dirpath) / filename)
+    if not root_path.is_dir():
+        # 根目录不存在或不是目录（例如外接盘未挂载）：不遍历、不删除，直接走“不完整”分支
+        walk_errors.append(f"扫描根目录不可用：{root}")
+        logger.warning(f"扫描根目录不可用，已跳过遍历：{root}")
+    else:
+        for dirpath, dirnames, filenames in os.walk(root_path, onerror=_on_walk_error):
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
+            # 遍历本身也可能很慢（大库、慢盘、网络挂载）：每个目录都尝试刷新心跳
+            _maybe_heartbeat()
+            dirnames[:] = [d for d in dirnames if d != ".upload_temp"]
+            dirnames.sort()
+            for filename in filenames:
+                if Path(filename).suffix.lower() in AUDIO_EXTS:
+                    audio_files.append(Path(dirpath) / filename)
 
     logger.info(f"开始扫描：共发现 {len(audio_files)} 个音频文件")
 
@@ -318,12 +376,8 @@ def scan_library(
                 cancelled = True
                 break
             processed += 1
-            if processed % 20 == 0:
-                # 定期心跳：让 /api/scan/status 能判断扫描线程是否仍在推进
-                try:
-                    set_scan_heartbeat()
-                except Exception:  # noqa: BLE001
-                    pass
+            # 逐文件心跳（与遍历阶段共用节流计时器），让 /api/scan/status 能判活
+            _maybe_heartbeat()
             try:
                 result = future.result()
                 if result is None:
@@ -426,30 +480,53 @@ def scan_library(
             "duration": _format_duration(time.time() - scan_start_time),
             "cancelled": True,
             "changed_artists": list(changed_artists),
+            "incomplete": bool(walk_errors),
+            "walk_errors": list(walk_errors),
         }
 
-    stale_paths = existing_paths - found_paths
-    if stale_paths:
-        db = get_db()
-        stale_list = list(stale_paths)
-        placeholders = ",".join("?" * len(stale_list))
-        artist_rows = db.execute(
-            f"SELECT DISTINCT artist FROM tracks WHERE path IN ({placeholders})",
-            tuple(stale_list),
-        ).fetchall()
-        for row in artist_rows:
-            if row["artist"]:
-                changed_artists.add(row["artist"])
-        db.execute(
-            f"DELETE FROM tracks WHERE path IN ({placeholders})", tuple(stale_list)
-        )
-        removed = len(stale_list)
+    # 遍历完整性判定：只有“目录列举失败”才算不完整；
+    # 单个文件 stat/read_metadata 失败不算（那是文件级问题，不影响删除判定）。
+    traversal_ok = not walk_errors
+
+    if traversal_ok:
+        stale_paths = existing_paths - found_paths
+        if stale_paths:
+            db = get_db()
+            stale_list = list(stale_paths)
+            placeholders = ",".join("?" * len(stale_list))
+            artist_rows = db.execute(
+                f"SELECT DISTINCT artist FROM tracks WHERE path IN ({placeholders})",
+                tuple(stale_list),
+            ).fetchall()
+            for row in artist_rows:
+                if row["artist"]:
+                    changed_artists.add(row["artist"])
+            db.execute(
+                f"DELETE FROM tracks WHERE path IN ({placeholders})", tuple(stale_list)
+            )
+            removed = len(stale_list)
+        else:
+            removed = 0
     else:
+        # 遍历不完整：绝不删除任何“未发现”的记录，避免外接盘未挂载/权限错误时清空整库
         removed = 0
+        incomplete_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        incomplete_msg = (
+            f"扫描未完整完成（{len(walk_errors)} 个目录读取失败），"
+            "已跳过 stale 清理以保护数据"
+        )
+        add_op_log(incomplete_now, "scan_incomplete", incomplete_msg, library_id=library_id)
+        logger.warning(
+            "扫描未完整完成（%d 个目录读取失败），已跳过 stale 清理以保护数据：%s",
+            len(walk_errors),
+            "; ".join(walk_errors[:3]),
+        )
 
     _backfill_artist_album_ids(library_id)
     _ensure_covers(root, library_id)
-    _cleanup_orphaned_artists_albums(library_id)
+    if traversal_ok:
+        # 遍历不完整时连带跳过孤立艺术家/专辑清理，避免误删关联记录
+        _cleanup_orphaned_artists_albums(library_id)
 
     scan_duration = time.time() - scan_start_time
     duration_str = _format_duration(scan_duration)
@@ -474,6 +551,8 @@ def scan_library(
         "removed": removed,
         "duration": duration_str,
         "changed_artists": list(changed_artists),
+        "incomplete": not traversal_ok,
+        "walk_errors": list(walk_errors),
     }
 
 

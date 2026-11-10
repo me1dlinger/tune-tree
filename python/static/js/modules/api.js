@@ -29,7 +29,13 @@ async function api(method, path, body) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+    // e.message 保持「错误码」语义（调用方用 === 判断，如 not_scanning），
+    // 可读的中文提示放在 e.serverMessage，由展示层优先使用。
+    const error = new Error(err.error || res.statusText);
+    error.status = res.status;
+    error.serverMessage = err.message || null;
+    error.payload = err;
+    throw error;
   }
   return res.json();
 }
