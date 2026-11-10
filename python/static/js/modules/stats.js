@@ -234,8 +234,24 @@ async function executeDeleteDuplicates() {
 
   try {
     const trackIds = deletePreviewTracks.map(t => t.id);
-    await POST('/tracks/batch-delete', { track_ids: trackIds });
-    showToast(`成功删除 ${trackIds.length} 个文件`);
+    const result = await POST('/tracks/batch-delete', { track_ids: trackIds });
+    // 后端会返回 deleted_count / failed / not_found：文件删不掉时记录会被保留，
+    // 必须如实提示，不能让用户以为都删成功了。
+    const deleted = result && typeof result.deleted_count === 'number'
+      ? result.deleted_count
+      : trackIds.length;
+    const failed = (result && result.failed) || [];
+    const notFound = (result && result.not_found) || [];
+    if (failed.length > 0) {
+      showToast(
+        `已删除 ${deleted} 个，另有 ${failed.length} 个删除失败（文件可能被占用或无权限），记录已保留可重试`,
+        'warning'
+      );
+    } else if (notFound.length > 0) {
+      showToast(`已删除 ${deleted} 个，另有 ${notFound.length} 条记录已不存在`, 'info');
+    } else {
+      showToast(`成功删除 ${deleted} 个文件`, 'success');
+    }
     closeModal('delete-preview-modal');
     closeModal('duplicate-modal');
     deletePreviewTracks = [];

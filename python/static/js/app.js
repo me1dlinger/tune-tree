@@ -116,6 +116,7 @@ function formatHeartbeat(sec) {
  */
 function pollScanUntilDone(onTick) {
   return new Promise((resolve) => {
+    let stalledWarned = false;
     const tick = async () => {
       let r;
       try {
@@ -126,6 +127,12 @@ function pollScanUntilDone(onTick) {
         return;
       }
       if (r.scanning) {
+        // 心跳失联：后端会先请求取消，宽限期内未退出则强制复位。
+        // 提示一次，避免用户以为「卡住且无法恢复」。
+        if (r.stalled && !stalledWarned) {
+          stalledWarned = true;
+          showToast('扫描心跳失联，正在尝试停止；若长时间无响应将自动复位', 'warning');
+        }
         if (typeof onTick === 'function') onTick(r);
         setTimeout(tick, 1000);
       } else {
@@ -140,6 +147,19 @@ function pollScanUntilDone(onTick) {
 async function afterScanFinished(result) {
   if (result && result.cancelled) {
     showToast('扫描已停止', 'info');
+  } else if (result && result.incomplete) {
+    // 遍历不完整（部分目录读取失败）：后端已跳过 stale 清理以保护数据，
+    // 必须显式告知用户，否则「移除 0」会被误解为删除功能失效。
+    const parts = [
+      `新增 ${result.added ?? 0}`,
+      `更新 ${result.updated ?? 0}`,
+    ];
+    if (result.skipped != null) parts.push(`跳过 ${result.skipped}`);
+    const dur = result.duration ? `（耗时 ${result.duration}）` : '';
+    showToast(
+      `扫描未完整完成：${parts.join(' ')}${dur}。部分目录无法读取，已跳过清理以保护数据，请检查存储后重试`,
+      'warning'
+    );
   } else if (result) {
     const parts = [
       `新增 ${result.added ?? 0}`,
@@ -214,10 +234,18 @@ async function doScan() {
   try {
     started = await POST('/scan', {});
   } catch (e) {
+    // e.message 是错误码，e.serverMessage 是后端给的可读提示（优先展示）
     if (e.message === 'scan_in_progress') {
       showToast('扫描正在进行中，请稍后', 'info');
+    } else if (e.message === 'scan_thread_stuck') {
+      showToast(
+        e.serverMessage || '上一次扫描线程未正常退出，请重启服务后再扫描',
+        'error'
+      );
+    } else if (e.message === 'library_not_configured') {
+      showToast(e.serverMessage || '尚未配置音乐库，请先到设置里配置', 'error');
     } else {
-      showToast('扫描失败: ' + e.message, 'error');
+      showToast('扫描失败: ' + (e.serverMessage || e.message), 'error');
     }
     setScanningUI(false);
     return;

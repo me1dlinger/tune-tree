@@ -21,8 +21,8 @@ from repository.track_repository import (
 from repository.artist_repository import get_artist_by_name, get_artist_by_id
 from repository.album_repository import get_album_by_id, get_albums_by_artist_id
 from repository.library_repository import (
-    get_current_library_path,
     get_current_library_id,
+    require_library_root,
 )
 from models.db import get_db
 
@@ -56,7 +56,11 @@ def preview_format(
 ) -> dict:
     if library_id is None:
         library_id = get_current_library_id()
-    music_root = get_current_library_path() or ""
+    # D2/BUG-1：未配置音乐库时绝不能再用「取当前库路径，取不到就给空串」的兜底，
+    # 因为 Path("") == Path(".")（进程工作目录），会把应用源码目录当成音乐库根
+    # 参与预览/整理。不可用时直接抛 LibraryNotConfigured，由 api 层的
+    # api_bp.errorhandler 统一返回 409。
+    music_root = str(require_library_root())
     previews = []
     conflict_count = 0
     skip_count = 0
@@ -258,12 +262,12 @@ def execute_format(
 
         src = Path(item["old_path"])
         dst = Path(item["new_path"])
+
+        # 第一步：移动文件。失败时文件仍在原位，只记错误。
         try:
             original_dirs.add(src.parent)
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dst))
-            update_track_path_and_name(item["track_id"], str(dst), dst.name)
-            moved += 1
         except Exception as exc:
             logger.error("move failed %s -> %s: %s", src, dst, exc)
             add_op_log(
@@ -272,6 +276,44 @@ def execute_format(
                 f"移动失败：{src} → {dst}: {exc}",
                 library_id=get_current_library_id(),
             )
+            errors += 1
+            continue
+
+        # 第二步：写库。文件与 DB 无法共用同一个事务，所以写库失败时必须尽力把文件搬回原位，
+        # 否则文件已在新位置、DB 仍指向旧路径：UI 会显示「文件不存在」，
+        # 下次扫描还会把新位置当新文件插入，产生重复记录。
+        try:
+            update_track_path_and_name(item["track_id"], str(dst), dst.name)
+            moved += 1
+        except Exception as exc:
+            # db 侧不需要补偿：update_track_path_and_name 内部是单条 UPDATE + commit，
+            # commit 失败时 SQLite 会回滚该事务，DB 保持旧值（旧路径）；
+            # 只要把文件搬回 src，文件与 DB 就重新一致，无需额外写库修复。
+            logger.error("写库失败，准备回滚文件 %s -> %s: %s", dst, src, exc)
+            try:
+                shutil.move(str(dst), str(src))
+            except Exception as rollback_exc:
+                logger.critical(
+                    "回滚失败：文件 %s 未能移回 %s，DB 仍指向旧路径，DB/磁盘不一致，需人工处理: %s",
+                    dst,
+                    src,
+                    rollback_exc,
+                )
+                add_op_log(
+                    now,
+                    "error",
+                    f"整理失败且回滚失败：{dst} 未能移回 {src}（写库失败：{exc}；回滚失败：{rollback_exc}），"
+                    f"DB/磁盘不一致，需人工处理",
+                    library_id=get_current_library_id(),
+                )
+            else:
+                logger.error("已回滚文件 %s -> %s（写库失败）", dst, src)
+                add_op_log(
+                    now,
+                    "error",
+                    f"整理失败已回滚：{src} → {dst} 写库失败（{exc}），文件已移回原位",
+                    library_id=get_current_library_id(),
+                )
             errors += 1
 
     # Batch mark skipped tracks as organized (single query)

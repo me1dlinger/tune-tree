@@ -4,7 +4,46 @@ Music Library 数据访问层
 """
 
 import time
+from pathlib import Path
 from models.db import get_db
+
+
+class LibraryNotConfigured(Exception):
+    """当前音乐库未配置可用路径（无音乐库，或 path 为空/不存在/不是目录）。"""
+
+
+def get_library_root() -> Path | None:
+    """返回当前音乐库根目录 Path；不可用时返回 None。
+
+    不可用包含三种情况：
+    - 完全没有音乐库（get_current_library_path() 返回 None）
+    - 库存在但 path 为空串（needs_config=1 的库里 path=""）
+    - path 指向的位置不存在、或不是目录
+    """
+    raw = get_current_library_path()
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        root = Path(str(raw))
+        if not root.is_dir():
+            return None
+    except OSError:
+        return None
+    return root
+
+
+def require_library_root() -> Path:
+    """返回当前音乐库根目录 Path；不可用时抛出 LibraryNotConfigured。
+
+    注意：绝不能回退成 ``Path("")``——那会解析为进程工作目录（即应用源码目录），
+    使源码目录被当成音乐库根，从而可被 ``/api/files/download?path=.env`` 读取到 .env。
+    """
+    root = get_library_root()
+    if root is None:
+        raise LibraryNotConfigured(
+            "当前音乐库未配置可用路径（无音乐库，或路径为空/不存在/不是目录）"
+        )
+    return root
 
 
 def get_all_libraries():

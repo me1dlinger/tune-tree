@@ -408,21 +408,112 @@ def delete_track_by_path(path: str):
     db.commit()
 
 
-def delete_track_by_id(track_id: int):
-    """根据 ID 删除 track（同时删除本地文件）"""
-    db = get_db()
-    row = db.execute("SELECT path FROM tracks WHERE id=?", (track_id,)).fetchone()
-    if row:
-        import os
+def delete_track_by_id(track_id: int, *, delete_file: bool = True) -> dict:
+    """删除单条曲目（默认同时删除本地文件）。
 
-        file_path = row["path"]
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        except Exception:
-            pass
-    db.execute("DELETE FROM tracks WHERE id=?", (track_id,))
+    返回 {"deleted": bool, "file_deleted": bool, "missing": bool, "error": str|None}
+    - 文件不存在(ENOENT/missing_ok) → file_deleted=True, missing=True, 视为成功
+    - 删除文件抛错 → file_deleted=False, error=str(exc)，**保留 DB 行**（deleted=False），供用户重试
+    - delete_file=False 时只删 DB 行
+    说明：``file_deleted`` 表示“文件已不在”（删除成功或本来就没有）；
+    ``delete_file=False`` 时文件仍在，故为 False。
+    """
+    db = get_db()
+    result = _delete_track_no_commit(db, track_id, delete_file=delete_file)
+    if result["deleted"]:
+        db.commit()
+    return result
+
+
+def delete_tracks_by_ids(track_ids: list[int], *, delete_file: bool = True) -> dict:
+    """批量删除曲目，全程**只提交一次事务**。
+
+    返回 {"deleted": int, "file_deleted": int, "failed": [{"id": int, "error": str}],
+          "not_found": [int, ...]}
+    - 删文件失败的单条会被跳过（DB 行保留），并逐条记录在 failed 中，供用户重试；
+      其余条目的删除仍然生效，最后统一提交一次。
+    - ID 不存在的条目既不算成功也不算失败，单独收集进 not_found（按请求顺序，
+      不去重），这样调用方能如实告诉用户“有几个 id 根本没找到”，
+      而不是静默丢弃（旧行为会让 deleted 计数小于请求数且不给原因）。
+    - 空列表直接返回，不触碰数据库。
+    """
+    if not track_ids:
+        return {"deleted": 0, "file_deleted": 0, "failed": [], "not_found": []}
+    db = get_db()
+    deleted = 0
+    file_deleted = 0
+    failed: list[dict] = []
+    not_found: list[int] = []
+    for track_id in track_ids:
+        result = _delete_track_no_commit(db, track_id, delete_file=delete_file)
+        if result["deleted"]:
+            deleted += 1
+            if result["file_deleted"]:
+                file_deleted += 1
+        elif result["error"]:
+            failed.append({"id": track_id, "error": result["error"]})
+        else:
+            # deleted=False 且无错误 == 该 id 在 tracks 表里不存在
+            not_found.append(track_id)
+    # 批量删除只在最后提交一次（避免 N 条记录 N 次 commit）
     db.commit()
+    return {
+        "deleted": deleted,
+        "file_deleted": file_deleted,
+        "failed": failed,
+        "not_found": not_found,
+    }
+
+
+def _delete_track_no_commit(db, track_id: int, *, delete_file: bool = True) -> dict:
+    """删除单条曲目的内部实现，**不提交事务**（供单条/批量删除复用）。
+
+    返回 {"deleted": bool, "file_deleted": bool, "missing": bool, "error": str|None}
+    - ID 不存在 → deleted=False、error=None（幂等，不视为失败）
+    - 文件不存在（ENOENT）→ file_deleted=True, missing=True，视为成功并删行
+    - 删文件抛错 → deleted=False、error=str(exc)，**保留 DB 行**，
+      避免出现“用户以为删掉了、下次扫描又冒出来”的假删除
+    """
+    row = db.execute("SELECT path FROM tracks WHERE id=?", (track_id,)).fetchone()
+    if not row:
+        return {"deleted": False, "file_deleted": False, "missing": False, "error": None}
+
+    file_path = row["path"]
+    file_deleted = False
+    missing = False
+
+    if delete_file:
+        if not file_path:
+            # 记录里没有路径：文件侧无从删起，按“文件已不在”处理
+            file_deleted = True
+            missing = True
+        else:
+            try:
+                os.remove(file_path)
+                file_deleted = True
+            except FileNotFoundError:
+                # 文件本来就不在（missing_ok 语义）：视为删除成功
+                file_deleted = True
+                missing = True
+            except Exception as exc:
+                # 删除失败：不删 DB 行，把错误如实返回给调用方，由用户重试
+                logger.warning(
+                    "删除曲目文件失败 track_id=%s path=%s: %s", track_id, file_path, exc
+                )
+                return {
+                    "deleted": False,
+                    "file_deleted": False,
+                    "missing": False,
+                    "error": str(exc),
+                }
+
+    db.execute("DELETE FROM tracks WHERE id=?", (track_id,))
+    return {
+        "deleted": True,
+        "file_deleted": file_deleted,
+        "missing": missing,
+        "error": None,
+    }
 
 
 def get_artist_by_track_id(track_id: int):
@@ -542,21 +633,29 @@ def get_artist_directory_path(artist: str, music_root: str) -> str | None:
 
 
 def get_artist_directory_path_by_id(
-    artist_id: int, music_root: str = None
+    artist_id: int, music_root: str = None, ensure: bool = True
 ) -> str | None:
+    """获取艺术家目录路径。
+
+    - ``music_root`` 为 None/空时改用当前音乐库根目录（未配置则抛 LibraryNotConfigured，
+      不再回退到 cwd，避免把应用源码目录当成音乐库）
+    - ``ensure=True``：保留原有行为，确保目录存在（写文件前的路径准备）
+    - ``ensure=False``：**完全不触碰文件系统**，只计算路径（只读接口用，
+      例如封面读取；此前这个 mkdir 会让只读/未配置库上的请求直接失败）
+    """
     from repository.artist_repository import get_artist_by_id
 
     a = get_artist_by_id(artist_id)
     if not a:
         return None
-    if music_root is None:
-        from repository.library_repository import get_current_library_path
+    root = music_root
+    if root is None or not str(root).strip():
+        from repository.library_repository import require_library_root
 
-        music_root = get_current_library_path()
-    if not music_root:
-        return None
-    artist_dir = os.path.join(music_root, a["dir_name"])
-    os.makedirs(artist_dir, exist_ok=True)
+        root = str(require_library_root())
+    artist_dir = os.path.join(str(root), a["dir_name"])
+    if ensure:
+        os.makedirs(artist_dir, exist_ok=True)
     return artist_dir
 
 

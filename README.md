@@ -167,13 +167,19 @@ python app.py
 ### 生产部署
 
 ```bash
-# Linux / macOS
-gunicorn wsgi:application -w 4 -b 0.0.0.0:5000
+# Linux / macOS —— 建议单 worker
+gunicorn wsgi:application -w 1 --threads 8 -b 0.0.0.0:5000
 
 # Windows
 pip install waitress
 waitress-serve --host=0.0.0.0 --port=5000 wsgi:application
 ```
+
+> ⚠️ **请使用 `-w 1`（单进程 + 多线程）**
+> 扫描单例锁、任务锁与 APScheduler 调度器都是**进程内**的，多 worker 下会出现：
+> 多个扫描并发写库、取消请求落到错误的 worker、定时任务在每个进程各跑一份（重复刮削/整理）。
+> 若确有原因必须多 worker，请只让一个进程运行调度器：其余进程设置环境变量
+> `TUNE_TREE_DISABLE_SCHEDULER=1`；启动时若检测到多 worker 也会打印对应警告。
 
 ### Docker 部署
 

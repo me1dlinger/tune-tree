@@ -6,6 +6,7 @@ import base64
 import hmac
 import io
 import ipaddress
+import itertools
 import json
 import logging
 import os
@@ -13,11 +14,13 @@ import re
 import shutil
 import threading
 import time
+import unicodedata
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
+from urllib.parse import quote
 
 from config import ACCESS_KEY
 from flask import (
@@ -35,12 +38,14 @@ from repository.artist_repository import ensure_artist, get_artist_by_id
 from repository.artist_repository import get_artist_stats as repo_get_artist_stats
 from repository.library_repository import delete_library as delete_library_repo
 from repository.library_repository import (
+    LibraryNotConfigured,
     get_all_libraries,
     get_current_library,
     get_current_library_id,
-    get_current_library_path,
     get_library_by_id,
+    get_library_root,
     insert_library,
+    require_library_root,
     set_current_library_id,
     update_library,
 )
@@ -57,6 +62,7 @@ from repository.track_repository import (
     count_total_tracks,
     count_tracks_by_extension,
     delete_track_by_id,
+    delete_tracks_by_ids,
     get_artist_directory_path_by_id,
     get_artist_full_info_by_id,
     get_artists,
@@ -108,6 +114,40 @@ from utils.metadata import (
 logger = logging.getLogger("tunetree")
 api_bp = Blueprint("api", __name__)
 
+
+@api_bp.errorhandler(LibraryNotConfigured)
+def _handle_library_not_configured(exc):
+    """音乐库未配置可用路径：返回 409 而不是让路径退化成进程工作目录。
+
+    旧实现里 `Path(get_current_library_path() or "")` 在未配置库时等于
+    `Path("")`（即进程工作目录），`_is_within` 会因此放行，导致
+    `/api/files/download?path=.env` 可以读取应用自身的 .env（含 ACCESS_KEY）。
+    """
+    return (
+        jsonify(
+            {
+                "error": "library_not_configured",
+                "message": str(exc) or "当前音乐库未配置可用路径，请先在设置中配置音乐库",
+            }
+        ),
+        409,
+    )
+
+
+def _relative_path_for_display(path: str) -> str:
+    """仅用于“展示相对路径”的场景。
+
+    未配置库时**原样返回绝对路径**：绝不能回退成 ``get_relative_path(path, "")``——
+    ``str.startswith("")`` 恒为真，会把服务器绝对路径去掉前导斜杠后当成相对路径
+    回给前端（信息泄露 + 语义错误）。
+    """
+    if not path:
+        return ""
+    root = get_library_root()
+    if root is None:
+        return path
+    return get_relative_path(path, str(root))
+
 SCAN_TIMEOUT_HOURS = 1
 scraper = MetadataScraper()
 
@@ -117,12 +157,59 @@ _API_EXECUTOR = ThreadPoolExecutor(max_workers=12, thread_name_prefix="api")
 
 # 扫描后台线程锁：防止并发触发多个扫描任务。
 _scan_lock = threading.Lock()
-# 当前进行中的扫描取消信号（由 /api/scan 启动、/api/scan/cancel 触发置位）。
-_scan_cancel_event: threading.Event | None = None
+# 当前/最近一次扫描线程的引用：用于区分「正常收尾中」与「线程卡死」，
+# 不能只靠“锁被占用 + 状态 idle”反推（正常收尾时正好就是这个组合）。
+_scan_thread: threading.Thread | None = None
+# 正常收尾窗口的等待时间（状态已置 idle、线程尚未释放锁）
+SCAN_TEARDOWN_WAIT_SECONDS = 3.0
 
-# 心跳“失联”判定阈值：扫描循环每 20 个文件更新一次心跳；
+# 心跳“失联”判定阈值：扫描循环会定期更新心跳；
 # 若超过该时长仍无心跳，说明扫描线程可能卡死（如卡在某个文件的 IO 上）。
 SCAN_HEARTBEAT_STALE_SECONDS = 90
+# 请求取消后留给扫描线程的退出宽限期；超过则强制复位状态，
+# 否则界面会永久停留在“扫描中”且再也无法触发新扫描。
+SCAN_STALL_GRACE_SECONDS = 120
+
+# 本进程当前扫描的取消信号与“请求取消”的时间戳（用于卡死强制复位）
+_scan_cancel_event: threading.Event | None = None
+_scan_stall_cancel_at: float | None = None
+
+
+def _clear_scan_stall_state() -> None:
+    """扫描正常结束时清理卡死检测状态。"""
+    global _scan_stall_cancel_at
+    _scan_stall_cancel_at = None
+
+
+def _force_finish_scan() -> None:
+    """强制复位扫描状态（保持扫描锁不放）。
+
+    仅在「已经请求取消、但扫描线程迟迟没有退出」时调用：此时数据库里的
+    running 状态与事实不符，会让界面永久卡在“扫描中”。
+
+    ⚠️ 这里**有意不释放 `_scan_lock`**：线程可能只是卡在某个慢 IO 上，
+    释放锁会让新一轮扫描与僵尸线程并发写同一张表（互相把对方刚插入的行
+    当成 stale 删除）。宁可让用户看到明确的“需要重启服务”提示，也不要
+    引入并发写库的数据竞争。
+    """
+    global _scan_cancel_event, _scan_stall_cancel_at
+    logger.warning("扫描线程未在宽限期内退出，强制复位扫描状态")
+    try:
+        add_op_log(
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "scan_timeout",
+            "扫描线程疑似卡死，已强制复位状态；本次扫描数据可能不完整，建议重新扫描",
+            library_id=get_current_library_id(),
+        )
+        commit()
+    except Exception:  # noqa: BLE001
+        logger.debug("写入扫描超时日志失败", exc_info=True)
+    try:
+        set_scan_finished()
+    except Exception:  # noqa: BLE001
+        logger.error("复位扫描状态失败", exc_info=True)
+    _scan_cancel_event = None
+    _scan_stall_cancel_at = None
 
 from services.task_service import get_app as _get_flask_app
 
@@ -189,23 +276,66 @@ def _relink_track_artist_album(track_id: int):
             delete_artist(old_artist_id)
 
 
-def _check_scan_timeout():
-    """检查扫描是否超时，若超时则重置状态"""
+def _check_scan_timeout() -> bool:
+    """检测扫描超时 / 心跳失联，并做协作式取消或强制复位。
+
+    返回 True 表示本次检测把扫描判定为异常（超时或卡死）。
+
+    与旧实现的区别：旧实现到点就直接把状态置为 idle，但后台线程仍在跑
+    （界面显示“未在扫描”，实际仍在写库；用户无法取消，也无法重新扫描）。
+    现在改为：先协作式取消 → 给线程 SCAN_STALL_GRACE_SECONDS 退出 →
+    仍未退出才强制复位。
+    """
+    global _scan_stall_cancel_at
     scan_status = get_scan_status()
-    if scan_status["scanning"] and scan_status["start_time"]:
-        elapsed_hours = (datetime.now().timestamp() - scan_status["start_time"]) / 3600
-        if elapsed_hours >= SCAN_TIMEOUT_HOURS:
-            logger.warning(f"扫描超时，已运行 {elapsed_hours:.2f} 小时，自动重置状态")
-            set_scan_finished()
-            return True
-    return False
+    if not scan_status["scanning"] or not scan_status["start_time"]:
+        return False
+
+    now = datetime.now().timestamp()
+    elapsed = now - scan_status["start_time"]
+    heartbeat = get_scan_heartbeat()
+    heartbeat_age = (now - heartbeat) if heartbeat else None
+
+    over_time = elapsed >= SCAN_TIMEOUT_HOURS * 3600
+    # 心跳在「遍历阶段」与「元数据阶段」都会按 2s 节流刷新（services/scan_service.py），
+    # 因此心跳过期本身就足以判定失联——不再附加 elapsed 门槛，否则会掩盖真实卡死。
+    # 注意 heartbeat_age is None（尚未写过心跳，例如刚启动）不算失联。
+    heartbeat_dead = (
+        heartbeat_age is not None and heartbeat_age > SCAN_HEARTBEAT_STALE_SECONDS
+    )
+    if not (over_time or heartbeat_dead):
+        return False
+
+    # 本进程没有对应的取消信号 → 状态是残留（如进程重启后），直接复位
+    if _scan_cancel_event is None:
+        _force_finish_scan()
+        return True
+
+    # 先协作式取消，让扫描循环自己退出并把已处理的部分结果落库
+    if _scan_stall_cancel_at is None:
+        _scan_stall_cancel_at = now
+        try:
+            _scan_cancel_event.set()
+        except Exception:  # noqa: BLE001
+            pass
+        logger.warning(
+            "扫描超时或心跳失联（已运行 %.1f 分钟，心跳年龄 %s），已请求取消",
+            elapsed / 60,
+            f"{heartbeat_age:.0f}s" if heartbeat_age is not None else "无",
+        )
+        return True
+
+    # 已请求取消但线程未退出 → 强制复位，避免永久卡在“扫描中”
+    if now - _scan_stall_cancel_at >= SCAN_STALL_GRACE_SECONDS:
+        _force_finish_scan()
+    return True
 
 
 def require_auth(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get("X-Token") or request.args.get("token")
-        if not token or not hmac.compare_digest(token, ACCESS_KEY):
+        if not _token_matches(token):
             return jsonify({"error": "unauthorized"}), 401
         return f(*args, **kwargs)
 
@@ -251,6 +381,148 @@ def _guard_image_dimensions(img) -> bool:
         return False
 
 
+def _token_matches(token) -> bool:
+    """常量时间比较访问令牌。
+
+    统一编码为 bytes 再比较：``hmac.compare_digest`` 对非 ASCII 的 ``str``
+    会抛 ``TypeError``（旧实现会直接把 500 抛给客户端），编码后既可比较又保留了
+    常量时间特性。
+    """
+    if not token:
+        return False
+    try:
+        return hmac.compare_digest(str(token).encode("utf-8"), ACCESS_KEY.encode("utf-8"))
+    except (TypeError, ValueError, UnicodeError):
+        return False
+
+
+def _validate_cover_payload(image_data: bytes, max_size: int | None = None) -> str | None:
+    """校验封面字节流（体积 + 像素上限）。
+
+    返回错误信息字符串；合法时返回 None。体积与像素必须同时校验：一张
+    5MB 以内、但尺寸为 40000x40000 的 PNG 会让 PIL 解码时耗尽内存。
+    """
+    if not image_data:
+        return "cover file is empty"
+    limit = MAX_COVER_SIZE if max_size is None else max_size
+    if len(image_data) > limit:
+        return f"cover file too large (max {limit // (1024 * 1024)}MB)"
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(image_data)) as img:
+            if not _guard_image_dimensions(img):
+                return "cover image too large"
+    except Exception:
+        return "invalid image data"
+    return None
+
+
+_ZIP_CHUNK_SIZE = 1024 * 1024
+
+
+class _ZipStreamSink:
+    """把 zipfile 的输出转成可增量消费的字节块。
+
+    ``zipfile`` 通过 ``tell()``/``seek()`` 判断输出是否可定位；这里让 ``tell()``
+    抛 ``OSError``，它会退化为“数据描述符”模式（无需回填头部），从而支持流式输出。
+    """
+
+    def __init__(self) -> None:
+        self._chunks: list[bytes] = []
+
+    def write(self, data) -> int:
+        chunk = bytes(data)
+        if chunk:
+            self._chunks.append(chunk)
+        return len(chunk)
+
+    def flush(self) -> None:  # pragma: no cover - 仅为接口兼容
+        pass
+
+    def tell(self):
+        raise OSError("unseekable stream")
+
+    def drain(self) -> list[bytes]:
+        chunks, self._chunks = self._chunks, []
+        return chunks
+
+
+def _zip_stream(entries):
+    """把 ``(源文件 Path, 归档内相对路径)`` 逐条流式打包成 ZIP。
+
+    旧实现用 ``io.BytesIO`` 累积整个 ZIP：下载一个几十 GB 的目录会直接把进程
+    内存打满（OOM）。这里逐块读取源文件、写入后立刻 yield，内存占用与单个分块
+    同阶（约 1MB）。
+    """
+    sink = _ZipStreamSink()
+    zf = zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED, allowZip64=True)
+    try:
+        for src, arcname in entries:
+            try:
+                st = os.stat(src)
+            except OSError:
+                # 文件在打包过程中消失：跳过而不是让整个下载失败
+                continue
+            try:
+                zi = zipfile.ZipInfo(arcname, date_time=time.localtime(st.st_mtime)[:6])
+            except (ValueError, OSError):
+                zi = zipfile.ZipInfo(arcname)
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            zi.external_attr = 0o600 << 16
+            with open(src, "rb") as fh, zf.open(zi, "w", force_zip64=True) as dest:
+                while True:
+                    chunk = fh.read(_ZIP_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    dest.write(chunk)
+                    yield from sink.drain()
+            yield from sink.drain()
+    finally:
+        # 注意：finally 里不能 yield（生成器被提前关闭时会触发
+        # "generator ignored GeneratorExit"），因此只做清理。
+        try:
+            zf.close()
+        except Exception:  # noqa: BLE001
+            logger.debug("关闭 zip 流失败", exc_info=True)
+    yield from sink.drain()
+
+
+def _attachment_disposition(filename: str) -> str:
+    """构造兼容中文名的 Content-Disposition（与 werkzeug.send_file 的做法一致）。
+
+    非 ASCII 时同时给出：``filename`` = 去掉非 ASCII 的降级名（老客户端用），
+    ``filename*`` = RFC 5987 的 UTF-8 百分号编码（现代浏览器用）。
+    直接给百分号编码的 ``filename`` 会让老客户端显示成一串 ``%E5%8F%B6``。
+    """
+    try:
+        filename.encode("ascii")
+    except UnicodeEncodeError:
+        simple = (
+            unicodedata.normalize("NFKD", filename).encode("ascii", "ignore").decode("ascii")
+        ).strip()
+        stem, dot, ext = simple.rpartition(".")
+        if not stem.strip(" .-_"):
+            # 纯中文名会被剥离成 ".zip"，给一个可读的降级名
+            simple = "tune-tree" + (dot + ext if dot else "")
+        quoted = quote(filename, safe="!#$&+-.^_`|~")
+        return f"attachment; filename=\"{simple}\"; filename*=UTF-8''{quoted}"
+    safe_ascii = filename.replace('"', "'")
+    return f'attachment; filename="{safe_ascii}"'
+
+
+def _zip_response(entries, zipname: str):
+    """构造流式 ZIP 下载响应（不预先生成整个压缩包）。"""
+    return Response(
+        _zip_stream(entries),
+        headers={
+            "Content-Type": "application/zip",
+            "Content-Disposition": _attachment_disposition(zipname),
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @api_bp.route("/")
 def index():
     return send_from_directory("static", "index.html")
@@ -261,7 +533,7 @@ def index():
 def auth_verify():
     data = request.get_json(force=True)
     token = data.get("token", "")
-    if token and hmac.compare_digest(token, ACCESS_KEY):
+    if _token_matches(token):
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "invalid key"}), 401
 
@@ -270,7 +542,7 @@ def auth_verify():
 @api_bp.route("/api/scan", methods=["POST"])
 @require_auth
 def api_scan():
-    global _scan_cancel_event
+    global _scan_cancel_event, _scan_stall_cancel_at, _scan_thread
     _check_scan_timeout()
 
     scan_status = get_scan_status()
@@ -279,13 +551,31 @@ def api_scan():
             {"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}
         ), 409
 
-    music_root = get_current_library_path()
-    if not music_root or not Path(music_root).exists():
-        return jsonify({"error": "Music library path not found"}), 400
+    # 未配置/不可用的音乐库统一交给 errorhandler 返回 409（中文可读提示），
+    # 避免这里用 Path("") 判断存在性（那等于进程工作目录）。
+    music_root = str(require_library_root())
 
-    if not _scan_lock.acquire(blocking=False):
+    acquired = _scan_lock.acquire(blocking=False)
+    if not acquired and not get_scan_status()["scanning"]:
+        # 正常收尾窗口：状态已经置为 idle，但线程还在退出（尚未释放锁）。
+        # 旧实现只看“锁被占用”就报 scan_thread_stuck，会误伤完全正常的扫描，
+        # 这里短暂等待线程退出后再重试一次。
+        running_thread = _scan_thread
+        if running_thread is not None and running_thread.is_alive():
+            running_thread.join(timeout=SCAN_TEARDOWN_WAIT_SECONDS)
+            if not running_thread.is_alive():
+                acquired = _scan_lock.acquire(blocking=False)
+    if not acquired:
+        if get_scan_status()["scanning"]:
+            return jsonify(
+                {"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}
+            ), 409
+        # 线程确实卡死了：不能放行新扫描（会与僵尸线程并发写库）
         return jsonify(
-            {"error": "scan_in_progress", "message": "扫描正在进行中，请稍后"}
+            {
+                "error": "scan_thread_stuck",
+                "message": "上一次扫描线程未正常退出，无法开始新扫描；请重启服务以恢复",
+            }
         ), 409
 
     library_id = get_current_library_id()
@@ -297,6 +587,8 @@ def api_scan():
     # 先标记「扫描中」，保证 /api/scan 返回后前端立刻能轮询到 scanning=true。
     # 否则后台线程真正启动前，轮询可能读到上一轮的 idle 状态而误判扫描已结束（竞态）。
     set_scan_running(datetime.now().timestamp())
+    # 新一轮扫描：清掉上一轮的卡死检测状态
+    _scan_stall_cancel_at = None
     # 清空上一轮结果，避免本轮尚未产出结果时前端读到旧数据
     try:
         set_scan_meta("last_scan_result", "")
@@ -323,6 +615,10 @@ def api_scan():
                                 "removed",
                                 "duration",
                                 "cancelled",
+                                # 遍历不完整时前端需要明确提示「已跳过清理」，
+                                # 否则用户只会看到「移除 0」而误以为删除功能失效
+                                "incomplete",
+                                "walk_errors",
                             )
                         },
                         ensure_ascii=False,
@@ -333,6 +629,7 @@ def api_scan():
             logger.info("后台扫描完成: %s", result)
         finally:
             set_scan_finished()
+            _clear_scan_stall_state()
 
     def _scan_worker():
         """后台线程入口：在应用上下文里跑扫描，结束后释放锁"""
@@ -349,7 +646,9 @@ def api_scan():
             _scan_lock.release()
 
     # 后台线程执行，接口立即返回，防止长时间占用请求线程导致整个服务卡顿
-    threading.Thread(target=_scan_worker, name="library-scan", daemon=True).start()
+    scan_thread = threading.Thread(target=_scan_worker, name="library-scan", daemon=True)
+    _scan_thread = scan_thread
+    scan_thread.start()
 
     return jsonify({"started": True, "status": "running"})
 
@@ -376,11 +675,17 @@ def api_scan_status():
 
     if scan_status["scanning"] and scan_status["start_time"]:
         elapsed = int(datetime.now().timestamp() - scan_status["start_time"])
+        stalled = (
+            heartbeat_age is not None
+            and heartbeat_age > SCAN_HEARTBEAT_STALE_SECONDS
+        )
         return jsonify(
             {
                 "scanning": True,
                 "elapsed_seconds": elapsed,
-                "timed_out": False,
+                "timed_out": bool(timed_out),
+                "stalled": bool(stalled),
+                "heartbeat_stale_seconds": SCAN_HEARTBEAT_STALE_SECONDS,
                 "heartbeat_age_seconds": heartbeat_age,
                 "last_result": last_result,
             }
@@ -389,7 +694,9 @@ def api_scan_status():
         {
             "scanning": False,
             "elapsed_seconds": 0,
-            "timed_out": timed_out,
+            "timed_out": bool(timed_out),
+            "stalled": False,
+            "heartbeat_stale_seconds": SCAN_HEARTBEAT_STALE_SECONDS,
             "heartbeat_age_seconds": None,
             "last_result": last_result,
         }
@@ -404,7 +711,8 @@ def api_scan_cancel():
     置位取消事件后，扫描循环会在下一个检查点退出并尽快返回；
     前端通过轮询 /api/scan/status 等待 scanning 变为 false。
     """
-    global _scan_cancel_event
+    # 这里只读取 _scan_cancel_event、只赋值 _scan_stall_cancel_at
+    global _scan_stall_cancel_at
 
     scan_status = get_scan_status()
     if not scan_status["scanning"]:
@@ -423,6 +731,10 @@ def api_scan_cancel():
         )
 
     ev.set()
+    # 记录取消时间：若线程在宽限期内没退出，状态轮询会强制复位，
+    # 否则一次卡死的取消会让界面永久停留在“扫描中”。
+    if _scan_stall_cancel_at is None:
+        _scan_stall_cancel_at = datetime.now().timestamp()
     logger.info("用户请求取消扫描")
     return jsonify({"ok": True, "message": "已请求停止扫描"})
 
@@ -483,24 +795,18 @@ def api_album_download(album_id: int):
     if not rows:
         abort(404)
 
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for row in rows:
-            track_path = Path(row["path"])
-            if track_path.exists():
-                arcname = f"{track_path.name}"
-                zipf.write(track_path, arcname)
+    # 流式打包：旧实现把整个 ZIP 放进内存，大专辑会 OOM
+    entries = []
+    for row in rows:
+        track_path = Path(row["path"])
+        if track_path.exists():
+            entries.append((track_path, track_path.name))
+    # 注意：文件全部缺失时返回“空 ZIP”（200），与修复前保持一致——
+    # 前端下载走 iframe，4xx 完全没有任何反馈（用户点了没反应）。
 
-    zip_buffer.seek(0)
     safe_artist = safe_filename(artist_name)
     safe_album = safe_filename(album_title)
-    zipname = f"{safe_artist} - {safe_album}.zip"
-    return send_file(
-        zip_buffer,
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name=zipname,
-    )
+    return _zip_response(entries, f"{safe_artist} - {safe_album}.zip")
 
 
 @api_bp.route("/api/artists/<int:artist_id>/download")
@@ -515,24 +821,14 @@ def api_artist_download(artist_id: int):
     if not rows:
         abort(404)
 
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for row in rows:
-            track_path = Path(row["path"])
-            if track_path.exists():
-                album_folder = track_path.parent.name
-                arcname = f"{album_folder}/{track_path.name}"
-                zipf.write(track_path, arcname)
+    entries = []
+    for row in rows:
+        track_path = Path(row["path"])
+        if track_path.exists():
+            entries.append((track_path, f"{track_path.parent.name}/{track_path.name}"))
+    # 文件全部缺失时返回空 ZIP（保持修复前的 200 行为，见 api_album_download 注释）
 
-    zip_buffer.seek(0)
-    zipname = f"{safe_filename(artist_name)}.zip"
-
-    return send_file(
-        zip_buffer,
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name=zipname,
-    )
+    return _zip_response(entries, f"{safe_filename(artist_name)}.zip")
 
 
 @api_bp.route("/api/tracks/download-batch", methods=["POST"])
@@ -559,32 +855,18 @@ def api_tracks_batch_download():
                 track_path, as_attachment=True, download_name=track_path.name
             )
 
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for row in rows:
-            track_path = Path(row["path"])
-            if track_path.exists():
-                artist = safe_filename(row["artist"] or "Unknown")
-                album = safe_filename(row["album"] or "Unknown")
-                track_name = track_path.name
-                arcname = f"{artist}/{album}/{track_name}"
-                zipf.write(track_path, arcname)
+    entries = []
+    for row in rows:
+        track_path = Path(row["path"])
+        if track_path.exists():
+            artist = safe_filename(row["artist"] or "Unknown")
+            album = safe_filename(row["album"] or "Unknown")
+            entries.append((track_path, f"{artist}/{album}/{track_path.name}"))
+    # 文件全部缺失时返回空 ZIP（保持修复前的 200 行为，见 api_album_download 注释）
 
-    zip_buffer.seek(0)
-
-    if len(rows) <= 3:
-        names = " ".join([Path(r["path"]).stem for r in rows[:3]])
-        zipname = f"{names}.zip"
-    else:
-        names = " ".join([Path(r["path"]).stem for r in rows[:3]])
-        zipname = f"{names}...zip"
-
-    return send_file(
-        zip_buffer,
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name=zipname,
-    )
+    names = " ".join([Path(r["path"]).stem for r in rows[:3]])
+    zipname = f"{names}.zip" if len(rows) <= 3 else f"{names}...zip"
+    return _zip_response(entries, zipname)
 
 
 @api_bp.route("/api/files/download")
@@ -594,7 +876,7 @@ def api_files_download():
     if not path:
         abort(400)
 
-    base = Path(get_current_library_path() or "")
+    base = require_library_root()
     file_path = (base / path).resolve()
     if not _is_within(base, file_path):
         abort(403)
@@ -604,25 +886,30 @@ def api_files_download():
 
     if file_path.is_file():
         return send_file(file_path, as_attachment=True, download_name=file_path.name)
-    else:
-        zip_buffer = io.BytesIO()
-        dir_name = file_path.name
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for root, dirs, files in os.walk(file_path):
-                dirs.sort()
-                for filename in sorted(files):
-                    file_full = Path(root) / filename
-                    arcname = str(file_full.relative_to(file_path))
-                    zipf.write(file_full, arcname)
 
-        zip_buffer.seek(0)
-        zipname = f"{dir_name}.zip"
-        return send_file(
-            zip_buffer,
-            mimetype="application/zip",
-            as_attachment=True,
-            download_name=zipname,
-        )
+    # 目录下载：流式打包（旧实现把整个 ZIP 放进内存，大目录会 OOM）。
+    # 这里连文件清单也用生成器：百万级目录下清单本身也会占用大量内存。
+    def _iter_dir_entries():
+        for root, dirs, files in os.walk(file_path):
+            dirs[:] = [d for d in dirs if d != ".upload_temp"]
+            dirs.sort()
+            for filename in sorted(files):
+                file_full = Path(root) / filename
+                try:
+                    arcname = str(file_full.relative_to(file_path))
+                except ValueError:
+                    continue
+                yield file_full, arcname
+
+    entries = _iter_dir_entries()
+    try:
+        first = next(entries)
+    except StopIteration:
+        # 空目录：返回空 ZIP（200），与修复前一致；前端 iframe 下载无法处理 404
+        return _zip_response(iter(()), f"{file_path.name}.zip")
+    return _zip_response(
+        itertools.chain([first], entries), f"{file_path.name}.zip"
+    )
 
 
 def safe_filename(name: str) -> str:
@@ -660,7 +947,8 @@ MAX_ARTIST_COVER_SIZE = 5 * 1024 * 1024
 @api_bp.route("/api/artists/<int:artist_id>/cover", methods=["GET"])
 @require_auth
 def api_artist_cover_get(artist_id: int):
-    artist_dir = get_artist_directory_path_by_id(artist_id)
+    # ensure=False：GET 只读，不应产生创建目录的副作用
+    artist_dir = get_artist_directory_path_by_id(artist_id, ensure=False)
     if not artist_dir:
         abort(404)
     cover_path = Path(artist_dir) / ARTIST_COVER_FILENAME
@@ -735,7 +1023,8 @@ def api_artist_cover_upload(artist_id: int):
 @api_bp.route("/api/artists/<int:artist_id>/cover/exists", methods=["GET"])
 @require_auth
 def api_artist_cover_exists(artist_id: int):
-    artist_dir = get_artist_directory_path_by_id(artist_id)
+    # ensure=False：存在性检查是只读操作，不应创建目录
+    artist_dir = get_artist_directory_path_by_id(artist_id, ensure=False)
     if not artist_dir:
         return jsonify({"exists": False})
 
@@ -748,7 +1037,8 @@ def api_artist_cover_exists(artist_id: int):
 @api_bp.route("/api/artists/<int:artist_id>/cover", methods=["DELETE"])
 @require_auth
 def api_artist_cover_delete(artist_id: int):
-    artist_dir = get_artist_directory_path_by_id(artist_id)
+    # ensure=False：删除时不创建目录（目录不存在说明本来就没有封面）
+    artist_dir = get_artist_directory_path_by_id(artist_id, ensure=False)
     if not artist_dir:
         return jsonify({"error": "artist directory not found"}), 404
 
@@ -780,9 +1070,7 @@ def api_album_cover_get(album_id: int):
         abort(404)
 
     album_dir = (
-        Path(get_current_library_path() or "")
-        / artist_row["dir_name"]
-        / album["dir_name"]
+        require_library_root() / artist_row["dir_name"] / album["dir_name"]
     )
     cover_path = album_dir / ALBUM_COVER_FILENAME
 
@@ -839,7 +1127,7 @@ def api_album_cover_exists(album_id: int):
         return jsonify({"exists": False})
 
     cover_path = (
-        Path(get_current_library_path() or "")
+        require_library_root()
         / artist_row["dir_name"]
         / album["dir_name"]
         / ALBUM_COVER_FILENAME
@@ -848,8 +1136,11 @@ def api_album_cover_exists(album_id: int):
 
 
 def _artist_cover_exists(artist_id: int) -> bool:
-    """判断艺术家封面文件是否存在（与单条 cover/exists 逻辑一致）"""
-    artist_dir = get_artist_directory_path_by_id(artist_id)
+    """判断艺术家封面文件是否存在（与单条 cover/exists 逻辑一致）
+
+    ensure=False：这是只读判断，绝不能因为“看一眼封面是否存在”而创建目录。
+    """
+    artist_dir = get_artist_directory_path_by_id(artist_id, ensure=False)
     if not artist_dir:
         return False
     return (Path(artist_dir) / ARTIST_COVER_FILENAME).exists()
@@ -864,7 +1155,7 @@ def _album_cover_exists(album_id: int) -> bool:
     if not artist_row:
         return False
     cover_path = (
-        Path(get_current_library_path() or "")
+        require_library_root()
         / artist_row["dir_name"]
         / album["dir_name"]
         / ALBUM_COVER_FILENAME
@@ -936,9 +1227,7 @@ def api_album_cover_upload(album_id: int):
             img = img.convert("RGB")
 
         album_dir = (
-            Path(get_current_library_path() or "")
-            / artist_row["dir_name"]
-            / album["dir_name"]
+            require_library_root() / artist_row["dir_name"] / album["dir_name"]
         )
         album_dir.mkdir(parents=True, exist_ok=True)
         cover_path = album_dir / ALBUM_COVER_FILENAME
@@ -1322,6 +1611,39 @@ def api_cover(track_id: int):
     )
 
 
+def _parse_byte_range(header: str, file_size: int):
+    """解析单段 Range 请求头。
+
+    返回 ``(start, end)``（闭区间，已按文件大小裁剪）、``None``（不支持/多段，
+    按整文件返回）或字符串 ``"invalid"``（范围无法满足 → 应返回 416）。
+
+    支持 RFC 7233 的三种形式：``bytes=a-b`` / ``bytes=a-`` / ``bytes=-N``。
+    多段（``bytes=0-1,5-6``）不解析，直接按整文件返回。
+    """
+    if file_size <= 0:
+        return "invalid"
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
+    if not match:
+        return None
+    raw_start, raw_end = match.group(1), match.group(2)
+    if raw_start == "" and raw_end == "":
+        return None
+    if raw_start == "":
+        # 后缀形式：最后 N 个字节
+        suffix_len = int(raw_end)
+        if suffix_len <= 0:
+            return "invalid"
+        start = max(0, file_size - suffix_len)
+        return start, file_size - 1
+    start = int(raw_start)
+    if start >= file_size:
+        return "invalid"
+    end = int(raw_end) if raw_end else file_size - 1
+    if end < start:
+        return "invalid"
+    return start, min(end, file_size - 1)
+
+
 AUDIO_MIME = {
     ".mp3": "audio/mpeg",
     ".flac": "audio/flac",
@@ -1349,11 +1671,20 @@ def api_track_audio(track_id: int):
 
     range_header = request.headers.get("Range")
     if range_header:
-        byte_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
-        if byte_match:
-            start = int(byte_match.group(1))
-            end = int(byte_match.group(2)) if byte_match.group(2) else file_size - 1
-            end = min(end, file_size - 1)
+        span = _parse_byte_range(range_header, file_size)
+        if span == "invalid":
+            # RFC 7233：范围无法满足时返回 416，并告知当前资源长度。
+            # 旧实现遇到 start >= 文件大小会算出负数 Content-Length，
+            # 生成一个畸形的 206 响应（客户端直接报协议错误）。
+            return Response(
+                status=416,
+                headers={
+                    "Content-Range": f"bytes */{file_size}",
+                    "Accept-Ranges": "bytes",
+                },
+            )
+        if span is not None:
+            start, end = span
             length = end - start + 1
 
             def generate():
@@ -1378,7 +1709,12 @@ def api_track_audio(track_id: int):
                 },
             )
 
-    return send_file(track_path, mimetype=mime)
+    # 走到这里说明：没有 Range，或 Range 是需要整文件返回的形式
+    # （多段等）。后者必须 conditional=False —— 否则 Flask 自带的 Range
+    # 处理会把多段请求判成 416，而 RFC 7233 允许服务端直接返回整文件。
+    resp = send_file(track_path, mimetype=mime, conditional=not range_header)
+    resp.headers["Accept-Ranges"] = "bytes"
+    return resp
 
 
 # Track detail
@@ -1390,9 +1726,7 @@ def api_track(track_id: int):
         abort(404)
     d = dict(row)
     d["lyrics"] = get_lyrics(row["path"]) if row["has_lyrics"] else None
-    d["relative_path"] = get_relative_path(
-        row["path"], get_current_library_path() or ""
-    )
+    d["relative_path"] = _relative_path_for_display(row["path"])
     return jsonify(d)
 
 
@@ -1402,9 +1736,30 @@ def api_track_delete(track_id: int):
     row = get_track_by_id(track_id)
     if not row:
         abort(404)
-    delete_track_by_id(track_id)
-    commit()
-    return jsonify({"ok": True, "deleted": track_id})
+    result = delete_track_by_id(track_id)
+    if not result.get("deleted"):
+        # 文件删除失败时保留数据库记录，让用户能重试（旧实现会静默吞掉失败）。
+        # 原始 OS 错误（含服务器绝对路径）只写日志，不回传给客户端。
+        logger.warning("删除曲目文件失败 track_id=%s: %s", track_id, result.get("error"))
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "deleted": track_id,
+                    "error": "delete_failed",
+                    "message": "文件未能删除（可能被占用或无权限），记录已保留，可稍后重试",
+                }
+            ),
+            500,
+        )
+    return jsonify(
+        {
+            "ok": True,
+            "deleted": track_id,
+            "file_deleted": result.get("file_deleted", False),
+            "missing": result.get("missing", False),
+        }
+    )
 
 
 MAX_COVER_SIZE = 5 * 1024 * 1024
@@ -1449,8 +1804,10 @@ def api_track_update_cover(track_id: int):
     if mime not in ("image/jpeg", "image/png"):
         return jsonify({"error": "only JPEG/PNG format supported"}), 400
     image_data = f.read()
-    if len(image_data) > MAX_COVER_SIZE:
-        return jsonify({"error": "cover file too large (max 5MB)"}), 400
+    # 体积与像素必须同时校验：小体积的巨尺寸图片会在 PIL 解码时耗尽内存
+    cover_error = _validate_cover_payload(image_data)
+    if cover_error:
+        return jsonify({"error": cover_error}), 400
     try:
         write_cover(row["path"], image_data, mime)
     except Exception as exc:
@@ -1509,10 +1866,24 @@ def api_tracks_batch_delete():
     track_ids = data.get("track_ids", [])
     if not track_ids:
         return jsonify({"error": "track_ids required"}), 400
-    for track_id in track_ids:
-        delete_track_by_id(track_id)
-    commit()
-    return jsonify({"ok": True, "deleted_count": len(track_ids)})
+    # 单事务批量删除（旧实现循环调用单条删除，每条都 commit 一次）
+    result = delete_tracks_by_ids(track_ids)
+    failed = result.get("failed", [])
+    not_found = result.get("not_found", [])
+    payload = {
+        "ok": not failed,
+        "deleted_count": result.get("deleted", 0),
+        "file_deleted_count": result.get("file_deleted", 0),
+        "failed": failed,
+        "not_found": not_found,
+    }
+    if failed:
+        payload["message"] = (
+            f"{len(failed)} 个文件未能删除（可能被占用或无权限），已保留对应记录，可稍后重试"
+        )
+    elif not_found:
+        payload["message"] = f"{len(not_found)} 条记录已不存在（可能已被其他操作删除）"
+    return jsonify(payload), (207 if failed else 200)
 
 
 # Track by path
@@ -1525,18 +1896,20 @@ def api_track_by_path():
         return jsonify({"error": "path required"}), 400
 
     # Normalize path separators for Windows
-    _lib_path = get_current_library_path() or ""
+    # 注意：库根必须强制要求已配置——旧实现用 `or ""`，未配置库时整段穿越校验
+    # 会被 `if _lib_path:` 跳过，等于放行任意路径。
+    _lib_root = require_library_root()
+    _lib_path = str(_lib_root)
     rel_path_normalized = rel_path.replace("/", "\\") if "\\" in _lib_path else rel_path
     full_path = str(Path(_lib_path) / rel_path.lstrip("/"))
     full_path_normalized = str(Path(_lib_path) / rel_path_normalized.lstrip("/"))
 
     # 目录穿越防护：只允许音乐库内的相对路径（拒绝 ../ 等越界路径）
-    if _lib_path:
-        _base = Path(_lib_path).resolve()
-        if not any(
-            _is_within(_base, Path(p)) for p in (full_path, full_path_normalized)
-        ):
-            return jsonify({"error": "path outside library"}), 403
+    _base = _lib_root.resolve()
+    if not any(
+        _is_within(_base, Path(p)) for p in (full_path, full_path_normalized)
+    ):
+        return jsonify({"error": "path outside library"}), 403
 
     # Try exact match first
     row = get_track_by_path(full_path)
@@ -1661,7 +2034,7 @@ def api_track_by_path():
 @require_auth
 def api_files():
     rel = request.args.get("path", "").lstrip("/")
-    base = Path(get_current_library_path() or "")
+    base = require_library_root()
     cur = (base / rel).resolve()
     if not _is_within(base, cur):
         abort(403)
@@ -1994,9 +2367,7 @@ def api_pending():
     result = []
     for row in rows:
         d = dict(row)
-        d["relative_path"] = get_relative_path(
-            row["path"], get_current_library_path() or ""
-        )
+        d["relative_path"] = _relative_path_for_display(row["path"])
         result.append(d)
     return jsonify(result)
 
@@ -2173,7 +2544,13 @@ def api_apply_scraped_metadata(track_id: int):
                     _relink_track_artist_album(track_id)
         cover_updated = False
         if data.get("_cover_data"):
-            cover_data = base64.b64decode(data["_cover_data"])
+            try:
+                cover_data = base64.b64decode(data["_cover_data"])
+            except Exception:  # noqa: BLE001
+                return jsonify({"ok": False, "error": "封面数据不是合法的 base64"}), 400
+            cover_error = _validate_cover_payload(cover_data)
+            if cover_error:
+                return jsonify({"ok": False, "error": cover_error}), 400
             write_cover(row["path"], cover_data, "image/jpeg")
             update_track_metadata(track_id, {"has_cover": 1})
             cover_updated = True
@@ -2188,21 +2565,44 @@ def api_apply_scraped_metadata(track_id: int):
                         else None
                     )
                     if artist_row:
-                        album_dir = os.path.join(
-                            get_current_library_path() or "",
-                            artist_row["dir_name"],
-                            album["dir_name"],
+                        # 严格区分两种情况（旧写法把二者混为一谈，导致正常请求 500）：
+                        # 1) 库根未配置 → 绝不能用 Path("")（= cwd）当库根；
+                        # 2) 只是专辑目录不存在（改过专辑名/人工挪过目录）→ 跳过写专辑封面即可。
+                        album_root = get_library_root()
+                        album_dir = (
+                            os.path.join(
+                                str(album_root),
+                                artist_row["dir_name"],
+                                album["dir_name"],
+                            )
+                            if album_root
+                            else None
                         )
-                        cover_file_path = os.path.join(album_dir, ALBUM_COVER_FILENAME)
-                        file_exists = os.path.exists(cover_file_path)
+                        if album_dir is None:
+                            logger.warning(
+                                "跳过专辑封面落盘：音乐库未配置可用路径（album_id=%s）",
+                                album_id,
+                            )
+                        elif not os.path.isdir(album_dir):
+                            # 内嵌封面已经写入成功，这里只跳过“把封面同时落盘到
+                            # 专辑目录”这一步，不影响整体成功（旧写法会 500）。
+                            logger.info("专辑目录不存在，跳过封面落盘：%s", album_dir)
+                        else:
+                            cover_file_path = os.path.join(
+                                album_dir, ALBUM_COVER_FILENAME
+                            )
+                            file_exists = os.path.exists(cover_file_path)
+                            if not album["cover_path"] and not file_exists:
+                                from utils.metadata import extract_cover_to_file
 
-                        if not album["cover_path"] and not file_exists:
-                            from utils.metadata import extract_cover_to_file
-
-                            if extract_cover_to_file(row["path"], cover_file_path):
+                                if extract_cover_to_file(
+                                    row["path"], cover_file_path
+                                ):
+                                    update_album_repo(
+                                        album_id, cover_path=cover_file_path
+                                    )
+                            elif not album["cover_path"] and file_exists:
                                 update_album_repo(album_id, cover_path=cover_file_path)
-                        elif not album["cover_path"] and file_exists:
-                            update_album_repo(album_id, cover_path=cover_file_path)
 
         # 更新歌词
         lyrics_updated = False
@@ -2341,7 +2741,7 @@ MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024  # 单个上传文件上限 500MB
 
 
 def _get_upload_temp_dir():
-    return Path(get_current_library_path() or "") / ".upload_temp"
+    return require_library_root() / ".upload_temp"
 
 
 def _safe_upload_filename(name: str) -> str:
@@ -2486,15 +2886,7 @@ def api_files_upload_check():
         }
 
         if existing:
-            rel_path = (
-                str(
-                    Path(existing["path"]).relative_to(
-                        Path(get_current_library_path() or "")
-                    )
-                )
-                if existing["path"]
-                else ""
-            )
+            rel_path = _relative_path_for_display(existing["path"] or "")
             file_info["existing"] = {
                 "id": existing["id"],
                 "path": existing["path"],
@@ -2525,7 +2917,7 @@ def api_files_upload_commit():
     target = data.get("path", "").lstrip("/")
     resolve = data.get("resolve", {})
 
-    base = Path(get_current_library_path() or "")
+    base = require_library_root()
     cur = (base / target).resolve()
     if not _is_within(base, cur):
         abort(403)
@@ -2782,8 +3174,8 @@ def api_files_audio_count():
     if not paths:
         return jsonify({"counts": {}})
     path_list = [p.strip().lstrip("/") for p in paths.split("|") if p.strip()]
-    _lib_path = get_current_library_path() or ""
-    base = Path(_lib_path)
+    base = require_library_root()
+    _lib_path = str(base)
 
     def _audio_count_for_rel(rel: str):
         rel_normalized = rel.replace("/", "\\") if "\\" in _lib_path else rel
@@ -2823,7 +3215,7 @@ def api_batch_scrape():
     rows = get_tracks_by_ids(track_ids, library_id=get_current_library_id())
     row_map = {row["id"]: row for row in rows}
 
-    library_path = get_current_library_path() or ""
+
 
     def scrape_single_track(track_id):
         row = row_map.get(track_id)
@@ -2884,7 +3276,7 @@ def api_batch_scrape():
                 "track_artist": row["artist"] if row["artist"] else "",
                 "track_album": row["album"] if row["album"] else "",
                 "filename": row["filename"] if row["filename"] else "",
-                "relative_path": get_relative_path(row["path"], library_path),
+                "relative_path": _relative_path_for_display(row["path"]),
                 "_log_type": "success",
                 "_log_msg": f"批量搜索完成: {row['filename']}",
             }
@@ -3017,7 +3409,10 @@ def api_execute_task():
     result = run_manual_task(task_type)
 
     if "error" in result:
-        return jsonify({"ok": False, "error": result["error"]}), 500
+        # 音乐库未配置属于“当前状态不允许执行”，用 409 与其它接口保持一致
+        # （而不是把它混进 5xx 服务端错误）。
+        status = 409 if "音乐库" in str(result["error"]) else 500
+        return jsonify({"ok": False, "error": result["error"]}), status
 
     return jsonify({"ok": True, "result": result})
 
