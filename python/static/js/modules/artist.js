@@ -835,20 +835,36 @@ function albumCoverUrl(albumId) {
 }
 
 async function scrapeArtistCover(artistId) {
-  try {
+  const doScrape = async (force) => {
     showToast('正在搜索歌手头像...', 'info');
-    const result = await POST(`/artists/${artistId}/scrape-cover`, {});
-
+    const result = await POST(`/artists/${artistId}/scrape-cover`, force ? { force: true } : {});
     if (result.error) {
       showToast('搜索不到该歌手头像', 'error');
       return;
     }
-
     artistCoverCache[artistId] = true;
     coverExistsCache.artist[artistId] = true;
     await loadArtistCover(artistId);
     showToast('歌手头像搜索成功', 'success');
+  };
+
+  try {
+    await doScrape(false);
   } catch (err) {
+    // A1：该艺术家已被标记「不再获取头像」——单条手动仍然是逃生通道，
+    // 后端返回 409 cover_skip，这里确认后带 force=true 重试。
+    if (err && err.message === 'cover_skip') {
+      const ok = window.confirm(
+        '该艺术家已标记为「不再自动获取头像」。仍要重试吗？\n（成功后会自动解除标记）'
+      );
+      if (!ok) return;
+      try {
+        await doScrape(true);
+      } catch (e2) {
+        showToast('搜索不到该歌手头像', 'error');
+      }
+      return;
+    }
     showToast('搜索不到该歌手头像', 'error');
   }
 }
@@ -1099,6 +1115,14 @@ async function loadArtistCover(artistId) {
     coverEl.appendChild(actionsDiv);
   } else {
     // 无封面（或存在性未知时的保守处理）：占位图 + 上传/刮削/更多
+    // A1：该艺术家已被标记「不再自动获取头像」时给出明确角标
+    if (currentArtist && currentArtist.cover_skip) {
+      const badge = document.createElement('div');
+      badge.className = 'artist-cover-skip-badge';
+      badge.title = '已标记「不再自动获取头像」；手动搜索/上传成功后会自动解除标记';
+      badge.textContent = '已标记不再自动获取';
+      coverEl.appendChild(badge);
+    }
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'artist-cover-actions';
     actionsDiv.innerHTML = `

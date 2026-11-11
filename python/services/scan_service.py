@@ -616,20 +616,40 @@ def _ensure_covers(music_root: str, library_id: int | None = None):
 
     if library_id is not None:
         artists = db.execute(
-            "SELECT id, dir_name, cover_path FROM artists WHERE library_id=?",
+            "SELECT id, dir_name, cover_path, cover_skip FROM artists WHERE library_id=?",
             (library_id,),
         ).fetchall()
     else:
-        artists = db.execute("SELECT id, dir_name, cover_path FROM artists").fetchall()
+        artists = db.execute(
+            "SELECT id, dir_name, cover_path, cover_skip FROM artists"
+        ).fetchall()
     artist_cover_updated = 0
+    artist_skip_cleared = 0
     for artist in artists:
         artist_dir = os.path.join(music_root, artist["dir_name"])
         cover_path = os.path.join(artist_dir, ARTIST_COVER_FILENAME)
-        if os.path.exists(cover_path) and not artist["cover_path"]:
-            db.execute("UPDATE artists SET cover_path=? WHERE id=?", (cover_path, artist["id"]))
+        if not os.path.exists(cover_path):
+            continue
+        if not artist["cover_path"]:
+            db.execute(
+                "UPDATE artists SET cover_path=? WHERE id=?", (cover_path, artist["id"])
+            )
             artist_cover_updated += 1
+        # 磁盘上已经有封面了，「不再自动获取头像」的标记就失去意义：
+        # 顺手清掉，避免它一直挂在「已跳过」面板里让用户困惑。
+        if artist["cover_skip"]:
+            # 已经有封面：标记与失败统计都失去意义，一起清掉（与
+            # record_artist_cover_success 的语义保持一致）
+            db.execute(
+                "UPDATE artists SET cover_skip=0, cover_skip_reason=NULL,"
+                " cover_fetch_attempts=0, cover_fetch_failed_at=NULL WHERE id=?",
+                (artist["id"],),
+            )
+            artist_skip_cleared += 1
     if artist_cover_updated > 0:
         logger.info(f"艺术家封面更新完成：{artist_cover_updated} 个艺术家")
+    if artist_skip_cleared > 0:
+        logger.info(f"已有封面，自动解除「不再获取头像」标记：{artist_skip_cleared} 个艺术家")
 
     if library_id is not None:
         albums = db.execute(
@@ -729,3 +749,15 @@ def _cleanup_orphaned_artists_albums(library_id: int | None = None):
         logger.info(
             f"清理孤立记录：{deleted_albums} 个专辑，{deleted_artists} 个艺术家"
         )
+
+    if deleted_artists > 0:
+        # 艺术家被删掉后，相似度反馈里指向它的行就成了孤儿：不清掉的话
+        # 「已忽略 N 组」面板会一直显示打不开的死条目，表也会越积越大。
+        try:
+            from repository.similarity_repository import prune_missing_artists
+
+            pruned = prune_missing_artists()
+            if pruned:
+                logger.info(f"清理悬空相似度反馈：{pruned} 条")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("清理悬空相似度反馈失败（忽略）: %s", exc)

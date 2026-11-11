@@ -6,6 +6,14 @@
 let _artistStatsData = null;
 let _similarArtistsData = null;
 let _similarDetailTracks = [];
+// A2：当前打开的相似度详情对（详情弹窗里也要能标记）
+let _similarDetailPair = null;
+// A2：已忽略的配对（「已忽略 N 组 · 管理」面板）
+let _dismissedFeedback = [];
+// A2：可配置的四档相似度阈值
+let _similarThresholds = null;
+// A1：已标记「不再获取头像」的艺术家
+let _skippedCoverArtists = [];
 let _asSearchTimer = null;
 
 const SIMILAR_CACHE_KEY_PREFIX = 'tunetree_similar_artists';
@@ -69,7 +77,7 @@ function renderTopNBar(items, valueKey, formatFn, maxItems = 10) {
     const rankClass = idx < 3 ? `as-topn-rank as-topn-rank-${idx + 1}` : 'as-topn-rank';
     return `<div class="as-topn-item">
       <span class="${rankClass}">${idx + 1}</span>
-      <span class="as-topn-name" title="${esc(item.name)}" onclick="searchArtistInSidebar('${esc(item.name).replace(/'/g, "\\'")}')">${esc(item.name)}</span>
+      <span class="as-topn-name" title="${esc(item.name)}" onclick="searchArtistInSidebar('${esc(escJs(item.name))}')">${esc(item.name)}</span>
       <span class="as-topn-val">${display}</span>
     </div>`;
   }).join('')}</div>`;
@@ -82,10 +90,13 @@ function _renderSimilarSection(similar, loading = false) {
     <i class="bi bi-arrow-clockwise"></i>${loading ? ' 检测中...' : ' 重新检测'}
   </button>`;
   if (loading) {
+    // 检测期间也要保留「已忽略 / 阈值」面板，否则用户正在改的阈值输入框会被销毁
     section.innerHTML = `
       <div class="as-section-title">相似艺术家检测 ${refreshBtn}</div>
       <div class="as-similar-hint">自适应相似度检测：简繁体、全半角、子串包含等</div>
       <div class="as-similar-loading"><i class="bi bi-hourglass-split"></i> 检测中请稍后...</div>
+      ${_renderDismissedPanel()}
+      ${_renderThresholdEditor()}
     `;
     return;
   }
@@ -103,6 +114,13 @@ function _renderSimilarSection(similar, loading = false) {
               <span class="as-similar-name">${esc(g.artist_b.name)}</span>
             </div>
             <div class="as-similar-score">${Math.round(g.similarity * 100)}%</div>
+            ${g.feedback === 'confirmed' ? '<div class="as-similar-badge">已确认同一人</div>' : ''}
+            <div class="as-similar-actions">
+              <button class="as-mini-btn" title="不是同一人：以后不再提示这一对"
+                      onclick="setSimilarFeedback(${g.artist_a.id}, ${g.artist_b.id}, 'dismissed', event)">不是同一人</button>
+              <button class="as-mini-btn" title="是同一人（同一人的不同写法）"
+                      onclick="setSimilarFeedback(${g.artist_a.id}, ${g.artist_b.id}, 'confirmed', event)">是同一人</button>
+            </div>
             <div class="as-similar-hover-info" id="similar-hover-${idx}">
               <span>${g.artist_a.track_count} 首 / ${g.artist_a.album_count} 张</span>
               <span>${g.artist_b.track_count} 首 / ${g.artist_b.album_count} 张</span>
@@ -110,8 +128,194 @@ function _renderSimilarSection(similar, loading = false) {
           </div>
         `).join('')}
       </div>
+      <div class="as-similar-tip">忽略一对会释放这两位艺术家参与其它配对，因此可能出现新的相似提示（这是预期行为）。</div>
     ` : '<div class="as-empty">未检测到相似艺术家</div>'}
+    ${_renderDismissedPanel()}
+    ${_renderThresholdEditor()}
   `;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   A2 相似艺术家反馈（不是同一人 / 是同一人）
+═══════════════════════════════════════════════════════════ */
+
+/**
+ * 标记一对相似艺术家的人工判断。
+ * @param {number} aId @param {number} bId
+ * @param {'dismissed'|'confirmed'} verdict dismissed=不是同一人（以后不再报这对）
+ * @param {Event} [ev] 传了就会 stopPropagation，避免触发卡片的 openSimilarDetail
+ */
+async function setSimilarFeedback(aId, bId, verdict, ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  try {
+    await POST('/stats/similar-artists/feedback', {
+      artist_a_id: aId,
+      artist_b_id: bId,
+      verdict,
+    });
+    if (verdict === 'dismissed') {
+      // 本地先移除，避免重新拉取前的闪烁；真正的过滤在后端
+      _similarArtistsData = (_similarArtistsData || []).filter(
+        g => !(g.artist_a.id === aId && g.artist_b.id === bId)
+      );
+      showToast(
+        '已标记「不是同一人」，之后不再提示这一对；可能有新的相似组合补位（可在「已忽略」里恢复）',
+        'info'
+      );
+    } else {
+      (_similarArtistsData || []).forEach(g => {
+        if (g.artist_a.id === aId && g.artist_b.id === bId) g.feedback = 'confirmed';
+      });
+      showToast('已标记「是同一人」', 'success');
+    }
+    _setCachedSimilar(_similarArtistsData);
+    await _loadDismissedFeedback();
+    _renderSimilarSection(_similarArtistsData);
+    if (_similarDetailPair && _similarDetailPair.a === aId && _similarDetailPair.b === bId) {
+      // 详情弹窗保持同步（标记状态要立刻可见）
+      openSimilarDetail(aId, bId);
+    }
+  } catch (e) {
+    showToast('标记失败: ' + (e.serverMessage || e.message), 'error');
+  }
+}
+
+/** 撤销标记：该对会重新参与检测 */
+async function undoSimilarFeedback(aId, bId, ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  try {
+    await DELETE(`/stats/similar-artists/feedback/${aId}/${bId}`);
+    showToast('已恢复，该对会重新参与检测', 'info');
+    await _loadDismissedFeedback();
+    await refreshSimilarArtists();
+  } catch (e) {
+    showToast('恢复失败: ' + (e.serverMessage || e.message), 'error');
+  }
+}
+
+async function _loadDismissedFeedback() {
+  try {
+    _dismissedFeedback = await GET('/stats/similar-artists/feedback?verdict=dismissed');
+  } catch (e) {
+    _dismissedFeedback = [];
+  }
+  return _dismissedFeedback;
+}
+
+async function _loadSimilarityThresholds() {
+  try {
+    _similarThresholds = await GET('/stats/similar-artists/thresholds');
+  } catch (e) {
+    _similarThresholds = null;
+  }
+  return _similarThresholds;
+}
+
+/** 保存四档阈值（不自动调参：由用户显式决定） */
+async function saveSimilarityThresholds() {
+  const keys = ['short', 'len3', 'len5', 'long'];
+  const payload = {};
+  try {
+    for (const k of keys) {
+      const el = document.getElementById(`sim-th-${k}`);
+      const v = parseFloat(el ? el.value : '');
+      if (!(v >= 0.5 && v <= 1)) {
+        throw new Error('阈值必须在 0.5 ~ 1 之间');
+      }
+      payload[k] = v;
+    }
+    await PUT('/stats/similar-artists/thresholds', payload);
+    showToast('阈值已保存，重新检测后生效', 'success');
+    await refreshSimilarArtists();
+  } catch (e) {
+    showToast('保存失败: ' + (e.serverMessage || e.message), 'error');
+  }
+}
+
+function _renderThresholdEditor() {
+  const t = _similarThresholds || { short: 0.95, len3: 0.85, len5: 0.8, long: 0.75 };
+  const row = (key, label) => `
+    <label class="as-th-item">
+      <span>${label}</span>
+      <input id="sim-th-${key}" type="number" step="0.01" min="0.5" max="1" value="${t[key]}" />
+    </label>`;
+  return `
+    <details class="as-similar-details">
+      <summary>相似度阈值设置</summary>
+      <div class="as-th-body">
+        <div class="as-th-hint">名称越短要求越严。调低会多报（含误报），调高会漏报；系统不会自动调整。</div>
+        <div class="as-th-grid">
+          ${row('short', '1-2 字')}
+          ${row('len3', '3 字')}
+          ${row('len5', '4-5 字')}
+          ${row('long', '6 字以上')}
+        </div>
+        <button class="as-batch-btn as-th-save" onclick="saveSimilarityThresholds()">保存阈值</button>
+      </div>
+    </details>`;
+}
+
+function _renderDismissedPanel() {
+  if (!_dismissedFeedback.length) return '';
+  return `
+    <details class="as-similar-details">
+      <summary>已忽略 ${_dismissedFeedback.length} 组 · 管理</summary>
+      <div class="as-dismissed-list">
+        ${_dismissedFeedback.map(f => `
+          <div class="as-dismissed-item">
+            <span class="as-dismissed-names">${esc(f.name_a)} / ${esc(f.name_b)}</span>
+            <button class="as-mini-btn" onclick="undoSimilarFeedback(${f.artist_a_id}, ${f.artist_b_id}, event)">恢复</button>
+          </div>
+        `).join('')}
+      </div>
+    </details>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   A1 艺术家头像「不再获取」标记
+═══════════════════════════════════════════════════════════ */
+
+async function _loadSkippedCoverArtists() {
+  try {
+    _skippedCoverArtists = await GET('/artists/cover-skipped');
+  } catch (e) {
+    _skippedCoverArtists = [];
+  }
+  return _skippedCoverArtists;
+}
+
+/**
+ * 标记 / 解除「不再自动获取该艺术家头像」。
+ * @param {Event} [ev] 传了会 stopPropagation（卡片上还有跳转搜索的点击）
+ */
+async function setArtistCoverSkip(artistId, skip, ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  try {
+    await POST(`/artists/${artistId}/cover-skip`, { skip });
+    showToast(skip ? '已标记：以后不再自动获取该艺术家头像' : '已恢复自动获取', 'success');
+    await _loadSkippedCoverArtists();
+    await loadArtistStats();
+  } catch (e) {
+    showToast('操作失败: ' + (e.serverMessage || e.message), 'error');
+  }
+}
+
+function _renderSkippedCoverPanel() {
+  if (!_skippedCoverArtists.length) return '';
+  return `
+    <details class="as-similar-details">
+      <summary>已跳过获取头像 ${_skippedCoverArtists.length} 位 · 管理</summary>
+      <div class="as-dismissed-list">
+        ${_skippedCoverArtists.map(a => `
+          <div class="as-dismissed-item">
+            <span class="as-dismissed-names">${esc(a.name)}${
+              a.cover_fetch_attempts ? ` <span class="as-mini-hint">已尝试 ${a.cover_fetch_attempts} 次</span>` : ''
+            }</span>
+            <button class="as-mini-btn" onclick="setArtistCoverSkip(${a.id}, false, event)">恢复</button>
+          </div>
+        `).join('')}
+      </div>
+    </details>`;
 }
 
 async function loadArtistStats() {
@@ -122,6 +326,12 @@ async function loadArtistStats() {
   try {
     const stats = await GET('/stats/artists');
     _artistStatsData = stats;
+    // A1/A2 的辅助数据：已跳过头像的艺术家、已忽略的相似对、阈值
+    await Promise.all([
+      _loadSkippedCoverArtists(),
+      _loadDismissedFeedback(),
+      _loadSimilarityThresholds(),
+    ]);
 
     const cached = _getCachedSimilar();
     if (cached) {
@@ -137,11 +347,13 @@ async function loadArtistStats() {
 }
 
 async function _loadSimilarAsync() {
+  _snapshotThresholdInputs();
   _renderSimilarSection(null, true);
   try {
     const similar = await GET('/stats/similar-artists');
     _similarArtistsData = similar;
     _setCachedSimilar(similar);
+    await _loadDismissedFeedback();
     _renderSimilarSection(similar, false);
   } catch (e) {
     const section = document.querySelector('[data-section="similar"]');
@@ -155,12 +367,32 @@ async function _loadSimilarAsync() {
   }
 }
 
+/** 重新渲染前把用户正在编辑的阈值输入备份下来，避免检测期间丢失未保存的修改 */
+function _snapshotThresholdInputs() {
+  const keys = ['short', 'len3', 'len5', 'long'];
+  const snapshot = _similarThresholds ? { ..._similarThresholds } : {};
+  let found = false;
+  keys.forEach(k => {
+    const el = document.getElementById(`sim-th-${k}`);
+    if (el) {
+      const v = parseFloat(el.value);
+      if (!Number.isNaN(v)) {
+        snapshot[k] = v;
+        found = true;
+      }
+    }
+  });
+  if (found) _similarThresholds = snapshot;
+}
+
 async function refreshSimilarArtists() {
+  _snapshotThresholdInputs();
   _renderSimilarSection(null, true);
   try {
     const similar = await GET('/stats/similar-artists');
     _similarArtistsData = similar;
     _setCachedSimilar(similar);
+    await _loadDismissedFeedback();
     _renderSimilarSection(similar, false);
   } catch (e) {
     _renderSimilarSection(_similarArtistsData, false);
@@ -220,23 +452,28 @@ function renderArtistStats(stats, similar) {
       </div>
 
       <div class="as-section" data-section="nocover">
-        <div class="as-section-title">无封面艺术家 TOP 10</div>
+        <div class="as-section-title">无封面艺术家 TOP 10${
+          stats.cover_skipped ? `（另有 ${stats.cover_skipped} 位已标记不再获取）` : ''
+        }</div>
         <div class="as-nocover-row">
           ${stats.no_cover_top && stats.no_cover_top.length > 0 ? stats.no_cover_top.map(a => `
             <div class="as-nocover-item">
               <div class="as-nocover-icon"><i class="bi bi-person-circle"></i></div>
               <div class="as-nocover-info">
-                <div class="as-nocover-name" title="${esc(a.name)}" onclick="searchArtistInSidebar('${esc(a.name).replace(/'/g, "\\'")}')">${esc(a.name)}</div>
+                <div class="as-nocover-name" title="${esc(a.name)}" onclick="searchArtistInSidebar('${esc(escJs(a.name))}')">${esc(a.name)}</div>
                 <div class="as-nocover-count">${a.track_count} 首曲目</div>
               </div>
+              <button class="as-mini-btn" title="标记为「以后不再自动获取头像」，并从待办列表移除"
+                      onclick="setArtistCoverSkip(${a.id}, true, event)">不再获取</button>
             </div>
           `).join('') : '<div class="as-empty">所有艺术家都有封面</div>'}
         </div>
         ${stats.no_cover_top && stats.no_cover_top.length > 0 ? `
           <button class="as-batch-btn" onclick="batchScrapeNoCover()">
-            <i class="bi bi-cloud-download"></i> 一键获取封面
+            <i class="bi bi-cloud-download"></i> 一键获取封面（全部未跳过）
           </button>
         ` : ''}
+        ${_renderSkippedCoverPanel()}
       </div>
 
       <div class="as-section" data-section="top-albums">
@@ -347,30 +584,43 @@ function closeArtistStats() {
 }
 
 async function batchScrapeNoCover() {
-  if (!_artistStatsData || !_artistStatsData.no_cover_top) return;
-  const ids = _artistStatsData.no_cover_top.map(a => a.id);
-  if (ids.length === 0) return;
-
   const btn = document.querySelector('.as-batch-btn');
+  const reset = () => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-download"></i> 一键获取封面（全部未跳过）';
+    }
+  };
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 获取中...';
   }
 
   try {
-    const result = await POST('/artists/batch-scrape-covers', { artist_ids: ids });
-    showToast(`封面获取完成：${result.success}/${result.total} 成功`);
-    loadArtistStats();
-  } catch (e) {
-    showToast('批量获取封面失败: ' + e.message, 'error');
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-cloud-download"></i> 一键获取封面';
+    // 旧实现只处理统计面板里的 TOP10；这里取「全部未跳过且无封面」的艺术家
+    const targets = await GET('/artists/without-cover');
+    const ids = (targets || []).map(a => a.id);
+    if (ids.length === 0) {
+      showToast('没有需要获取封面的艺术家', 'info');
+      reset();
+      return;
     }
+    const result = await POST('/artists/batch-scrape-covers', { artist_ids: ids });
+    const skipped = result.skipped || 0;
+    showToast(
+      `封面获取完成：成功 ${result.success}/${result.total}${skipped ? `，跳过 ${skipped} 位已标记的艺术家` : ''}`,
+      result.success > 0 ? 'info' : 'warn'
+    );
+    await loadArtistStats();
+  } catch (e) {
+    showToast('批量获取封面失败: ' + (e.serverMessage || e.message), 'error');
+  } finally {
+    reset();
   }
 }
 
 async function openSimilarDetail(aId, bId) {
+  _similarDetailPair = { a: aId, b: bId };
   openModal('similar-detail-modal');
   const body = document.getElementById('similar-detail-body');
   body.innerHTML = '<div class="loading-row">加载中...</div>';
@@ -398,7 +648,19 @@ function renderSimilarDetail(container, data) {
     </div>`;
   }
 
+  const pair = _similarDetailPair || { a: a.id, b: b.id };
+  const group = (_similarArtistsData || []).find(
+    g => g.artist_a.id === pair.a && g.artist_b.id === pair.b
+  );
+  const actionBar = `
+    <div class="asd-actions">
+      ${group && group.feedback === 'confirmed' ? '<span class="as-similar-badge">已确认同一人</span>' : ''}
+      <button class="as-mini-btn" onclick="setSimilarFeedback(${pair.a}, ${pair.b}, 'dismissed', event)">不是同一人</button>
+      <button class="as-mini-btn" onclick="setSimilarFeedback(${pair.a}, ${pair.b}, 'confirmed', event)">是同一人</button>
+    </div>`;
+
   container.innerHTML = `
+    ${actionBar}
     <div class="asd-compare">
       <div class="asd-artist-col">
         <div class="asd-artist-name">${esc(a.name)}</div>

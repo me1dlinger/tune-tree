@@ -34,7 +34,19 @@ from flask import (
 )
 from repository.album_repository import ensure_album
 from repository.album_repository import get_album_stats as repo_get_album_stats
-from repository.artist_repository import ensure_artist, get_artist_by_id
+from repository.artist_repository import (
+    ensure_artist,
+    get_artist_by_id,
+    get_skipped_cover_artists,
+    record_artist_cover_failure,
+    record_artist_cover_success,
+    set_artist_cover_skip,
+)
+from repository.similarity_repository import (
+    delete_feedback as delete_similarity_feedback,
+)
+from repository.similarity_repository import list_feedback as list_similarity_feedback
+from repository.similarity_repository import set_feedback as set_similarity_feedback
 from repository.artist_repository import get_artist_stats as repo_get_artist_stats
 from repository.library_repository import delete_library as delete_library_repo
 from repository.library_repository import (
@@ -99,7 +111,12 @@ from services.metadata_scraper import MetadataScraper
 from services.netease_api import NeteaseApi
 from services.qqmusic_api import QQMusicApi
 from services.scan_service import scan_library
-from services.similarity_service import find_similar_artists
+from services.similarity_service import (
+    DEFAULT_SIMILARITY_THRESHOLDS,
+    find_similar_artists,
+    get_thresholds as get_similarity_thresholds,
+    update_thresholds as set_similarity_thresholds,
+)
 from utils.formatting import get_relative_path
 from utils.metadata import (
     get_cover_b64,
@@ -132,6 +149,37 @@ def _handle_library_not_configured(exc):
         ),
         409,
     )
+
+
+def _parse_bool(value, default: bool = False) -> bool:
+    """严格解析布尔入参。
+
+    Python 里 ``bool("false") is True``：如果直接 ``bool(data.get(...))``，
+    客户端传字符串 "false" 会被当成 True（例如把「不再获取」标记成「要获取」）。
+    支持真正的布尔、0/1、以及 true/false/yes/no/on/off（大小写不敏感）；
+    其余一律按 default 处理（调用方若要报错请传 default=None 自行判断）。
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1", "yes", "on"):
+            return True
+        if text in ("false", "0", "no", "off", ""):
+            return False
+    return default
+
+
+def _parse_bool_strict(value, default: bool | None = False):
+    """同 _parse_bool，但无法识别时返回 None（供调用方返回 400）。"""
+    if value is None:
+        return default
+    result = _parse_bool(value, default=None)
+    return result
 
 
 def _relative_path_for_display(path: str) -> str:
@@ -1017,6 +1065,8 @@ def api_artist_cover_upload(artist_id: int):
         logger.error("artist cover write error %d: %s", artist_id, exc)
         return jsonify({"error": str(exc)}), 500
 
+    # 手动上传成功 → 自动解除「不再获取」标记（否则该艺术家会永久留在跳过集合里）
+    record_artist_cover_success(artist_id, source="upload")
     return jsonify({"ok": True, "path": str(cover_path)})
 
 
@@ -1032,6 +1082,86 @@ def api_artist_cover_exists(artist_id: int):
     exists = cover_path.exists()
 
     return jsonify({"exists": exists})
+
+
+@api_bp.route("/api/artists/<int:artist_id>/cover-skip", methods=["POST"])
+@require_auth
+def api_artist_cover_skip(artist_id: int):
+    """标记 / 解除标记「不再自动获取该艺术家的头像」。
+
+    标记后：批量刮削会跳过它，它也不会出现在「无封面艺术家」待办列表里。
+    解除标记（skip=false）随时可用，保证可逆。
+    """
+    data = request.get_json(force=True) or {}
+    skip = _parse_bool_strict(data.get("skip"), default=True)
+    if skip is None:
+        return jsonify({"error": "skip 必须是布尔值"}), 400
+    reason = (data.get("reason") or "").strip() or None
+
+    if not get_artist_by_id(artist_id):
+        abort(404)
+
+    ok = set_artist_cover_skip(artist_id, skip, reason=reason)
+    if not ok:
+        abort(404)
+    logger.info("艺术家 %s 头像获取标记：skip=%s reason=%s", artist_id, skip, reason)
+    return jsonify({"ok": True, "artist_id": artist_id, "cover_skip": skip})
+
+
+@api_bp.route("/api/artists/cover-skip/batch", methods=["POST"])
+@require_auth
+def api_artists_cover_skip_batch():
+    """批量标记 / 解除标记（列表页多选）。"""
+    data = request.get_json(force=True) or {}
+    artist_ids = data.get("artist_ids") or []
+    if not artist_ids:
+        return jsonify({"ok": False, "error": "artist_ids required"}), 400
+    skip = _parse_bool_strict(data.get("skip"), default=True)
+    if skip is None:
+        return jsonify({"ok": False, "error": "skip 必须是布尔值"}), 400
+    reason = (data.get("reason") or "").strip() or None
+
+    updated = 0
+    missing = []
+    for aid in artist_ids:
+        try:
+            artist_id = int(aid)
+        except (TypeError, ValueError):
+            missing.append(aid)
+            continue
+        if set_artist_cover_skip(artist_id, skip, reason=reason):
+            updated += 1
+        else:
+            missing.append(aid)
+    return jsonify(
+        {"ok": True, "updated": updated, "missing": missing, "cover_skip": skip}
+    )
+
+
+@api_bp.route("/api/artists/without-cover", methods=["GET"])
+@require_auth
+def api_artists_without_cover():
+    """全部「无封面且未标记不再获取」的艺术家。
+
+    「一键获取封面」需要处理全部，而不是统计面板里的 TOP10（旧实现只取 TOP10）。
+    """
+    from repository.artist_repository import get_artists_without_cover
+
+    limit = request.args.get("limit", type=int)
+    if request.args.get("limit") is not None and limit is None:
+        return jsonify({"error": "limit 必须是整数"}), 400
+    rows = get_artists_without_cover(
+        limit=limit, library_id=get_current_library_id(), include_skipped=False
+    )
+    return jsonify(rows)
+
+
+@api_bp.route("/api/artists/cover-skipped", methods=["GET"])
+@require_auth
+def api_artists_cover_skipped():
+    """已标记「不再获取头像」的艺术家列表（供「已跳过」面板恢复用）。"""
+    rows = get_skipped_cover_artists(library_id=get_current_library_id())
+    return jsonify(rows)
 
 
 @api_bp.route("/api/artists/<int:artist_id>/cover", methods=["DELETE"])
@@ -1245,9 +1375,23 @@ def api_album_cover_upload(album_id: int):
 @api_bp.route("/api/artists/<int:artist_id>/scrape-cover", methods=["POST"])
 @require_auth
 def api_artist_scrape_cover(artist_id: int):
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get("force"))
+
     artist_row = get_artist_by_id(artist_id)
     if not artist_row:
         abort(404)
+    if artist_row["cover_skip"] and not force:
+        # 已标记「不再获取」：默认拒绝，但保留 force 逃生通道（前端会弹确认框）
+        return (
+            jsonify(
+                {
+                    "error": "cover_skip",
+                    "message": "该艺术家已标记为「不再获取头像」；如需重试请传 force=true",
+                }
+            ),
+            409,
+        )
     artist_name = artist_row["name"]
     artist_dir = get_artist_directory_path_by_id(artist_id)
     if not artist_dir:
@@ -1255,6 +1399,7 @@ def api_artist_scrape_cover(artist_id: int):
     image_data, successful_artist = scraper.scrape_artist_avatar(artist_name)
 
     if not image_data or len(image_data) < 1000:
+        record_artist_cover_failure(artist_id, source=successful_artist or "netease")
         return jsonify(
             {"error": f"failed to fetch artist avatar for: {artist_name}"}
         ), 502
@@ -1284,6 +1429,8 @@ def api_artist_scrape_cover(artist_id: int):
         logger.error("artist cover save error %d: %s", artist_id, exc)
         return jsonify({"error": str(exc)}), 500
 
+    # 成功 → 记录来源并自动解除「不再获取」标记
+    record_artist_cover_success(artist_id, source=successful_artist or "netease")
     return jsonify(
         {
             "ok": True,
@@ -1441,6 +1588,8 @@ def api_artists_apply_avatar(artist_id: int):
         logger.error("artist avatar save error %d: %s", artist_id, exc)
         return jsonify({"error": str(exc)}), 500
 
+    # 用户手动挑图成功 → 自动解除「不再获取」标记
+    record_artist_cover_success(artist_id, source="url")
     return jsonify({"ok": True, "path": str(cover_path)})
 
 
@@ -2243,14 +2392,17 @@ def api_album_stats():
 @require_auth
 def api_similar_artists():
     library_id = get_current_library_id()
+    _load_similarity_thresholds()
     groups = find_similar_artists(library_id=library_id)
     from repository.album_repository import get_albums_by_artist_id
     from repository.track_repository import get_tracks_by_artist_id
 
     result = []
+    seen_pairs = set()
     for g in groups:
         aid = g["artist_a"]["id"]
         bid = g["artist_b"]["id"]
+        seen_pairs.add((aid, bid))
         a_albums = get_albums_by_artist_id(aid)
         b_albums = get_albums_by_artist_id(bid)
         a_tracks = get_tracks_by_artist_id(aid)
@@ -2268,9 +2420,96 @@ def api_similar_artists():
                     "track_count": len(b_tracks),
                 },
                 "similarity": g["similarity"],
+                # None | "confirmed"：前端据此给「已确认同一人」打标
+                "feedback": g.get("feedback"),
             }
         )
+
+    # 说明：人工确认（confirmed）的配对由 find_similar_artists 统一补全，
+    # 这里不再做「补充查询 + 吞异常」——那会让标记在后端出错时静默消失。
+
     return jsonify(result)
+
+
+SIMILARITY_THRESHOLDS_META_KEY = "similarity_thresholds"
+
+
+def _load_similarity_thresholds():
+    """把 scan_meta 里保存的阈值应用到相似度服务（用户可在设置里调）。"""
+    raw = get_scan_meta(SIMILARITY_THRESHOLDS_META_KEY)
+    if not raw:
+        # 没有保存过配置 → 回落到**默认值**（而不是进程里上次用过的值，
+        # 否则换库/重启后可能继承到别的库的配置）
+        return set_similarity_thresholds(dict(DEFAULT_SIMILARITY_THRESHOLDS))
+    try:
+        return set_similarity_thresholds(json.loads(raw))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("相似度阈值配置无效，已回退默认值: %s", exc)
+        # 必须真正回落到默认值：回落到“进程内上次用过的值”会让多 worker
+        # 与重启后的行为不一致，界面上还会显示一个从未保存过的数值。
+        return set_similarity_thresholds(dict(DEFAULT_SIMILARITY_THRESHOLDS))
+
+
+@api_bp.route("/api/stats/similar-artists/thresholds", methods=["GET"])
+@require_auth
+def api_similarity_thresholds_get():
+    return jsonify(_load_similarity_thresholds())
+
+
+@api_bp.route("/api/stats/similar-artists/thresholds", methods=["PUT"])
+@require_auth
+def api_similarity_thresholds_update():
+    data = request.get_json(force=True) or {}
+    try:
+        values = set_similarity_thresholds(data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    set_scan_meta(SIMILARITY_THRESHOLDS_META_KEY, json.dumps(values))
+    commit()
+    return jsonify({"ok": True, "thresholds": values})
+
+
+@api_bp.route("/api/stats/similar-artists/feedback", methods=["POST"])
+@require_auth
+def api_similarity_feedback_set():
+    """记录人工判断：dismissed=不是同一人（以后不再报这对）/ confirmed=是同一人。"""
+    data = request.get_json(force=True) or {}
+    verdict = (data.get("verdict") or "").strip().lower()
+    try:
+        artist_a_id = int(data.get("artist_a_id"))
+        artist_b_id = int(data.get("artist_b_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "artist_a_id / artist_b_id required"}), 400
+    try:
+        row = set_similarity_feedback(
+            artist_a_id, artist_b_id, verdict, reason=data.get("reason")
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "feedback": row})
+
+
+@api_bp.route(
+    "/api/stats/similar-artists/feedback/<int:artist_a_id>/<int:artist_b_id>",
+    methods=["DELETE"],
+)
+@require_auth
+def api_similarity_feedback_delete(artist_a_id: int, artist_b_id: int):
+    """撤销，该对会重新参与检测。"""
+    try:
+        removed = delete_similarity_feedback(artist_a_id, artist_b_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "removed": removed})
+
+
+@api_bp.route("/api/stats/similar-artists/feedback", methods=["GET"])
+@require_auth
+def api_similarity_feedback_list():
+    verdict = request.args.get("verdict") or None
+    return jsonify(
+        list_similarity_feedback(verdict=verdict, library_id=get_current_library_id())
+    )
 
 
 @api_bp.route("/api/stats/similar-artists/<int:artist_a_id>/<int:artist_b_id>")
@@ -2310,16 +2549,33 @@ def api_similar_artists_detail(artist_a_id, artist_b_id):
 @api_bp.route("/api/artists/batch-scrape-covers", methods=["POST"])
 @require_auth
 def api_batch_scrape_covers():
+    """批量刮削艺术家头像。
+
+    - 默认**跳过**已标记「不再获取」的艺术家（`include_skipped=true` 可强制包含）；
+    - 被跳过的条目计入 `skipped` 而不是 `error`，避免用户看到一片红色失败；
+    - 成功 → `record_artist_cover_success`（自动解除跳过标记）；
+      失败 → `record_artist_cover_failure`（累加尝试次数，供 UI 展示失败次数）。
+    """
     data = request.get_json(force=True) or {}
     artist_ids = data.get("artist_ids", [])
     if not artist_ids:
         return jsonify({"error": "artist_ids required"}), 400
+    include_skipped = _parse_bool_strict(data.get("include_skipped"), default=False)
+    if include_skipped is None:
+        return jsonify({"error": "include_skipped 必须是布尔值"}), 400
 
     results = []
+    skipped = 0
     for aid in artist_ids:
         artist_row = get_artist_by_id(aid)
         if not artist_row:
             results.append({"id": aid, "ok": False, "error": "not found"})
+            continue
+        if artist_row["cover_skip"] and not include_skipped:
+            skipped += 1
+            results.append(
+                {"id": aid, "ok": False, "skipped": True, "error": "cover_skip"}
+            )
             continue
         artist_name = artist_row["name"]
         artist_dir = get_artist_directory_path_by_id(aid)
@@ -2329,9 +2585,11 @@ def api_batch_scrape_covers():
         try:
             image_data, successful_artist = scraper.scrape_artist_avatar(artist_name)
             if not image_data or len(image_data) < 1000:
+                record_artist_cover_failure(aid, source=successful_artist or "netease")
                 results.append({"id": aid, "ok": False, "error": "no image"})
                 continue
             if len(image_data) > MAX_ARTIST_COVER_SIZE:
+                record_artist_cover_failure(aid, source=successful_artist or "netease")
                 results.append({"id": aid, "ok": False, "error": "too large"})
                 continue
             import io as _io
@@ -2340,6 +2598,7 @@ def api_batch_scrape_covers():
 
             img = Image.open(_io.BytesIO(image_data))
             if not _guard_image_dimensions(img):
+                record_artist_cover_failure(aid, source=successful_artist or "netease")
                 results.append({"id": aid, "ok": False, "error": "image too large"})
                 continue
             if img.format != "JPEG":
@@ -2349,13 +2608,22 @@ def api_batch_scrape_covers():
             from repository.artist_repository import update_artist
 
             update_artist(aid, cover_path=str(cover_path))
+            record_artist_cover_success(aid, source=successful_artist or "netease")
             results.append({"id": aid, "ok": True, "name": artist_name})
         except Exception as exc:
             logger.error("batch scrape cover error %d: %s", aid, exc)
+            record_artist_cover_failure(aid)
             results.append({"id": aid, "ok": False, "error": str(exc)})
 
     ok_count = sum(1 for r in results if r["ok"])
-    return jsonify({"results": results, "total": len(results), "success": ok_count})
+    return jsonify(
+        {
+            "results": results,
+            "total": len(results),
+            "success": ok_count,
+            "skipped": skipped,
+        }
+    )
 
 
 # Pending files

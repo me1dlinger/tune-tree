@@ -4,16 +4,60 @@
 """
 
 import logging
+import math
 import re
 import unicodedata
 from difflib import SequenceMatcher
 from repository.artist_repository import get_all_artist_names
+from repository import similarity_repository
 
 logger = logging.getLogger("tunetree")
 
 _cc_t2s = None
 _cc_s2t = None
 _opencc_available = None
+
+# 自适应阈值（可在运行时通过 update_thresholds 配置；本服务**不做自动调参**）
+#   short: 1-2 字符名称   len3: 3 字符   len5: 4-5 字符   long: 6+ 字符
+DEFAULT_SIMILARITY_THRESHOLDS = {
+    "short": 0.95,
+    "len3": 0.85,
+    "len5": 0.80,
+    "long": 0.75,
+}
+# 运行期生效值：必须从默认值副本起步，避免调用方拿到默认值时改坏常量本身
+SIMILARITY_THRESHOLDS = dict(DEFAULT_SIMILARITY_THRESHOLDS)
+
+
+def get_thresholds() -> dict:
+    """返回当前阈值的副本（调用方随便改，影响不到内部状态）。"""
+    return dict(SIMILARITY_THRESHOLDS)
+
+
+def update_thresholds(values: dict) -> dict:
+    """更新阈值配置，返回更新后的新副本。
+
+    只接受 SIMILARITY_THRESHOLDS 里已有的键，值必须是 0.5~1.0 之间的数字；
+    任一非法就整体拒绝（先全部校验再落盘，不会出现改一半的情况）。
+    """
+    if not isinstance(values, dict):
+        raise ValueError("阈值配置必须是 dict")
+
+    unknown = set(values) - set(SIMILARITY_THRESHOLDS)
+    if unknown:
+        raise ValueError(f"未知阈值键: {sorted(unknown)}")
+
+    validated = {}
+    for key, value in values.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"阈值 {key} 必须是数字，收到 {value!r}")
+        number = float(value)
+        if math.isnan(number) or not (0.5 <= number <= 1.0):
+            raise ValueError(f"阈值 {key} 必须在 0.5~1.0 之间，收到 {value!r}")
+        validated[key] = number
+
+    SIMILARITY_THRESHOLDS.update(validated)
+    return dict(SIMILARITY_THRESHOLDS)
 
 
 def _get_opencc():
@@ -140,24 +184,45 @@ def compute_similarity(
 def _adaptive_threshold(name_a: str, name_b: str) -> float:
     """自适应阈值：名称越短要求越高，名称越长允许更多差异
 
-    - 1-2字符: 0.95 (几乎完全匹配)
-    - 3字符: 0.85
-    - 4-5字符: 0.80
-    - 6+字符: 0.75
+    - 1-2字符: SIMILARITY_THRESHOLDS["short"] (默认 0.95，几乎完全匹配)
+    - 3字符: SIMILARITY_THRESHOLDS["len3"] (默认 0.85)
+    - 4-5字符: SIMILARITY_THRESHOLDS["len5"] (默认 0.80)
+    - 6+字符: SIMILARITY_THRESHOLDS["long"] (默认 0.75)
+
+    阈值来自模块级配置（见 update_thresholds），每次调用都现读，改配置立即生效。
     """
     min_len = min(len(_to_base_form(name_a)), len(_to_base_form(name_b)))
     if min_len <= 2:
-        return 0.95
+        return SIMILARITY_THRESHOLDS["short"]
     elif min_len == 3:
-        return 0.85
+        return SIMILARITY_THRESHOLDS["len3"]
     elif min_len <= 5:
-        return 0.80
+        return SIMILARITY_THRESHOLDS["len5"]
     else:
-        return 0.75
+        return SIMILARITY_THRESHOLDS["long"]
 
 
 def find_similar_artists(max_groups=10, library_id=None):
+    """找出可能重复的艺术家组合，按相似度降序返回前 max_groups 组。
+
+    用户反馈（artist_similarity_feedback 表）参与筛选：
+    - ``dismissed``（用户标记「不是同一人」）：跳过这一对，**且刻意不写 seen**。
+      这是有意的设计——A 和 B 不是同一个人，不代表 A 和 C 也不是，所以忽略一组后
+      两个艺术家仍然可以各自与别人配对（「忽略一组后新候选会自动补位」就是由此而来：
+      被压下去的组合让位，后面的候选会顶上来填满 max_groups）。
+    - ``confirmed``（用户标记「是同一人」）：无论名称像不像都直接产出该组，
+      similarity 记为 1.0、feedback 记为 "confirmed"，并照常占用 seen。
+    - 无反馈：走原本的多维度相似度 + 自适应阈值算法。
+
+    返回值每组为 ``{artist_a, artist_b, similarity, feedback}``，
+    feedback 为 ``None``（算法命中）或 ``"confirmed"``。
+
+    性能：反馈表**只查一次**（get_feedback_map），循环内全部走内存 dict；
+    不要改成逐对查库。
+    """
     artists = get_all_artist_names(library_id=library_id)
+    # 一次性把反馈读进内存：下面的双重循环是 O(n²)，逐对查库会直接拖垮接口
+    feedback = similarity_repository.get_feedback_map()
     groups = []
     seen = set()
 
@@ -184,6 +249,34 @@ def find_similar_artists(max_groups=10, library_id=None):
             if not name_a or not name_b:
                 continue
 
+            pair = (aid, bid) if aid < bid else (bid, aid)
+            verdict = feedback.get(pair)
+
+            if verdict == "dismissed":
+                # 用户说「这两个不是同一人」：放过这一对，但不写 seen——
+                # A 仍可能与 C 相似、B 也可能与 D 相似，不该被这一条反馈连坐。
+                continue
+
+            if verdict == "confirmed":
+                # 用户说「是同一人」：直接产出，不再看名称像不像。
+                groups.append(
+                    {
+                        "artist_a": {
+                            "id": artists[i]["id"],
+                            "name": artists[i]["name"],
+                        },
+                        "artist_b": {
+                            "id": artists[j]["id"],
+                            "name": artists[j]["name"],
+                        },
+                        "similarity": 1.0,
+                        "feedback": "confirmed",
+                    }
+                )
+                seen.add(aid)
+                seen.add(bid)
+                break
+
             sim = compute_similarity(
                 name_a, name_b, norm_a, norm_b, simplified_map, traditional_map
             )
@@ -201,11 +294,40 @@ def find_similar_artists(max_groups=10, library_id=None):
                             "name": artists[j]["name"],
                         },
                         "similarity": sim,
+                        "feedback": None,
                     }
                 )
                 seen.add(aid)
                 seen.add(bid)
                 break
 
+    # 人工确认（confirmed）过的配对必须**始终可见**：
+    # 上面的贪心 seen 可能把它们吃掉（例如 A 已与他人配对），那会让用户
+    # 「明明标记了是同一人，列表里却看不到」，等于标记静默失效。
+    emitted = set()
+    for g in groups:
+        aid, bid = g["artist_a"]["id"], g["artist_b"]["id"]
+        emitted.add((min(aid, bid), max(aid, bid)))
+    name_by_id = {a["id"]: a["name"] for a in artists}
+    for (aid, bid), verdict in feedback.items():
+        if verdict != "confirmed" or (aid, bid) in emitted:
+            continue
+        if aid not in name_by_id or bid not in name_by_id:
+            continue
+        groups.append(
+            {
+                "artist_a": {"id": aid, "name": name_by_id[aid]},
+                "artist_b": {"id": bid, "name": name_by_id[bid]},
+                "similarity": 1.0,
+                "feedback": "confirmed",
+            }
+        )
+        emitted.add((aid, bid))
+
     groups.sort(key=lambda g: g["similarity"], reverse=True)
-    return groups[:max_groups]
+    if len(groups) > max_groups:
+        # max_groups 只用于限制「候选」数量；已确认的配对不参与截断
+        confirmed = [g for g in groups if g.get("feedback") == "confirmed"]
+        others = [g for g in groups if g.get("feedback") != "confirmed"]
+        groups = confirmed + others[: max(0, max_groups - len(confirmed))]
+    return groups

@@ -119,6 +119,12 @@ def update_artist(artist_id: int, **fields):
         "cover_path",
         "library_id",
         "updated_at",
+        # 头像刮削状态（见 set_artist_cover_skip / record_artist_cover_*）
+        "cover_skip",
+        "cover_skip_reason",
+        "cover_fetch_attempts",
+        "cover_fetch_failed_at",
+        "cover_last_source",
     }
     allowed = {k: v for k, v in fields.items() if k in allowed_keys}
     if not allowed:
@@ -170,7 +176,29 @@ def get_artist_stats(library_id: int | None = None):
         f"SELECT COUNT(*) FROM artists a WHERE a.cover_path IS NOT NULL AND a.cover_path != '' {lib_filter}",
         lib_params,
     ).fetchone()[0]
+    # 「事实计数」保持原口径：无封面数量 = 总数 - 有封面数（不排除已跳过），
+    # 前端已有的展示逻辑依赖它，别改成过滤后的数字。
     without_cover = total - with_cover
+    # 新口径：仍待办的无封面艺术家（cover_skip=0）与已标记「不再获取」的数量
+    without_cover_active = db.execute(
+        f"""
+        SELECT COUNT(*) FROM artists a
+        WHERE (a.cover_path IS NULL OR a.cover_path = '')
+          AND COALESCE(a.cover_skip, 0) = 0 {lib_filter}
+    """,
+        lib_params,
+    ).fetchone()[0]
+    # 只统计「确实没有封面」的已标记者：这样
+    # without_cover == without_cover_active + cover_skipped 恒成立，
+    # 前端「另有 N 位已标记不再获取」也不会和「所有艺术家都有封面」自相矛盾。
+    cover_skipped = db.execute(
+        f"""
+        SELECT COUNT(*) FROM artists a
+        WHERE COALESCE(a.cover_skip, 0) = 1
+          AND (a.cover_path IS NULL OR a.cover_path = '') {lib_filter}
+    """,
+        lib_params,
+    ).fetchone()[0]
     organized = count_organized_artists(library_id)
     top_by_albums = db.execute(
         f"""
@@ -213,7 +241,8 @@ def get_artist_stats(library_id: int | None = None):
         SELECT a.id, a.name, COUNT(t.id) AS track_count
         FROM artists a
         LEFT JOIN tracks t ON t.artist_id = a.id
-        WHERE (a.cover_path IS NULL OR a.cover_path = '') {lib_filter}
+        WHERE (a.cover_path IS NULL OR a.cover_path = '')
+          AND COALESCE(a.cover_skip, 0) = 0 {lib_filter}
         GROUP BY a.id
         ORDER BY track_count DESC
         LIMIT 10
@@ -232,6 +261,8 @@ def get_artist_stats(library_id: int | None = None):
         "total": total,
         "with_cover": with_cover,
         "without_cover": without_cover,
+        "without_cover_active": without_cover_active,
+        "cover_skipped": cover_skipped,
         "organized": organized,
         "unorganized": total - organized,
         "with_lyrics": with_lyrics,
@@ -257,20 +288,137 @@ def get_all_artist_names(library_id: int | None = None):
     return [dict(r) for r in rows]
 
 
-def get_artists_without_cover(limit=10, library_id: int | None = None):
+def get_artists_without_cover(
+    limit=10, library_id: int | None = None, include_skipped: bool = False
+):
+    """无封面艺术家待办列表。
+
+    include_skipped=False（默认）时过滤掉已标记「不再自动获取头像」的艺术家；
+    limit=None 表示不限制数量（返回全部）。
+    """
     db = get_db()
     lib_filter = "AND a.library_id=?" if library_id is not None else ""
     params = [library_id] if library_id is not None else []
+    skip_filter = "" if include_skipped else "AND COALESCE(a.cover_skip, 0) = 0"
+    limit_clause = "LIMIT ?" if limit is not None else ""
+    if limit is not None:
+        params = params + [limit]
     rows = db.execute(
         f"""
         SELECT a.id, a.name, COUNT(t.id) AS track_count
         FROM artists a
         LEFT JOIN tracks t ON t.artist_id = a.id
-        WHERE (a.cover_path IS NULL OR a.cover_path = '') {lib_filter}
+        WHERE (a.cover_path IS NULL OR a.cover_path = '') {lib_filter} {skip_filter}
         GROUP BY a.id
         ORDER BY track_count DESC
-        LIMIT ?
+        {limit_clause}
     """,
-        params + [limit],
+        params,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_artist_cover_skip(
+    artist_id: int, skip: bool, reason: str | None = None
+) -> bool:
+    """标记/解除「不再自动获取该艺术家头像」。
+
+    skip=True  → cover_skip=1，cover_skip_reason=reason or "user"
+    skip=False → cover_skip=0，cover_skip_reason=NULL（可逆）
+    返回是否命中该 artist。
+    """
+    db = get_db()
+    now = time.time()
+    if skip:
+        cursor = db.execute(
+            "UPDATE artists SET cover_skip=1, cover_skip_reason=?, updated_at=? WHERE id=?",
+            (reason or "user", now, artist_id),
+        )
+    else:
+        cursor = db.execute(
+            "UPDATE artists SET cover_skip=0, cover_skip_reason=NULL, updated_at=? WHERE id=?",
+            (now, artist_id),
+        )
+    db.commit()
+    return cursor.rowcount > 0
+
+
+def record_artist_cover_failure(artist_id: int, source: str | None = None) -> None:
+    """记录一次头像获取失败：累加尝试次数并写入失败时间。"""
+    db = get_db()
+    now = time.time()
+    if source:
+        db.execute(
+            """
+            UPDATE artists
+            SET cover_fetch_attempts=COALESCE(cover_fetch_attempts, 0) + 1,
+                cover_fetch_failed_at=?,
+                cover_last_source=?,
+                updated_at=?
+            WHERE id=?
+        """,
+            (now, source, now, artist_id),
+        )
+    else:
+        db.execute(
+            """
+            UPDATE artists
+            SET cover_fetch_attempts=COALESCE(cover_fetch_attempts, 0) + 1,
+                cover_fetch_failed_at=?,
+                updated_at=?
+            WHERE id=?
+        """,
+            (now, now, artist_id),
+        )
+    db.commit()
+
+
+def record_artist_cover_success(artist_id: int, source: str | None = None) -> None:
+    """记录一次头像获取成功：清零失败计数，并自动解除跳过标记。"""
+    db = get_db()
+    now = time.time()
+    if source:
+        db.execute(
+            """
+            UPDATE artists
+            SET cover_fetch_attempts=0,
+                cover_fetch_failed_at=NULL,
+                cover_skip=0,
+                cover_skip_reason=NULL,
+                cover_last_source=?,
+                updated_at=?
+            WHERE id=?
+        """,
+            (source, now, artist_id),
+        )
+    else:
+        db.execute(
+            """
+            UPDATE artists
+            SET cover_fetch_attempts=0,
+                cover_fetch_failed_at=NULL,
+                cover_skip=0,
+                cover_skip_reason=NULL,
+                updated_at=?
+            WHERE id=?
+        """,
+            (now, artist_id),
+        )
+    db.commit()
+
+
+def get_skipped_cover_artists(library_id: int | None = None) -> list[dict]:
+    """列出已标记「不再自动获取头像」的艺术家，按 name 排序。"""
+    db = get_db()
+    lib_filter = "AND a.library_id=?" if library_id is not None else ""
+    params = [library_id] if library_id is not None else []
+    rows = db.execute(
+        f"""
+        SELECT a.id, a.name, a.cover_skip_reason, a.cover_fetch_attempts, a.cover_fetch_failed_at
+        FROM artists a
+        WHERE COALESCE(a.cover_skip, 0) = 1 {lib_filter}
+        ORDER BY a.name COLLATE NOCASE
+    """,
+        params,
     ).fetchall()
     return [dict(r) for r in rows]

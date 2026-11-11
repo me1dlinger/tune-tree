@@ -7326,3 +7326,156 @@ body {
         scroll-behavior: auto !important;
     }
 }
+/* ═══════════════════════════════════════════════════════════
+   A1/A2：艺术家头像「不再获取」标记 + 相似艺术家反馈
+═══════════════════════════════════════════════════════════ */
+
+/* 小按钮（卡片内联操作） */
+.as-mini-btn {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.as-mini-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.as-mini-hint {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+/* 相似度卡片上的标记按钮与徽标 */
+.as-similar-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  justify-content: center;
+}
+
+.as-similar-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+}
+
+.as-similar-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 折叠面板（已忽略 / 已跳过 / 阈值） */
+.as-similar-details {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.as-similar-details > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.as-dismissed-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.as-dismissed-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.as-dismissed-item:last-child {
+  border-bottom: none;
+}
+
+.as-dismissed-names {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.as-th-body {
+  margin-top: 6px;
+}
+
+.as-th-hint {
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.as-th-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.as-th-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.as-th-item input {
+  width: 72px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input, transparent);
+  color: var(--text-primary);
+}
+
+.as-th-save {
+  margin-top: 0;
+}
+
+/* 无封面条目里的「不再获取」按钮 */
+.as-nocover-item .as-mini-btn {
+  margin-left: auto;
+}
+
+/* 详情弹窗顶部操作条 */
+.asd-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 0 0 10px;
+}
+
+/* 艺术家详情页：已标记不再自动获取的角标 */
+.artist-cover-skip-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-card, rgba(0, 0, 0, 0.55));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}

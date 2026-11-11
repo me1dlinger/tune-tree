@@ -75,7 +75,13 @@ def init_db():
             cover_path      TEXT,
             library_id      INTEGER,
             created_at      REAL NOT NULL,
-            updated_at      REAL NOT NULL
+            updated_at      REAL NOT NULL,
+            -- 头像刮削跳过标记（可逆）：cover_skip=1 表示不再自动获取头像
+            cover_skip            INTEGER DEFAULT 0,
+            cover_skip_reason     TEXT,   -- 目前只有 "user"（用户手动标记）
+            cover_fetch_attempts  INTEGER DEFAULT 0,
+            cover_fetch_failed_at REAL,
+            cover_last_source     TEXT    -- netease/qq/upload/url
         );
         CREATE TABLE IF NOT EXISTS albums (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,6 +147,19 @@ def init_db():
             created_at  REAL NOT NULL
         );
 
+        -- 相似艺术家反馈（A2）：记录「不是同一人 / 是同一人」的人工判断，
+        -- 让后续检测不再重复报同一对。artist_a_id 恒为较小的 id（规范有序对）。
+        CREATE TABLE IF NOT EXISTS artist_similarity_feedback (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist_a_id INTEGER NOT NULL,
+            artist_b_id INTEGER NOT NULL,
+            verdict     TEXT NOT NULL,
+            reason      TEXT,
+            created_at  REAL NOT NULL,
+            updated_at  REAL NOT NULL,
+            UNIQUE (artist_a_id, artist_b_id)
+        );
+
         CREATE TABLE IF NOT EXISTS task_config (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             scrape_enabled  INTEGER DEFAULT 0,
@@ -183,6 +202,11 @@ def init_db():
         "ALTER TABLE artists ADD COLUMN library_id INTEGER;",
         "ALTER TABLE albums ADD COLUMN library_id INTEGER;",
         "ALTER TABLE op_log ADD COLUMN library_id INTEGER;",
+        "ALTER TABLE artists ADD COLUMN cover_skip INTEGER DEFAULT 0;",
+        "ALTER TABLE artists ADD COLUMN cover_skip_reason TEXT;",
+        "ALTER TABLE artists ADD COLUMN cover_fetch_attempts INTEGER DEFAULT 0;",
+        "ALTER TABLE artists ADD COLUMN cover_fetch_failed_at REAL;",
+        "ALTER TABLE artists ADD COLUMN cover_last_source TEXT;",
     ]:
         try:
             db.execute(alter_sql)
@@ -204,6 +228,8 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);",
         "CREATE INDEX IF NOT EXISTS idx_tracks_library_id ON tracks(library_id);",
         "CREATE INDEX IF NOT EXISTS idx_cooldown_track ON track_cooldown(track_id);",
+        "CREATE INDEX IF NOT EXISTS idx_asf_pair ON artist_similarity_feedback(artist_a_id, artist_b_id);",
+        "CREATE INDEX IF NOT EXISTS idx_asf_verdict ON artist_similarity_feedback(verdict);",
         "CREATE INDEX IF NOT EXISTS idx_cooldown_until ON track_cooldown(cooldown_until);",
         "CREATE INDEX IF NOT EXISTS idx_log_library_id ON op_log(library_id);",
     ]:
@@ -231,6 +257,10 @@ def _migrate_artists_drop_legacy_unique(db):
     处理方式：
     - 存在列级 UNIQUE 产生的 autoindex 时必须重建表；
     - 其余命名唯一索引直接 DROP，随后 init_db 会重建为非唯一索引。
+
+    ⚠️ 重建分支的列清单是硬编码的：artists 新增列时，
+    ``CREATE TABLE artists_new`` 与 ``INSERT INTO artists_new ... SELECT``
+    必须同步补上，否则老库升级会在重建表时静默丢列。
     """
     has_auto = db.execute(
         "SELECT 1 FROM sqlite_master WHERE type='index' AND name LIKE 'sqlite_autoindex_artists_%'"
@@ -247,11 +277,18 @@ def _migrate_artists_drop_legacy_unique(db):
                 cover_path      TEXT,
                 library_id      INTEGER,
                 created_at      REAL NOT NULL,
-                updated_at      REAL NOT NULL
+                updated_at      REAL NOT NULL,
+                cover_skip            INTEGER DEFAULT 0,
+                cover_skip_reason     TEXT,
+                cover_fetch_attempts  INTEGER DEFAULT 0,
+                cover_fetch_failed_at REAL,
+                cover_last_source     TEXT
             );
             INSERT INTO artists_new
-                (id, name, name_normalized, dir_name, cover_path, library_id, created_at, updated_at)
-            SELECT id, name, name_normalized, dir_name, cover_path, library_id, created_at, updated_at
+                (id, name, name_normalized, dir_name, cover_path, library_id, created_at, updated_at,
+                 cover_skip, cover_skip_reason, cover_fetch_attempts, cover_fetch_failed_at, cover_last_source)
+            SELECT id, name, name_normalized, dir_name, cover_path, library_id, created_at, updated_at,
+                 cover_skip, cover_skip_reason, cover_fetch_attempts, cover_fetch_failed_at, cover_last_source
             FROM artists;
             DROP TABLE artists;
             ALTER TABLE artists_new RENAME TO artists;
